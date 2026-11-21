@@ -1,0 +1,291 @@
+{
+  "scraps": [
+    {
+      "id": "t1_radio",
+      "name": "카세트 라디오",
+      "tier": 1,
+      "is_boss": false,
+      "screws": 4,
+      "screw_time": 0.42,
+      "color": "#E76F51",
+      "accent": "#F4A261",
+      "width": 200,
+      "height": 132,
+      "drops": [
+        {"part": "iron_plate", "count": 2},
+        {"part": "copper_wire", "count": 2},
+        {"part": "pcb", "count": 1}
+      ]
+    },
+    {
+      "id": "t1_toaster",
+      "name": "레트로 토스터",
+      "tier": 1,
+      "is_boss": false,
+      "screws": 4,
+      "screw_time": 0.46,
+      "color": "#81B29A",
+      "accent": "#F2CC8F",
+      "width": 190,
+      "height": 140,
+      "drops": [
+        {"part": "iron_plate", "count": 3},
+        {"part": "copper_wire", "count": 3}
+      ]
+    },
+    {
+      "id": "t1_keyboard",
+      "name": "기계식 키보드",
+      "tier": 1,
+      "is_boss": false,
+      "screws": 5,
+      "screw_time": 0.45,
+      "color": "#E9D8A6",
+      "accent": "#94D2BD",
+      "width": 240,
+      "height": 110,
+      "drops": [
+        {"part": "pcb", "count": 2},
+        {"part": "copper_wire", "count": 2},
+        {"part": "battery", "count": 1}
+      ]
+    },
+    {
+      "id": "t1_fan",
+      "name": "민트 선풍기",
+      "tier": 1,
+      "is_boss": false,
+      "screws": 5,
+      "screw_time": 0.50,
+      "color": "#64B6AC",
+      "accent": "#FEEAFA",
+      "width": 185,
+      "height": 170,
+      "drops": [
+        {"part": "iron_plate", "count": 2},
+        {"part": "copper_wire", "count": 3},
+        {"part": "gear", "count": 1}
+      ]
+    },
+    {
+      "id": "t1_boss_tv",
+      "name": "[BOSS] 초대형 브라운관 TV",
+      "tier": 1,
+      "is_boss": true,
+      "screws": 8,
+      "screw_time": 0.58,
+      "color": "#D4A373",
+      "accent": "#4CC9F0",
+      "width": 250,
+      "height": 195,
+      "drops": [
+        {"part": "copper_wire", "count": 6},
+        {"part": "pcb", "count": 5},
+        {"part": "battery", "count": 3},
+        {"part": "gold_chip", "count": 2}
+      ]
+    },
+    {
+      "id": "t2_washer",
+      "name": "통돌이 세탁기",
+      "tier": 2,
+      "is_boss": false,
+      "screws": 6,
+      "screw_time": 0.55,
+      "color": "#A8DADC",
+      "accent": "#457B9D",
+      "width": 210,
+      "height": 185,
+      "drops": [
+        {"part": "iron_plate", "count": 4},
+        {"part": "gear", "count": 3},
+        {"part": "pcb", "count": 2}
+      ]
+    },
+    {
+      "id": "t2_vending",
+      "name": "추억의 자판기",
+      "tier": 2,
+      "is_boss": false,
+      "screws": 6,
+      "screw_time": 0.60,
+      "color": "#F28482",
+      "accent": "#F7EDE2",
+      "width": 195,
+      "height": 205,
+      "drops": [
+        {"part": "pcb", "count": 3},
+        {"part": "battery", "count": 3},
+        {"part": "gear", "count": 2},
+        {"part": "gold_chip", "count": 1}
+      ]
+    },
+    {
+      "id": "t2_scooter",
+      "name": "노랑 스쿠터",
+      "tier": 2,
+      "is_boss": false,
+      "screws": 7,
+      "screw_time": 0.58,
+      "color": "#F6BD60",
+      "accent": "#F5CAC3",
+      "width": 245,
+      "height": 150,
+      "drops": [
+        {"part": "gear", "count": 4},
+        {"part": "battery", "count": 3},
+        {"part": "copper_wire", "count": 4}
+      ]
+    },
+    {
+      "id": "t2_boss_car",
+      "name": "[BOSS] 폐차 스포츠카",
+      "tier": 2,
+      "is_boss": true,
+      "screws": 10,
+      "screw_time": 0.66,
+      "color": "#EF476F",
+      "accent": "#FFD166",
+      "width": 285,
+      "height": 165,
+      "drops": [
+        {"part": "gear", "count": 6},
+        {"part": "battery", "count": 5},
+        {"part": "gold_chip", "count": 5}
+      ]
+    },
+    {
+      "id": "t3_server",
+      "name": "구형 서버 랙",
+      "tier": 3,
+      "is_boss": false,
+      "screws": 8,
+      "screw_time": 0.65,
+      "color": "#5E6472",
+      "accent": "#06D6A0",
+      "width": 205,
+      "height": 205,
+      "drops": [
+        {"part": "pcb", "count": 5},
+        {"part": "gold_chip", "count": 4},
+        {"part": "battery", "count": 3}
+      ]
+    },
+    {
+      "id": "t3_excavator",
+      "name": "미니 굴삭기 팔",
+      "tier": 3,
+      "is_boss": false,
+      "screws": 8,
+      "screw_time": 0.70,
+      "color": "#FFB703",
+      "accent": "#FB8500",
+      "width": 255,
+      "height": 165,
+      "drops": [
+        {"part": "gear", "count": 6},
+        {"part": "iron_plate", "count": 6},
+        {"part": "gold_chip", "count": 3}
+      ]
+    },
+    {
+      "id": "t3_drone",
+      "name": "경비 드론",
+      "tier": 3,
+      "is_boss": false,
+      "screws": 7,
+      "screw_time": 0.68,
+      "color": "#8ECAE6",
+      "accent": "#219EBC",
+      "width": 230,
+      "height": 150,
+      "drops": [
+        {"part": "battery", "count": 4},
+        {"part": "gold_chip", "count": 4},
+        {"part": "energy_core", "count": 1}
+      ]
+    },
+    {
+      "id": "t3_boss_mech",
+      "name": "[BOSS] 은퇴한 전투 메카",
+      "tier": 3,
+      "is_boss": true,
+      "screws": 12,
+      "screw_time": 0.78,
+      "color": "#FF6B6B",
+      "accent": "#FFE66D",
+      "width": 270,
+      "height": 210,
+      "drops": [
+        {"part": "gear", "count": 6},
+        {"part": "gold_chip", "count": 8},
+        {"part": "energy_core", "count": 4}
+      ]
+    },
+    {
+      "id": "t4_satellite",
+      "name": "퇴역 인공위성",
+      "tier": 4,
+      "is_boss": false,
+      "screws": 9,
+      "screw_time": 0.75,
+      "color": "#90E0EF",
+      "accent": "#FFD166",
+      "width": 255,
+      "height": 165,
+      "drops": [
+        {"part": "gold_chip", "count": 7},
+        {"part": "energy_core", "count": 3}
+      ]
+    },
+    {
+      "id": "t4_rocket",
+      "name": "로켓 부스터",
+      "tier": 4,
+      "is_boss": false,
+      "screws": 10,
+      "screw_time": 0.80,
+      "color": "#F9844A",
+      "accent": "#F9C74F",
+      "width": 225,
+      "height": 200,
+      "drops": [
+        {"part": "gear", "count": 6},
+        {"part": "gold_chip", "count": 8},
+        {"part": "energy_core", "count": 4}
+      ]
+    },
+    {
+      "id": "t4_ufo",
+      "name": "소형 UFO 잔해",
+      "tier": 4,
+      "is_boss": false,
+      "screws": 10,
+      "screw_time": 0.82,
+      "color": "#B5838D",
+      "accent": "#80ED99",
+      "width": 260,
+      "height": 145,
+      "drops": [
+        {"part": "gold_chip", "count": 10},
+        {"part": "energy_core", "count": 5}
+      ]
+    },
+    {
+      "id": "t4_boss_mothership",
+      "name": "[FINAL BOSS] 추락한 외계 모선",
+      "tier": 4,
+      "is_boss": true,
+      "screws": 14,
+      "screw_time": 0.90,
+      "color": "#7209B7",
+      "accent": "#4CC9F0",
+      "width": 310,
+      "height": 205,
+      "drops": [
+        {"part": "gold_chip", "count": 15},
+        {"part": "energy_core", "count": 12}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "parts": [
+    {
+      "id": "screw",
+      "name": "황동 나사",
+      "value": 2,
+      "color": "#F2C94C",
+      "shape": "circle",
+      "smeltable": false,
+      "smelt_to": "",
+      "rare": false
+    },
+    {
+      "id": "iron_plate",
+      "name": "고철 판",
+      "value": 4,
+      "color": "#94A3B8",
+      "shape": "rect",
+      "smeltable": true,
+      "smelt_to": "copper_ingot",
+      "rare": false
+    },
+    {
+      "id": "copper_wire",
+      "name": "구리 코일",
+      "value": 8,
+      "color": "#E07A5F",
+      "shape": "circle",
+      "smeltable": true,
+      "smelt_to": "copper_ingot",
+      "rare": false
+    },
+    {
+      "id": "pcb",
+      "name": "초록 기판",
+      "value": 15,
+      "color": "#52B788",
+      "shape": "rect",
+      "smeltable": true,
+      "smelt_to": "silver_ingot",
+      "rare": false
+    },
+    {
+      "id": "battery",
+      "name": "빈티지 전지",
+      "value": 24,
+      "color": "#4EA8DE",
+      "shape": "capsule",
+      "smeltable": false,
+      "smelt_to": "",
+      "rare": false
+    },
+    {
+      "id": "gear",
+      "name": "정밀 기어",
+      "value": 40,
+      "color": "#B08968",
+      "shape": "diamond",
+      "smeltable": true,
+      "smelt_to": "silver_ingot",
+      "rare": false
+    },
+    {
+      "id": "gold_chip",
+      "name": "황금 칩",
+      "value": 85,
+      "color": "#FFB703",
+      "shape": "diamond",
+      "smeltable": true,
+      "smelt_to": "gold_ingot",
+      "rare": true
+    },
+    {
+      "id": "energy_core",
+      "name": "에너지 코어",
+      "value": 220,
+      "color": "#48CAE4",
+      "shape": "diamond",
+      "smeltable": true,
+      "smelt_to": "cosmic_ingot",
+      "rare": true
+    },
+    {
+      "id": "copper_ingot",
+      "name": "구리 괴",
+      "value": 25,
+      "color": "#D96B43",
+      "shape": "ingot",
+      "smeltable": false,
+      "smelt_to": "",
+      "rare": false
+    },
+    {
+      "id": "silver_ingot",
+      "name": "은 괴",
+      "value": 95,
+      "color": "#DCE3EA",
+      "shape": "ingot",
+      "smeltable": false,
+      "smelt_to": "",
+      "rare": false
+    },
+    {
+      "id": "gold_ingot",
+      "name": "24K 금괴",
+      "value": 340,
+      "color": "#FFBE0B",
+      "shape": "ingot",
+      "smeltable": false,
+      "smelt_to": "",
+      "rare": true
+    },
+    {
+      "id": "cosmic_ingot",
+      "name": "우주 합금괴",
+      "value": 1200,
+      "color": "#9B5DE5",
+      "shape": "ingot",
+      "smeltable": false,
+      "smelt_to": "",
+      "rare": true
+    }
+  ]
+}

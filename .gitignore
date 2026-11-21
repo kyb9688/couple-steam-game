@@ -1,0 +1,29 @@
+# Godot 4 auto-generated cache & import metadata
+game/.godot/
+.godot/
+*.translation
+
+# Godot Mono / C# (unused, safety)
+.mono/
+data_*/
+mono_crash.*.json
+
+# Exported game builds (share builds via Drive/Releases instead of Git)
+game/builds/
+builds/
+*.exe
+*.pck
+*.zip
+
+# OS junk files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / temporary files
+*.tmp
+*.bak
+*.swp
+*~
+.vscode/
+.idea/
