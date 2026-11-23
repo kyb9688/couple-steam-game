@@ -20,6 +20,7 @@
 | 문서 | 대상 | 내용 |
 |---|---|---|
 | **[docs/spec/GAME_DESIGN_v1.0.md](docs/spec/GAME_DESIGN_v1.0.md)** | **둘 다 (최신 확정안)** | **3D 쓰레기집 특수청소 (`TrashCleaner3D`) 게임 기획 확정서 v1.0** |
+| **[docs/spec/CONTENT_PLAN_v1.0.md](docs/spec/CONTENT_PLAN_v1.0.md)** | **둘 다 (최신 초안)** | **캠페인 방 6종 · 의뢰 메모 · 증강 카드 16종 · 에셋 체크리스트** |
 | **[START_HERE.md](START_HERE.md)** | 둘 다 | Godot 4 첫 실행(5분 컷) 및 밸런스 테스트 방법 |
 | **[HANDOFF.md](HANDOFF.md)** | AI 공유 두뇌 | 새 채팅·여자친구 PC AI에 붙여넣어 맥락 100% 복제 |
 | **[docs/intent/steam-first-game.md](docs/intent/steam-first-game.md)** | 둘 다 | 프로젝트 목표 · 제약 조건 · 하지 않을 것(Out of Scope) |
