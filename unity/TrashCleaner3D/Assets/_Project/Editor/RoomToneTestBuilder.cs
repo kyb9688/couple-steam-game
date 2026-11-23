@@ -71,12 +71,12 @@ namespace TrashCleaner3D.Editor
             GameObject roomRoot = new GameObject("Room01_KoreanStudio");
             float w = 4.8f, d = 4.0f, h = 2.6f;
 
-            CreateBox("Floor", new Vector3(0, -0.05f, 0), new Vector3(w, 0.1f, d), matFloor, roomRoot.transform, true);
-            CreateBox("Ceiling", new Vector3(0, h + 0.05f, 0), new Vector3(w, 0.1f, d), matCeiling, roomRoot.transform, true);
-            CreateBox("Wall_North", new Vector3(0, h / 2f, d / 2f + 0.05f), new Vector3(w, h, 0.1f), matWall, roomRoot.transform, true);
-            CreateBox("Wall_South", new Vector3(0, h / 2f, -d / 2f - 0.05f), new Vector3(w, h, 0.1f), matWall, roomRoot.transform, true);
-            CreateBox("Wall_East", new Vector3(w / 2f + 0.05f, h / 2f, 0), new Vector3(0.1f, h, d), matWall, roomRoot.transform, true);
-            CreateBox("Wall_West", new Vector3(-w / 2f - 0.05f, h / 2f, 0), new Vector3(0.1f, h, d), matWall, roomRoot.transform, true);
+            CreateBox("Floor", new Vector3(0, -0.30f, 0), new Vector3(w + 0.4f, 0.6f, d + 0.4f), matFloor, roomRoot.transform, true);
+            CreateBox("Ceiling", new Vector3(0, h + 0.15f, 0), new Vector3(w + 0.4f, 0.3f, d + 0.4f), matCeiling, roomRoot.transform, true);
+            CreateBox("Wall_North", new Vector3(0, h / 2f, d / 2f + 0.15f), new Vector3(w + 0.4f, h, 0.3f), matWall, roomRoot.transform, true);
+            CreateBox("Wall_South", new Vector3(0, h / 2f, -d / 2f - 0.15f), new Vector3(w + 0.4f, h, 0.3f), matWall, roomRoot.transform, true);
+            CreateBox("Wall_East", new Vector3(w / 2f + 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
+            CreateBox("Wall_West", new Vector3(-w / 2f - 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
 
             // Mustard Yellow Studio Door + Fridge + Microwave + Bed + Return Shelf
             CreateBox("Door_Entrance", new Vector3(1.55f, 1.05f, d / 2f - 0.02f), new Vector3(0.9f, 2.1f, 0.06f), matDoor, roomRoot.transform, true);
@@ -207,9 +207,10 @@ namespace TrashCleaner3D.Editor
             for (int i = 0; i < 24; i++)
             {
                 int k = i % smallPool.Length;
-                Vector3 pos = new Vector3(Random.Range(-1.45f, 1.75f), 0f, Random.Range(-1.45f, 1.45f));
-                // Avoid spawning right on player spawn (-1.3, -1.35)
-                if (pos.x < -0.7f && pos.z < -0.5f) pos.x += 1.4f;
+                Vector3 pos = new Vector3(Random.Range(-1.45f, 1.75f), 0f, Random.Range(-1.35f, 1.45f));
+                // Avoid spawning on Mattress or Player Spawn (-0.15, -1.55)
+                if (pos.x < -0.65f && pos.z < 0.05f) pos.x += 1.5f;
+                if (Vector2.Distance(new Vector2(pos.x, pos.z), new Vector2(-0.15f, -1.55f)) < 0.75f) pos.z += 0.9f;
                 GameObject prop = SpawnNormalizedModel(
                     smallPool[k], $"SmallTrash_{i + 1:00}", pos,
                     Quaternion.Euler(0f, Random.Range(0f, 360f), 0f),
@@ -249,10 +250,10 @@ namespace TrashCleaner3D.Editor
             // 10. CCTV (테스트용 1대 — 거품 가리기 & 시야각 목격 검증용)
             SecurityCameraController cctvCtrl = BuildCctv(cctvAsset, new Vector3(-2.15f, 2.28f, 1.78f), matRedCone);
 
-            // 11. Spawn Point + 1st-Person Player + Manager + HUD
+            // 11. Spawn Point (매트리스/쓰레기와 완전히 떨어진 빈 바닥 위치) + 1st-Person Player + Manager + HUD
             GameObject spawnObj = new GameObject("PlayerSpawnPoint");
-            spawnObj.transform.position = new Vector3(-1.35f, 0.05f, -1.35f);
-            spawnObj.transform.rotation = Quaternion.Euler(0f, 38f, 0f);
+            spawnObj.transform.position = new Vector3(-0.15f, 0.15f, -1.55f);
+            spawnObj.transform.rotation = Quaternion.Euler(0f, 18f, 0f);
 
             FirstPersonCleanerController playerCtrl = CreateFpsPlayer(spawnObj.transform.position, spawnObj.transform.rotation);
 

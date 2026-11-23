@@ -137,6 +137,12 @@ namespace TrashCleaner3D
             move.y = _cc.isGrounded ? -1f : -9.81f;
             _cc.Move(move * Time.deltaTime);
 
+            // 안전장치: 어떤 이유로든 바닥 아래로 추락하면 즉시 스폰 위치로 복구
+            if (transform.position.y < -1.2f && manager != null && manager.playerSpawnPoint != null)
+            {
+                TeleportTo(manager.playerSpawnPoint.position + Vector3.up * 0.2f, manager.playerSpawnPoint.rotation);
+            }
+
             // 미세한 걷기 손 흔들림
             if (toolHoldPoint != null)
             {

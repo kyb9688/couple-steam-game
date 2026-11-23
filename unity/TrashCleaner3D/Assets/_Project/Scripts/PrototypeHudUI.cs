@@ -84,22 +84,22 @@ namespace TrashCleaner3D
             float sh = Screen.height;
 
             // 1. 좌상단 상태 패널 (일차 · 현금 · 청소율 · 악취 호흡 · 가방)
-            GUI.Box(new Rect(16, 16, 305, 168), "", _boxStyle);
-            GUI.Label(new Rect(28, 24, 285, 26), $"{manager.roomTitle}  ({manager.TryCount}일차)", _titleStyle);
-            GUI.Label(new Rect(28, 52, 285, 22), $"보유 현금: ${manager.Money:N0}   |   증강: {manager.ActiveAugmentName}", _labelStyle);
+            GUI.Box(new Rect(16, 16, 350, 168), "", _boxStyle);
+            GUI.Label(new Rect(28, 24, 330, 26), $"{manager.roomTitle} ({manager.TryCount}일차)", _titleStyle);
+            GUI.Label(new Rect(28, 52, 330, 22), $"보유 현금: ${manager.Money:N0}   |   증강: {manager.ActiveAugmentName}", _labelStyle);
 
             // 청소율 바
             float cleanPct = manager.CleanPercent;
-            GUI.Label(new Rect(28, 78, 285, 20), $"청소율: {cleanPct:0.0}% / {manager.TargetCompletePercent:0}% (자동 완청)", _labelStyle);
-            DrawBar(new Rect(28, 100, 275, 12), cleanPct / manager.TargetCompletePercent, _blueTex);
+            GUI.Label(new Rect(28, 78, 330, 20), $"청소율: {cleanPct:0.0}% / {manager.TargetCompletePercent:0}% (자동 완청)", _labelStyle);
+            DrawBar(new Rect(28, 100, 320, 12), cleanPct / manager.TargetCompletePercent, _blueTex);
 
             // 악취 호흡 게이지 바
             float breathRatio = Mathf.Clamp01(manager.Breath / manager.MaxBreath);
             Texture2D bTex = breathRatio > 0.45f ? _greenTex : breathRatio > 0.22f ? _yellowTex : _redTex;
-            GUI.Label(new Rect(28, 118, 285, 20), $"악취 호흡: {manager.Breath:0.0}초 / {manager.MaxBreath:0}초", _labelStyle);
-            DrawBar(new Rect(28, 140, 275, 12), breathRatio, bTex);
+            GUI.Label(new Rect(28, 118, 330, 20), $"악취 호흡: {manager.Breath:0.0}초 / {manager.MaxBreath:0}초", _labelStyle);
+            DrawBar(new Rect(28, 140, 320, 12), breathRatio, bTex);
 
-            GUI.Label(new Rect(28, 156, 285, 22), $"쓰레기 가방: {manager.BagUsed} / {manager.BagCapacity}   ([R] 트럭 복귀)", _labelStyle);
+            GUI.Label(new Rect(28, 156, 330, 22), $"쓰레기 가방: {manager.BagUsed} / {manager.BagCapacity}   ([R] 트럭 복귀)", _labelStyle);
 
             // 2. 우상단 의뢰 메모 + 실시간 발각률 + 장비 슬롯
             GUI.Box(new Rect(sw - 346, 16, 330, 158), "", _boxStyle);
