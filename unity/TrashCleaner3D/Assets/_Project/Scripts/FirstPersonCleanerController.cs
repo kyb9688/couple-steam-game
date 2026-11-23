@@ -7,53 +7,57 @@ using UnityEngine.InputSystem;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// 1인칭 이동/시점 + 장비 3종 전환(1/2/3) + 걸레질/줍기/흡입 1인칭 손 모션 +
-    /// 우선순위 RaycastAll(쓰레기가 바닥 얼룩에 가려지지 않음) + 최소 텍스트 직관 상호작용 컨트롤러.
+    /// v0.2 1인칭 컨트롤러:
+    /// - Phase 1: 오른손 주먹 펀치(큰 봉투 터뜨리기) / 오른손 줍기(작은 쓰레기 → 왼손 봉투 빵빵하게 성장) / 우클릭(트럭 슛!)
+    /// - Phase 2: 마우스 실제 이동량(mouseDelta)으로 문질러 닦기 (물티슈 원형 박박 vs 대걸레 좌우 광역 스윙)
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
     public class FirstPersonCleanerController : MonoBehaviour
     {
         public GamePrototypeManager manager;
         public Transform cameraTransform;
-        public Transform toolHoldPoint;
-        public GameObject slot1Visual;
-        public GameObject slot2Visual;
-        public GameObject slot3Visual;
+        public Transform rightToolPivot;
+        public Transform leftBagPivot;
+        public GameObject fistHandVisual;
+        public GameObject tissueVisual;
+        public GameObject mopVisual;
         public Light flashlight;
-        public float moveSpeed = 3.4f;
+        public float moveSpeed = 3.5f;
         public float mouseSensitivity = 0.14f;
 
-        public int ActiveSlot { get; private set; } = 1; // 1:수거/흡입, 2:얼룩/거품, 3:생존/탐지
-        public string AimTitle { get; private set; } = "";
-        public string AimHint { get; private set; } = "";
-        public bool AimIsDanger { get; private set; }
-        public bool AimIsTreasure { get; private set; }
-        public bool AimIsCleanable { get; private set; }
+        // Visual HUD feedback (zero verbose text!)
+        public bool AimIsPile { get; private set; }
+        public bool AimIsSmallTrash { get; private set; }
         public bool AimIsStain { get; private set; }
-        public int SuggestedSlot { get; private set; } = 0; // 잘못된 장비일 때 우상단 슬롯 반짝임 유도
-        public float AimCleanProgress01 { get; private set; } = -1f;
-        public bool ShowHelpOverlay { get; private set; } = false;
+        public bool NeedMouseShakeHint { get; private set; }
+        public float AimProgress01 { get; private set; } = -1f;
+        public bool ShowHelp { get; private set; }
 
         private CharacterController _cc;
         private float _pitch;
-        private CleanableTarget _lastCleanable;
-        private TreasureTarget _lastTreasure;
-        private float _clickCooldown;
-        private Vector3 _toolBaseLocalPos;
-        private Quaternion _toolBaseLocalRot;
-        private float _grabPunchTimer;
-        private bool _isMoppingNow;
-        private bool _isVacuumingNow;
+        private CleanableTarget _lastTarget;
+        private float _actionCooldown;
+
+        // Distinct procedural 1st-person animation timers
+        private Vector3 _rightBasePos;
+        private Quaternion _rightBaseRot;
+        private Vector3 _leftBasePos;
+        private float _punchTimer;
+        private float _grabTimer;
+        private float _scrubMotionWeight;
+        private float _scrubPhase;
+        private float _scrubSoundCooldown;
 
         private void Awake()
         {
             _cc = GetComponent<CharacterController>();
             if (cameraTransform == null && Camera.main != null) cameraTransform = Camera.main.transform;
-            if (toolHoldPoint != null)
+            if (rightToolPivot != null)
             {
-                _toolBaseLocalPos = toolHoldPoint.localPosition;
-                _toolBaseLocalRot = toolHoldPoint.localRotation;
+                _rightBasePos = rightToolPivot.localPosition;
+                _rightBaseRot = rightToolPivot.localRotation;
             }
+            if (leftBagPivot != null) _leftBasePos = leftBagPivot.localPosition;
         }
 
         private void Start()
@@ -61,7 +65,6 @@ namespace TrashCleaner3D
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
-            RefreshToolVisual();
         }
 
         public void TeleportTo(Vector3 pos, Quaternion rot)
@@ -76,26 +79,69 @@ namespace TrashCleaner3D
 
         private void Update()
         {
-            if (manager == null || manager.Phase != GamePhase.PlayingInRoom)
+            if (manager == null) return;
+
+            // 가챠 본능 선택 중에는 Q(보관) / E(슈킹) 단축키 즉시 반응!
+            if (manager.Phase == GamePhase.GachaStealPopup)
             {
-                ClearHighlights();
+                HandleGachaHotkeys();
+                ClearHighlight();
                 return;
             }
 
-            _isMoppingNow = false;
-            _isVacuumingNow = false;
+            if (manager.Phase != GamePhase.Phase1_TrashRemoval && manager.Phase != GamePhase.Phase2_FloorMopping)
+            {
+                ClearHighlight();
+                return;
+            }
 
-            HandleMovementAndLook();
-            HandleHotkeys();
-            HandleInteraction();
-            AnimateHeldTool();
+            UpdateToolVisualMode();
+            Vector2 mouseDelta = HandleMovementAndLook();
+            HandleInteraction(mouseDelta);
+            AnimateHandsAndBag();
         }
 
-        private void HandleMovementAndLook()
+        private void HandleGachaHotkeys()
         {
-            float mx = 0f, mz = 0f, lx = 0f, ly = 0f;
-            bool toggleFlash = false;
-            bool unlock = false;
+#if ENABLE_INPUT_SYSTEM
+            var kb = Keyboard.current;
+            if (kb != null)
+            {
+                if (kb.qKey.wasPressedThisFrame) manager.ResolveGachaChoice(false);
+                else if (kb.eKey.wasPressedThisFrame) manager.ResolveGachaChoice(true);
+            }
+#else
+            if (Input.GetKeyDown(KeyCode.Q)) manager.ResolveGachaChoice(false);
+            else if (Input.GetKeyDown(KeyCode.E)) manager.ResolveGachaChoice(true);
+#endif
+        }
+
+        private void UpdateToolVisualMode()
+        {
+            bool isP2 = manager.Phase == GamePhase.Phase2_FloorMopping;
+            if (fistHandVisual != null) fistHandVisual.SetActive(!isP2);
+            if (tissueVisual != null) tissueVisual.SetActive(isP2 && !manager.HasMopUnlocked);
+            if (mopVisual != null) mopVisual.SetActive(isP2 && manager.HasMopUnlocked);
+
+            // 왼손 쓰레기봉투: 담은 개수에 따라 실시간으로 빵빵하게 부풀어 오름!
+            if (leftBagPivot != null)
+            {
+                bool showBag = !isP2 && manager.HandBagCount > 0;
+                leftBagPivot.gameObject.SetActive(showBag);
+                if (showBag)
+                {
+                    float fill = Mathf.Clamp01(manager.HandBagCount / (float)manager.HandBagCapacity);
+                    float s = Mathf.Lerp(0.14f, 0.36f, fill);
+                    leftBagPivot.localScale = Vector3.Lerp(leftBagPivot.localScale, new Vector3(s, s * 1.15f, s), 12f * Time.deltaTime);
+                }
+            }
+        }
+
+        private Vector2 HandleMovementAndLook()
+        {
+            float mx = 0f, mz = 0f;
+            Vector2 lookDelta = Vector2.zero;
+            bool toggleFlash = false, openMindMap = false, unlock = false;
 
 #if ENABLE_INPUT_SYSTEM
             var kb = Keyboard.current;
@@ -107,16 +153,15 @@ namespace TrashCleaner3D
                 if (kb.dKey.isPressed) mx += 1f;
                 if (kb.aKey.isPressed) mx -= 1f;
                 if (kb.fKey.wasPressedThisFrame) toggleFlash = true;
-                if (kb.hKey.wasPressedThisFrame) ShowHelpOverlay = !ShowHelpOverlay;
+                if (kb.rKey.wasPressedThisFrame) openMindMap = true;
+                if (kb.hKey.wasPressedThisFrame) ShowHelp = !ShowHelp;
                 if (kb.escapeKey.wasPressedThisFrame) unlock = true;
             }
             if (mouse != null)
             {
                 if (Cursor.lockState == CursorLockMode.Locked)
                 {
-                    Vector2 d = mouse.delta.ReadValue();
-                    lx = d.x * mouseSensitivity;
-                    ly = d.y * mouseSensitivity;
+                    lookDelta = mouse.delta.ReadValue();
                 }
                 else if (mouse.leftButton.wasPressedThisFrame)
                 {
@@ -129,26 +174,24 @@ namespace TrashCleaner3D
             mz = Input.GetAxis("Vertical");
             if (Cursor.lockState == CursorLockMode.Locked)
             {
-                lx = Input.GetAxis("Mouse X") * 2f;
-                ly = Input.GetAxis("Mouse Y") * 2f;
+                lookDelta = new Vector2(Input.GetAxis("Mouse X") * 12f, Input.GetAxis("Mouse Y") * 12f);
             }
             if (Input.GetKeyDown(KeyCode.F)) toggleFlash = true;
-            if (Input.GetKeyDown(KeyCode.H)) ShowHelpOverlay = !ShowHelpOverlay;
+            if (Input.GetKeyDown(KeyCode.R)) openMindMap = true;
+            if (Input.GetKeyDown(KeyCode.H)) ShowHelp = !ShowHelp;
             if (Input.GetKeyDown(KeyCode.Escape)) unlock = true;
 #endif
 
-            if (unlock)
-            {
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
-            }
-
+            if (unlock) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
             if (toggleFlash && flashlight != null) flashlight.enabled = !flashlight.enabled;
+            if (openMindMap) { manager.OpenMindMap(); return Vector2.zero; }
 
-            transform.Rotate(Vector3.up * lx);
+            // Phase 2 바닥 문지를 때는 시점이 덜 어지럽게 감도 살짝 낮춤
+            float sens = (_scrubMotionWeight > 0.2f) ? mouseSensitivity * 0.55f : mouseSensitivity;
+            transform.Rotate(Vector3.up * (lookDelta.x * sens));
             if (cameraTransform != null)
             {
-                _pitch = Mathf.Clamp(_pitch - ly, -82f, 82f);
+                _pitch = Mathf.Clamp(_pitch - lookDelta.y * sens, -82f, 82f);
                 cameraTransform.localRotation = Quaternion.Euler(_pitch, 0f, 0f);
             }
 
@@ -156,328 +199,102 @@ namespace TrashCleaner3D
             move.y = _cc.isGrounded ? -1f : -9.81f;
             _cc.Move(move * Time.deltaTime);
 
-            if (transform.position.y < -1.2f && manager != null && manager.playerSpawnPoint != null)
+            if (transform.position.y < -1.2f && manager.playerSpawnPoint != null)
             {
                 TeleportTo(manager.playerSpawnPoint.position + Vector3.up * 0.2f, manager.playerSpawnPoint.rotation);
             }
+
+            return lookDelta;
         }
 
-        private void AnimateHeldTool()
+        private void HandleInteraction(Vector2 mouseDelta)
         {
-            if (toolHoldPoint == null) return;
-
-            Vector3 targetPos = _toolBaseLocalPos;
-            Quaternion targetRot = _toolBaseLocalRot;
-
-            if (_isMoppingNow && ActiveSlot == 2)
-            {
-                // 쓱싹쓱싹 좌우 대걸레 문지르기 모션!
-                float sweep = Mathf.Sin(Time.time * 16f);
-                float push = Mathf.Cos(Time.time * 16f) * 0.04f;
-                targetPos += new Vector3(sweep * 0.16f - 0.12f, -0.04f, 0.14f + push);
-                targetRot = Quaternion.Euler(14f, sweep * 18f, -sweep * 14f);
-            }
-            else if (_isVacuumingNow && ActiveSlot == 1)
-            {
-                // 청소기 흡입 진동 모션
-                targetPos += new Vector3(0f, 0.01f, 0.08f) + UnityEngine.Random.insideUnitSphere * 0.011f;
-                targetRot = Quaternion.Euler(-6f, 0f, 0f);
-            }
-            else if (_grabPunchTimer > 0f)
-            {
-                // 맨손/집게 줍기 탁! 뻗기 모션
-                _grabPunchTimer -= Time.deltaTime;
-                float t = Mathf.Sin(Mathf.Clamp01(_grabPunchTimer / 0.18f) * Mathf.PI);
-                targetPos += new Vector3(-0.08f * t, -0.02f * t, 0.18f * t);
-                targetRot = Quaternion.Euler(18f * t, -12f * t, 0f);
-            }
-            else
-            {
-                // 평상시 미세한 호흡 흔들림
-                float idle = Mathf.Sin(Time.time * 2.4f) * 0.006f;
-                targetPos += new Vector3(0f, idle, 0f);
-            }
-
-            toolHoldPoint.localPosition = Vector3.Lerp(toolHoldPoint.localPosition, targetPos, 20f * Time.deltaTime);
-            toolHoldPoint.localRotation = Quaternion.Slerp(toolHoldPoint.localRotation, targetRot, 20f * Time.deltaTime);
-        }
-
-        private void HandleHotkeys()
-        {
-#if ENABLE_INPUT_SYSTEM
-            var kb = Keyboard.current;
-            var mouse = Mouse.current;
-            if (kb != null)
-            {
-                if (kb.digit1Key.wasPressedThisFrame) SetSlot(1);
-                if (kb.digit2Key.wasPressedThisFrame) SetSlot(2);
-                if (kb.digit3Key.wasPressedThisFrame) SetSlot(3);
-                if (kb.zKey.wasPressedThisFrame) manager.TryUpgradeSpeed();
-                if (kb.xKey.wasPressedThisFrame) manager.TryUpgradeRange();
-                if (kb.cKey.wasPressedThisFrame) manager.TryUpgradeBreath();
-                if (kb.vKey.wasPressedThisFrame) manager.TryUpgradeBag();
-                if (kb.rKey.wasPressedThisFrame) manager.EnterTruckShop(0);
-            }
-            if (mouse != null)
-            {
-                float scroll = mouse.scroll.ReadValue().y;
-                if (scroll > 0.1f) SetSlot(ActiveSlot == 1 ? 3 : ActiveSlot - 1);
-                else if (scroll < -0.1f) SetSlot(ActiveSlot == 3 ? 1 : ActiveSlot + 1);
-            }
-#else
-            if (Input.GetKeyDown(KeyCode.Alpha1)) SetSlot(1);
-            if (Input.GetKeyDown(KeyCode.Alpha2)) SetSlot(2);
-            if (Input.GetKeyDown(KeyCode.Alpha3)) SetSlot(3);
-            if (Input.GetKeyDown(KeyCode.Z)) manager.TryUpgradeSpeed();
-            if (Input.GetKeyDown(KeyCode.X)) manager.TryUpgradeRange();
-            if (Input.GetKeyDown(KeyCode.C)) manager.TryUpgradeBreath();
-            if (Input.GetKeyDown(KeyCode.V)) manager.TryUpgradeBag();
-            if (Input.GetKeyDown(KeyCode.R)) manager.EnterTruckShop(0);
-#endif
-        }
-
-        public void SetSlot(int slot)
-        {
-            ActiveSlot = Mathf.Clamp(slot, 1, 3);
-            RefreshToolVisual();
-        }
-
-        private void RefreshToolVisual()
-        {
-            if (slot1Visual != null) slot1Visual.SetActive(ActiveSlot == 1);
-            if (slot2Visual != null) slot2Visual.SetActive(ActiveSlot == 2);
-            if (slot3Visual != null) slot3Visual.SetActive(ActiveSlot == 3);
-        }
-
-        private void HandleInteraction()
-        {
-            if (_clickCooldown > 0f) _clickCooldown -= Time.deltaTime;
-            ClearHighlights();
-            AimTitle = "";
-            AimHint = "";
-            AimIsDanger = false;
-            AimIsTreasure = false;
-            AimIsCleanable = false;
+            if (_actionCooldown > 0f) _actionCooldown -= Time.deltaTime;
+            if (_scrubSoundCooldown > 0f) _scrubSoundCooldown -= Time.deltaTime;
+            ClearHighlight();
+            AimIsPile = false;
+            AimIsSmallTrash = false;
             AimIsStain = false;
-            SuggestedSlot = 0;
-            AimCleanProgress01 = -1f;
+            NeedMouseShakeHint = false;
+            AimProgress01 = -1f;
+            _scrubMotionWeight = Mathf.MoveTowards(_scrubMotionWeight, 0f, 6f * Time.deltaTime);
 
-            if (cameraTransform == null) return;
-            if (Cursor.lockState != CursorLockMode.Locked)
-            {
-                AimTitle = "화면 클릭 → 조작 시작";
-                return;
-            }
+            if (cameraTransform == null || Cursor.lockState != CursorLockMode.Locked) return;
 
-            bool lmbHeld = false, lmbDown = false, pressE = false, holdE = false, pressQ = false;
+            bool lmbHeld = false, lmbDown = false, rmbDown = false;
 #if ENABLE_INPUT_SYSTEM
             var mouse = Mouse.current;
-            var kb = Keyboard.current;
             if (mouse != null)
             {
                 lmbHeld = mouse.leftButton.isPressed;
                 lmbDown = mouse.leftButton.wasPressedThisFrame;
-            }
-            if (kb != null)
-            {
-                pressE = kb.eKey.wasPressedThisFrame;
-                holdE = kb.eKey.isPressed;
-                pressQ = kb.qKey.wasPressedThisFrame;
+                rmbDown = mouse.rightButton.wasPressedThisFrame;
             }
 #else
             lmbHeld = Input.GetMouseButton(0);
             lmbDown = Input.GetMouseButtonDown(0);
-            pressE = Input.GetKeyDown(KeyCode.E);
-            holdE = Input.GetKey(KeyCode.E);
-            pressQ = Input.GetKeyDown(KeyCode.Q);
+            rmbDown = Input.GetMouseButtonDown(1);
 #endif
 
-            Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
-            float reach = Mathf.Max(4.2f, manager.CleanRange + 1.5f);
+            // 우클릭: 왼손에 담은 봉투를 열린 문 밖 쓰레기 트럭으로 농구 슛!
+            if (manager.Phase == GamePhase.Phase1_TrashRemoval && rmbDown && manager.HandBagCount > 0)
+            {
+                Vector3 origin = cameraTransform.position + cameraTransform.forward * 0.55f - cameraTransform.right * 0.15f;
+                manager.ThrowHandBag(origin, cameraTransform.forward);
+                _grabTimer = 0.2f;
+                return;
+            }
 
-            // RaycastAll로 정렬해 '바닥 얼룩' 위에 놓인 쓰레기봉투·박스·보물을 항상 최우선 조준!
-            RaycastHit[] hits = Physics.RaycastAll(ray, reach);
+            Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
+            RaycastHit[] hits = Physics.RaycastAll(ray, 4.2f);
             Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
-            TreasureTarget hitTreasure = null;
-            SecurityCameraController hitCctv = null;
-            CleanableTarget hitTrash = null;
-            CleanableTarget hitStain = null;
-            Vector3 hitPoint = Vector3.zero;
-
+            CleanableTarget target = null;
             foreach (var h in hits)
             {
                 if (h.collider.GetComponentInParent<FirstPersonCleanerController>() != null) continue;
-
-                var tr = h.collider.GetComponentInParent<TreasureTarget>();
-                if (tr != null && tr.State == TreasureState.HiddenInRoom && hitTreasure == null)
+                var c = h.collider.GetComponentInParent<CleanableTarget>();
+                if (c != null && !c.IsCleaned)
                 {
-                    hitTreasure = tr;
-                    hitPoint = h.point;
-                    break;
-                }
-
-                var cc = h.collider.GetComponentInParent<SecurityCameraController>();
-                if (cc != null && hitCctv == null)
-                {
-                    hitCctv = cc;
-                    hitPoint = h.point;
-                    break;
-                }
-
-                var cl = h.collider.GetComponentInParent<CleanableTarget>();
-                if (cl != null && !cl.IsCleaned)
-                {
-                    if (cl.kind == CleanableKind.FloorStain)
+                    if (manager.Phase == GamePhase.Phase1_TrashRemoval)
                     {
-                        if (hitStain == null) { hitStain = cl; if (hitTrash == null) hitPoint = h.point; }
+                        if (c.kind == CleanableKind.FloorStain) continue; // Phase 1에선 얼룩 완전 무시!
+                        target = c;
+                        break;
                     }
-                    else
+                    else if (manager.Phase == GamePhase.Phase2_FloorMopping)
                     {
-                        if (hitTrash == null) { hitTrash = cl; hitPoint = h.point; }
-                        break; // 쓰레기 덩어리/소품이 있으면 밑의 바닥 얼룩보다 무조건 우선!
-                    }
-                }
-                else
-                {
-                    // 벽·가구(냉장고/매트리스)에 막히면 탐색 중단
-                    break;
-                }
-            }
-
-            // 1. Treasure (최소 텍스트 키 배지)
-            if (hitTreasure != null)
-            {
-                _lastTreasure = hitTreasure;
-                hitTreasure.SetHighlighted(true);
-                AimIsTreasure = true;
-                bool seen = manager.cctv != null && manager.cctv.CanSeePosition(transform.position);
-                float nextDet = manager.PreviewDetectionIfSteal(hitTreasure, seen);
-
-                if (hitTreasure.isDesignatedLostItem)
-                {
-                    AimTitle = $"★ {hitTreasure.itemName}";
-                    AimHint = $"[Q] 보관 (+${manager.lostItemTip})   |   [E] 슈킹 (100% 발각)";
-                    AimIsDanger = true;
-                }
-                else
-                {
-                    AimTitle = $"{hitTreasure.itemName} (${hitTreasure.value})";
-                    AimHint = $"[E] 슈킹 ({nextDet:0}%{(seen ? " CCTV!" : "")})   |   [Q] 선반 보관";
-                    AimIsDanger = seen || nextDet >= 35f;
-                }
-
-                if (pressQ) manager.ReturnTreasure(hitTreasure);
-                else if (pressE) manager.StealTreasure(hitTreasure, seen);
-                return;
-            }
-
-            // 2. CCTV (거품 가리기)
-            if (hitCctv != null)
-            {
-                if (ActiveSlot == 2 && manager.StainTier >= 2)
-                {
-                    AimTitle = hitCctv.IsBlinded ? $"CCTV 가려짐 ({hitCctv.BlindRemaining:0.0}s)" : "CCTV [좌클릭 꾹] 거품";
-                    if (lmbHeld && !hitCctv.IsBlinded)
-                    {
-                        _isMoppingNow = true;
-                        if (hitCctv.ApplyFoamSpray(Time.deltaTime, 8f))
+                        if (c.kind == CleanableKind.FloorStain)
                         {
-                            manager.sfx.PlayScrub();
-                            manager.ShowToast("CCTV 거품 가리기 완료 (8초)");
+                            target = c;
+                            break;
                         }
                     }
                 }
                 else
                 {
-                    AimTitle = "CCTV";
-                    SuggestedSlot = 2;
-                }
-                return;
-            }
-
-            // 3. Cleanable (쓰레기 우선, 없으면 바닥 얼룩) — 긴 설명 글자 제거! 시각적 조준점+게이지만 표시
-            CleanableTarget cleanable = hitTrash != null ? hitTrash : hitStain;
-            if (cleanable == null) return;
-
-            _lastCleanable = cleanable;
-            cleanable.SetHighlighted(true);
-            AimIsCleanable = true;
-            AimIsStain = (cleanable.kind == CleanableKind.FloorStain);
-            AimCleanProgress01 = cleanable.CleanProgress01;
-
-            bool actionHeld = lmbHeld || holdE;
-            bool actionDown = lmbDown || pressE;
-
-            if (cleanable.kind == CleanableKind.FloorStain)
-            {
-                if (ActiveSlot != 2)
-                {
-                    // 글자 문장 대신 아주 작은 슬롯 뱃지 + 우상단 [2]번 반짝임
-                    SuggestedSlot = 2;
-                    AimTitle = "[2] 걸레";
-                    if (actionDown) SetSlot(2); // 얼룩 클릭 시 아예 자연스럽게 2번 걸레로 자동 전환!
-                    return;
-                }
-
-                if (actionHeld)
-                {
-                    _isMoppingNow = true;
-                    float mopPower = (manager.StainTier == 1 ? 0.9f : 1.75f) * (1f + manager.LvSpeed * 0.18f);
-                    if (cleanable.ApplyCleanDamage(mopPower * Time.deltaTime, toolHoldPoint))
-                    {
-                        manager.OnCleanableFinished(cleanable);
-                    }
+                    // 벽/가구에 가로막힘
+                    break;
                 }
             }
-            else
+
+            if (target == null) return;
+
+            _lastTarget = target;
+            target.SetHighlighted(true);
+            AimProgress01 = target.CleanProgress01;
+
+            if (target.kind == CleanableKind.TrashPile)
             {
-                if (ActiveSlot != 1)
+                AimIsPile = true;
+                if ((lmbDown || (lmbHeld && _actionCooldown <= 0f)))
                 {
-                    SuggestedSlot = 1;
-                    AimTitle = "[1] 수거";
-                    if (actionDown) SetSlot(1); // 쓰레기 클릭 시 자연스럽게 1번 수거 장비로 자동 전환!
-                    return;
-                }
-
-                if (!manager.CanPickUpMoreTrash(cleanable.bagCost))
-                {
-                    AimTitle = "가방 가득 참! ([V] / [R])";
-                    AimIsDanger = true;
-                    return;
-                }
-
-                bool isVacuum = manager.SuctionTier >= 3;
-                if (isVacuum && actionHeld)
-                {
-                    _isVacuumingNow = true;
-                    float dps = 1.9f * manager.CleanSpeedMultiplier;
-                    if (cleanable.ApplyCleanDamage(dps * Time.deltaTime, toolHoldPoint))
+                    _actionCooldown = 0.28f;
+                    _punchTimer = 0.22f; // 확실한 주먹 펀치 모션!
+                    manager.ConsumeStamina(1.5f);
+                    if (target.ApplyCleanDamage(manager.FistDamage, null))
                     {
-                        manager.OnCleanableFinished(cleanable);
-                    }
-                    Collider[] near = Physics.OverlapSphere(hitPoint, manager.AreaRadius);
-                    foreach (var col in near)
-                    {
-                        var other = col.GetComponentInParent<CleanableTarget>();
-                        if (other != null && other != cleanable && !other.IsCleaned &&
-                            other.kind == CleanableKind.SmallTrash && manager.CanPickUpMoreTrash(other.bagCost))
-                        {
-                            if (other.ApplyCleanDamage(dps * 0.8f * Time.deltaTime, toolHoldPoint))
-                            {
-                                manager.OnCleanableFinished(other);
-                            }
-                        }
-                    }
-                }
-                else if (!isVacuum && (actionDown || (actionHeld && _clickCooldown <= 0f)))
-                {
-                    _clickCooldown = manager.SuctionTier == 1 ? 0.30f : 0.16f;
-                    _grabPunchTimer = 0.18f;
-                    float dmg = 0.80f * manager.CleanSpeedMultiplier;
-                    if (cleanable.ApplyCleanDamage(dmg, toolHoldPoint))
-                    {
-                        manager.OnCleanableFinished(cleanable);
+                        manager.OnTrashPileBurst(target);
                     }
                     else
                     {
@@ -485,12 +302,116 @@ namespace TrashCleaner3D
                     }
                 }
             }
+            else if (target.kind == CleanableKind.SmallTrash)
+            {
+                AimIsSmallTrash = true;
+                if (manager.IsHandBagFull)
+                {
+                    if (lmbDown) manager.ShowToast("봉투가 꽉 찼습니다! 열린 문 밖 트럭에 [우클릭] 슛 하세요!");
+                    return;
+                }
+
+                if (lmbDown || (lmbHeld && _actionCooldown <= 0f))
+                {
+                    _actionCooldown = 0.18f;
+                    _grabTimer = 0.18f; // 확실한 줍기(Grab) 모션!
+                    manager.ConsumeStamina(0.9f);
+                    Transform dest = leftBagPivot != null ? leftBagPivot : rightToolPivot;
+                    if (target.ApplyCleanDamage(99f, dest))
+                    {
+                        manager.OnSmallTrashPicked(target);
+                    }
+                }
+            }
+            else if (target.kind == CleanableKind.FloorStain)
+            {
+                AimIsStain = true;
+                if (lmbHeld)
+                {
+                    float shake = mouseDelta.magnitude;
+                    // 마우스를 실제로 흔들수록 5배 빠르게 닦이고, 가만히 누르기만 하면 아주 느림!
+                    float power = (0.12f + Mathf.Min(shake, 45f) * 0.085f) * manager.ScrubSpeedMult;
+                    if (shake < 1.2f) NeedMouseShakeHint = true;
+
+                    _scrubMotionWeight = 1f;
+                    _scrubPhase += (6f + Mathf.Min(shake, 30f) * 0.8f) * Time.deltaTime;
+                    manager.ConsumeStamina(0.65f * Time.deltaTime);
+
+                    if (shake > 2.5f && _scrubSoundCooldown <= 0f)
+                    {
+                        _scrubSoundCooldown = 0.22f;
+                        manager.sfx.PlayScrub();
+                    }
+
+                    if (target.ApplyCleanDamage(power * Time.deltaTime, null))
+                    {
+                        manager.OnStainCleaned(target);
+                    }
+                }
+            }
         }
 
-        private void ClearHighlights()
+        private void AnimateHandsAndBag()
         {
-            if (_lastCleanable != null) { _lastCleanable.SetHighlighted(false); _lastCleanable = null; }
-            if (_lastTreasure != null) { _lastTreasure.SetHighlighted(false); _lastTreasure = null; }
+            if (rightToolPivot == null) return;
+
+            Vector3 targetPos = _rightBasePos;
+            Quaternion targetRot = _rightBaseRot;
+
+            if (_scrubMotionWeight > 0.05f && manager.Phase == GamePhase.Phase2_FloorMopping)
+            {
+                if (manager.HasMopUnlocked)
+                {
+                    // T2 대걸레: 크고 시원하게 좌우 쓱싹쓱싹 스윙 모션!
+                    float s = Mathf.Sin(_scrubPhase * 1.4f);
+                    targetPos += new Vector3(s * 0.20f - 0.12f, -0.05f, 0.16f + Mathf.Cos(_scrubPhase * 1.4f) * 0.05f);
+                    targetRot = Quaternion.Euler(18f, s * 22f, -s * 16f);
+                }
+                else
+                {
+                    // T1 물티슈/맨손: 바닥 쪽으로 내려가 작고 빠르게 원형 박박 문지르기 모션!
+                    float cx = Mathf.Cos(_scrubPhase * 2.4f) * 0.09f;
+                    float cz = Mathf.Sin(_scrubPhase * 2.4f) * 0.07f;
+                    targetPos += new Vector3(cx - 0.10f, -0.11f, 0.18f + cz);
+                    targetRot = Quaternion.Euler(42f, cx * 80f, -cx * 90f);
+                }
+            }
+            else if (_punchTimer > 0f)
+            {
+                // 주먹 펀치 모션: 앞으로 쾅! 뻗고 강하게 내려침
+                _punchTimer -= Time.deltaTime;
+                float t = Mathf.Sin(Mathf.Clamp01(_punchTimer / 0.22f) * Mathf.PI);
+                targetPos += new Vector3(-0.14f * t, 0.05f * t, 0.30f * t);
+                targetRot = Quaternion.Euler(-22f * t, -18f * t, 14f * t);
+            }
+            else if (_grabTimer > 0f)
+            {
+                // 쓰레기 줍기 모션: 아래로 슥 뻗어 왼손 봉투 쪽으로 낚아채기
+                _grabTimer -= Time.deltaTime;
+                float t = Mathf.Sin(Mathf.Clamp01(_grabTimer / 0.18f) * Mathf.PI);
+                targetPos += new Vector3(-0.22f * t, -0.12f * t, 0.14f * t);
+                targetRot = Quaternion.Euler(28f * t, -35f * t, 20f * t);
+            }
+            else
+            {
+                float idle = Mathf.Sin(Time.time * 2.5f) * 0.006f;
+                targetPos += new Vector3(0f, idle, 0f);
+            }
+
+            rightToolPivot.localPosition = Vector3.Lerp(rightToolPivot.localPosition, targetPos, 22f * Time.deltaTime);
+            rightToolPivot.localRotation = Quaternion.Slerp(rightToolPivot.localRotation, targetRot, 22f * Time.deltaTime);
+
+            // 왼손 봉투가 꽉 차면 통통 살짝 뛰어서 "던져줘!" 시각적 신호
+            if (leftBagPivot != null && leftBagPivot.gameObject.activeSelf)
+            {
+                float bounce = manager.IsHandBagFull ? Mathf.Abs(Mathf.Sin(Time.time * 7f)) * 0.035f : 0f;
+                leftBagPivot.localPosition = _leftBasePos + new Vector3(0f, bounce, 0f);
+            }
+        }
+
+        private void ClearHighlight()
+        {
+            if (_lastTarget != null) { _lastTarget.SetHighlighted(false); _lastTarget = null; }
         }
     }
 }

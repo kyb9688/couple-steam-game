@@ -4,23 +4,30 @@ namespace TrashCleaner3D
 {
     public enum CleanableKind
     {
-        TrashPile,   // 대형 쓰레기봉투 덩어리 (흡입 시 크기가 줄어들며 분해)
-        SmallTrash,  // 개별 소품 (박스/페트병/캔 — 노즐로 슈우욱 빨려 들어감)
-        FloorStain   // 바닥 곰팡이/국물 얼룩 (2번 장비로 닦아 투명도 감소)
+        TrashPile,   // 단단한 큰 봉투/박스 — 주먹으로 여러 번 퍽!퍽! 때려 터뜨리면 작은 쓰레기 + 보물 가챠!
+        SmallTrash,  // 작은 쓰레기 — 집어서 왼손 쓰레기봉투에 쏙쏙 담기
+        FloorStain   // Phase 2 바닥 얼룩 — 마우스 좌우 흔들어 물티슈/대걸레로 문질러 닦기
     }
 
     /// <summary>
-    /// 물리(Rigidbody) OFF 최적화 기반 청소 가능 오브젝트.
-    /// 조준 시 Emission 하이라이트, 흡입/닦기 시 부드러운 스케일·알파 애니메이션 후 비활성화(철수 후에도 상태 유지).
+    /// v0.2 물리 OFF 청소 오브젝트:
+    /// - TrashPile: 타격 시 찌그러짐+진동, 터질 때 작은 쓰레기 & 보물 가챠 발동
+    /// - SmallTrash: 0.5초 포물선 팝업 후 정착, 주울 때 왼손 봉투로 쏙 흡입
+    /// - FloorStain: 마우스 이동량 기반 문질러 닦기 (Phase 2 전용)
+    /// - 10% 이하 탐지 업그레이드 시 빛기둥(Beacon) 자동 점등
     /// </summary>
     public class CleanableTarget : MonoBehaviour
     {
         public CleanableKind kind = CleanableKind.SmallTrash;
         public string displayName = "쓰레기";
-        public float maxHp = 1.0f;
-        public int rewardMoney = 8;
+        public float maxHp = 4.0f;
+        public int rewardMoney = 6;
         public int bagCost = 1;
         public float cleanWeight = 1.0f;
+
+        [Header("Burst Settings (TrashPile only)")]
+        public int burstSpawnCount = 3;
+        public bool containsTreasureChance = true;
 
         private float _hp;
         private bool _isCleaned;
@@ -31,6 +38,14 @@ namespace TrashCleaner3D
         private Renderer[] _renderers;
         private MaterialPropertyBlock _mpb;
         private bool _highlighted;
+        private float _hitShakeTimer;
+        private GameObject _beaconObj;
+
+        // Burst pop-out animation (0.55s parabola then zero-physics rest!)
+        private bool _isPoppingOut;
+        private float _popTime;
+        private Vector3 _popStart;
+        private Vector3 _popEnd;
 
         public bool IsCleaned => _isCleaned || _isSuckingAway;
         public float CleanProgress01 => maxHp > 0.001f ? Mathf.Clamp01(1f - (_hp / maxHp)) : 0f;
@@ -44,18 +59,50 @@ namespace TrashCleaner3D
             _mpb = new MaterialPropertyBlock();
         }
 
+        public void StartPopOut(Vector3 startPos, Vector3 landingPos)
+        {
+            _isPoppingOut = true;
+            _popTime = 0f;
+            _popStart = startPos;
+            _popEnd = landingPos;
+            _initialPos = landingPos;
+            transform.position = startPos;
+        }
+
+        public void SetBeaconVisible(bool visible)
+        {
+            if (_isCleaned) visible = false;
+            if (visible && _beaconObj == null)
+            {
+                _beaconObj = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                _beaconObj.name = "DetectBeacon";
+                _beaconObj.transform.SetParent(transform, false);
+                _beaconObj.transform.localPosition = new Vector3(0f, 1.3f, 0f);
+                _beaconObj.transform.localScale = new Vector3(0.08f, 1.3f, 0.08f);
+                Destroy(_beaconObj.GetComponent<Collider>());
+                var r = _beaconObj.GetComponent<Renderer>();
+                var mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                mat.SetColor("_BaseColor", kind == CleanableKind.FloorStain
+                    ? new Color(0.25f, 0.85f, 1f, 0.55f)
+                    : new Color(0.45f, 1f, 0.45f, 0.55f));
+                r.material = mat;
+            }
+            if (_beaconObj != null) _beaconObj.SetActive(visible);
+        }
+
         public void SetHighlighted(bool on)
         {
             if (_highlighted == on || _isCleaned) return;
             _highlighted = on;
-            Color em = on ? new Color(0.28f, 0.35f, 0.14f) : Color.black;
+            Color em = on
+                ? (kind == CleanableKind.FloorStain ? new Color(0.12f, 0.28f, 0.35f) : new Color(0.28f, 0.34f, 0.14f))
+                : Color.black;
             for (int i = 0; i < _renderers.Length; i++)
             {
                 if (_renderers[i] == null) continue;
                 _renderers[i].GetPropertyBlock(_mpb);
                 _mpb.SetColor("_EmissionColor", em);
                 _renderers[i].SetPropertyBlock(_mpb);
-                // Ensure emission keyword is active on URP Lit
                 if (on && _renderers[i].sharedMaterial != null)
                 {
                     _renderers[i].sharedMaterial.EnableKeyword("_EMISSION");
@@ -63,10 +110,7 @@ namespace TrashCleaner3D
             }
         }
 
-        /// <summary>
-        /// 청소기/맨손/걸레로 데미지 적용. 완료 시 true 반환.
-        /// </summary>
-        public bool ApplyCleanDamage(float damage, Transform nozzleTransform)
+        public bool ApplyCleanDamage(float damage, Transform suckDestination)
         {
             if (_isCleaned || _isSuckingAway) return false;
 
@@ -74,16 +118,14 @@ namespace TrashCleaner3D
 
             if (kind == CleanableKind.TrashPile)
             {
+                _hitShakeTimer = 0.14f;
                 float ratio = Mathf.Clamp01(_hp / maxHp);
-                float visualScale = Mathf.Lerp(0.32f, 1.0f, ratio);
-                transform.localScale = _initialScale * visualScale;
-                // 미세한 흡입 진동 손맛
-                Vector3 jitter = new Vector3(
-                    Mathf.Sin(Time.time * 48f) * 0.018f,
-                    0f,
-                    Mathf.Cos(Time.time * 52f) * 0.018f
+                // 퍽! 때릴 때마다 살짝 찌그러지며 터지기 직전 팽팽한 느낌
+                transform.localScale = new Vector3(
+                    _initialScale.x * Mathf.Lerp(1.12f, 1.0f, ratio),
+                    _initialScale.y * Mathf.Lerp(0.68f, 1.0f, ratio),
+                    _initialScale.z * Mathf.Lerp(1.12f, 1.0f, ratio)
                 );
-                transform.position = _initialPos + jitter;
             }
             else if (kind == CleanableKind.FloorStain)
             {
@@ -92,22 +134,18 @@ namespace TrashCleaner3D
                 {
                     if (_renderers[i] == null) continue;
                     _renderers[i].GetPropertyBlock(_mpb);
-                    _mpb.SetColor("_BaseColor", new Color(1f, 1f, 1f, Mathf.Lerp(0.08f, 1f, ratio)));
+                    _mpb.SetColor("_BaseColor", new Color(1f, 1f, 1f, Mathf.Lerp(0.05f, 1f, ratio)));
                     _renderers[i].SetPropertyBlock(_mpb);
                 }
-            }
-            else if (kind == CleanableKind.SmallTrash)
-            {
-                float ratio = Mathf.Clamp01(_hp / maxHp);
-                transform.localScale = _initialScale * Mathf.Lerp(0.75f, 1.0f, ratio);
             }
 
             if (_hp <= 0f)
             {
-                if (kind == CleanableKind.SmallTrash && nozzleTransform != null)
+                if (kind == CleanableKind.SmallTrash && suckDestination != null)
                 {
                     _isSuckingAway = true;
-                    _suckTarget = nozzleTransform;
+                    _suckTarget = suckDestination;
+                    SetBeaconVisible(false);
                     SetHighlighted(false);
                     foreach (var col in GetComponentsInChildren<Collider>()) col.enabled = false;
                 }
@@ -121,21 +159,16 @@ namespace TrashCleaner3D
             return false;
         }
 
-        public void AutoCleanInstant()
-        {
-            if (_isCleaned) return;
-            _hp = 0f;
-            FinishClean();
-        }
-
         public void ResetForNewRun()
         {
             _isCleaned = false;
             _isSuckingAway = false;
+            _isPoppingOut = false;
             _hp = maxHp;
             transform.localScale = _initialScale;
             transform.position = _initialPos;
             gameObject.SetActive(true);
+            SetBeaconVisible(false);
             foreach (var col in GetComponentsInChildren<Collider>(true)) col.enabled = true;
             if (kind == CleanableKind.FloorStain)
             {
@@ -152,6 +185,33 @@ namespace TrashCleaner3D
 
         private void Update()
         {
+            if (_isPoppingOut)
+            {
+                _popTime += Time.deltaTime;
+                float t = Mathf.Clamp01(_popTime / 0.45f);
+                Vector3 p = Vector3.Lerp(_popStart, _popEnd, t);
+                p.y += Mathf.Sin(t * Mathf.PI) * 0.55f;
+                transform.position = p;
+                transform.Rotate(Vector3.up * (260f * Time.deltaTime));
+                if (t >= 1f)
+                {
+                    _isPoppingOut = false;
+                    transform.position = _popEnd;
+                }
+                return;
+            }
+
+            if (_hitShakeTimer > 0f && kind == CleanableKind.TrashPile)
+            {
+                _hitShakeTimer -= Time.deltaTime;
+                Vector3 jitter = new Vector3(
+                    Mathf.Sin(Time.time * 70f) * 0.035f,
+                    0f,
+                    Mathf.Cos(Time.time * 64f) * 0.035f
+                );
+                transform.position = _hitShakeTimer > 0f ? _initialPos + jitter : _initialPos;
+            }
+
             if (!_isSuckingAway) return;
 
             if (_suckTarget == null)
@@ -160,11 +220,11 @@ namespace TrashCleaner3D
                 return;
             }
 
-            transform.position = Vector3.MoveTowards(transform.position, _suckTarget.position, 9.5f * Time.deltaTime);
-            transform.Rotate(Vector3.one * (420f * Time.deltaTime));
-            transform.localScale = Vector3.MoveTowards(transform.localScale, Vector3.zero, 4.2f * Time.deltaTime);
+            transform.position = Vector3.MoveTowards(transform.position, _suckTarget.position, 10.5f * Time.deltaTime);
+            transform.Rotate(Vector3.one * (440f * Time.deltaTime));
+            transform.localScale = Vector3.MoveTowards(transform.localScale, Vector3.zero, 4.8f * Time.deltaTime);
 
-            if (Vector3.Distance(transform.position, _suckTarget.position) < 0.18f || transform.localScale.x < 0.04f)
+            if (Vector3.Distance(transform.position, _suckTarget.position) < 0.16f || transform.localScale.x < 0.04f)
             {
                 FinishClean();
             }
@@ -174,6 +234,7 @@ namespace TrashCleaner3D
         {
             _isCleaned = true;
             _isSuckingAway = false;
+            SetBeaconVisible(false);
             SetHighlighted(false);
             gameObject.SetActive(false);
         }
