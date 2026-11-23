@@ -55,7 +55,7 @@ namespace TrashCleaner3D.Editor
             Material matWhitePlastic = CreateSimpleLitMaterial("Mat_White_Earbuds", new Color(0.92f, 0.94f, 0.96f), 0.55f);
             Material matMoldDecal = CreateTransparentStainMaterial("Mat_Decal_Mold", $"{ArtRoot}/Textures/Decals/mold_stain_01.png");
             Material matSoupDecal = CreateTransparentStainMaterial("Mat_Decal_Soup", $"{ArtRoot}/Textures/Decals/soup_stain_02.png");
-            Material matRedCone = CreateTransparentColorMaterial("Mat_CCTV_VisionCone", new Color(1f, 0.12f, 0.12f, 0.16f));
+            Material matRedCone = CreateTransparentColorMaterial("Mat_CCTV_VisionCone", new Color(1f, 0.12f, 0.12f, 0.08f));
 
             // 2. New Empty Scene
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -363,13 +363,7 @@ namespace TrashCleaner3D.Editor
 
         private static void AddCleanable(GameObject go, CleanableKind kind, string name, float hp, int reward, int bagCost, float weight)
         {
-            if (go.GetComponentInChildren<Collider>() == null)
-            {
-                var box = go.AddComponent<BoxCollider>();
-                Bounds b = CalculateLocalBounds(go);
-                box.center = b.center;
-                box.size = Vector3.Max(b.size, Vector3.one * 0.25f);
-            }
+            EnsureAccurateColliders(go);
             var c = go.AddComponent<CleanableTarget>();
             c.kind = kind;
             c.displayName = name;
@@ -381,17 +375,38 @@ namespace TrashCleaner3D.Editor
 
         private static void AddTreasure(GameObject go, string name, int value, bool isDesignated)
         {
-            if (go.GetComponentInChildren<Collider>() == null)
-            {
-                var box = go.AddComponent<BoxCollider>();
-                Bounds b = CalculateLocalBounds(go);
-                box.center = b.center;
-                box.size = Vector3.Max(b.size, Vector3.one * 0.22f);
-            }
+            EnsureAccurateColliders(go);
             var t = go.AddComponent<TreasureTarget>();
             t.itemName = name;
             t.value = value;
             t.isDesignatedLostItem = isDesignated;
+        }
+
+        /// <summary>
+        /// 각 MeshFilter에 직접 BoxCollider를 붙여 회전/스케일과 무관하게
+        /// 보이는 모든 픽셀에서 100% 정확히 조준·클릭되도록 보장합니다.
+        /// </summary>
+        private static void EnsureAccurateColliders(GameObject go)
+        {
+            var filters = go.GetComponentsInChildren<MeshFilter>(true);
+            bool addedAny = false;
+            foreach (var mf in filters)
+            {
+                if (mf.sharedMesh == null) continue;
+                if (mf.GetComponent<Collider>() == null)
+                {
+                    var bc = mf.gameObject.AddComponent<BoxCollider>();
+                    Bounds mb = mf.sharedMesh.bounds;
+                    bc.center = mb.center;
+                    bc.size = Vector3.Max(mb.size, Vector3.one * 0.12f);
+                }
+                addedAny = true;
+            }
+            if (!addedAny && go.GetComponentInChildren<Collider>() == null)
+            {
+                var bc = go.AddComponent<BoxCollider>();
+                bc.size = Vector3.one * 0.35f;
+            }
         }
 
         private static void PlaceCleanableStain(string name, string displayName, Vector3 pos, float size, Material mat, Transform parent)

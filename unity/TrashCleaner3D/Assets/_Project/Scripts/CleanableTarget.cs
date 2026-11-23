@@ -33,6 +33,7 @@ namespace TrashCleaner3D
         private bool _highlighted;
 
         public bool IsCleaned => _isCleaned || _isSuckingAway;
+        public float CleanProgress01 => maxHp > 0.001f ? Mathf.Clamp01(1f - (_hp / maxHp)) : 0f;
 
         private void Awake()
         {
