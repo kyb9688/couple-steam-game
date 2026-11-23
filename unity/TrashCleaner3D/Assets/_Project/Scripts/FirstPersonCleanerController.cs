@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
@@ -6,8 +7,8 @@ using UnityEngine.InputSystem;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// 1인칭 이동/시점 + 장비 3종 전환(1/2/3) + 쓰레기 흡입/얼룩 닦기/CCTV 거품 가리기 +
-    /// 보물 슈킹(E)/보관(Q) + 현장 즉시 강화(Z/X/C/V) 컨트롤러.
+    /// 1인칭 이동/시점 + 장비 3종 전환(1/2/3) + 걸레질/줍기/흡입 1인칭 손 모션 +
+    /// 우선순위 RaycastAll(쓰레기가 바닥 얼룩에 가려지지 않음) + 최소 텍스트 직관 상호작용 컨트롤러.
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
     public class FirstPersonCleanerController : MonoBehaviour
@@ -15,6 +16,9 @@ namespace TrashCleaner3D
         public GamePrototypeManager manager;
         public Transform cameraTransform;
         public Transform toolHoldPoint;
+        public GameObject slot1Visual;
+        public GameObject slot2Visual;
+        public GameObject slot3Visual;
         public Light flashlight;
         public float moveSpeed = 3.4f;
         public float mouseSensitivity = 0.14f;
@@ -25,7 +29,10 @@ namespace TrashCleaner3D
         public bool AimIsDanger { get; private set; }
         public bool AimIsTreasure { get; private set; }
         public bool AimIsCleanable { get; private set; }
+        public bool AimIsStain { get; private set; }
+        public int SuggestedSlot { get; private set; } = 0; // 잘못된 장비일 때 우상단 슬롯 반짝임 유도
         public float AimCleanProgress01 { get; private set; } = -1f;
+        public bool ShowHelpOverlay { get; private set; } = false;
 
         private CharacterController _cc;
         private float _pitch;
@@ -33,7 +40,10 @@ namespace TrashCleaner3D
         private TreasureTarget _lastTreasure;
         private float _clickCooldown;
         private Vector3 _toolBaseLocalPos;
-        private Renderer _toolRenderer;
+        private Quaternion _toolBaseLocalRot;
+        private float _grabPunchTimer;
+        private bool _isMoppingNow;
+        private bool _isVacuumingNow;
 
         private void Awake()
         {
@@ -42,7 +52,7 @@ namespace TrashCleaner3D
             if (toolHoldPoint != null)
             {
                 _toolBaseLocalPos = toolHoldPoint.localPosition;
-                _toolRenderer = toolHoldPoint.GetComponentInChildren<Renderer>();
+                _toolBaseLocalRot = toolHoldPoint.localRotation;
             }
         }
 
@@ -72,9 +82,13 @@ namespace TrashCleaner3D
                 return;
             }
 
+            _isMoppingNow = false;
+            _isVacuumingNow = false;
+
             HandleMovementAndLook();
             HandleHotkeys();
             HandleInteraction();
+            AnimateHeldTool();
         }
 
         private void HandleMovementAndLook()
@@ -93,6 +107,7 @@ namespace TrashCleaner3D
                 if (kb.dKey.isPressed) mx += 1f;
                 if (kb.aKey.isPressed) mx -= 1f;
                 if (kb.fKey.wasPressedThisFrame) toggleFlash = true;
+                if (kb.hKey.wasPressedThisFrame) ShowHelpOverlay = !ShowHelpOverlay;
                 if (kb.escapeKey.wasPressedThisFrame) unlock = true;
             }
             if (mouse != null)
@@ -118,6 +133,7 @@ namespace TrashCleaner3D
                 ly = Input.GetAxis("Mouse Y") * 2f;
             }
             if (Input.GetKeyDown(KeyCode.F)) toggleFlash = true;
+            if (Input.GetKeyDown(KeyCode.H)) ShowHelpOverlay = !ShowHelpOverlay;
             if (Input.GetKeyDown(KeyCode.Escape)) unlock = true;
 #endif
 
@@ -140,18 +156,50 @@ namespace TrashCleaner3D
             move.y = _cc.isGrounded ? -1f : -9.81f;
             _cc.Move(move * Time.deltaTime);
 
-            // 안전장치: 어떤 이유로든 바닥 아래로 추락하면 즉시 스폰 위치로 복구
             if (transform.position.y < -1.2f && manager != null && manager.playerSpawnPoint != null)
             {
                 TeleportTo(manager.playerSpawnPoint.position + Vector3.up * 0.2f, manager.playerSpawnPoint.rotation);
             }
+        }
 
-            // 미세한 걷기 손 흔들림
-            if (toolHoldPoint != null)
+        private void AnimateHeldTool()
+        {
+            if (toolHoldPoint == null) return;
+
+            Vector3 targetPos = _toolBaseLocalPos;
+            Quaternion targetRot = _toolBaseLocalRot;
+
+            if (_isMoppingNow && ActiveSlot == 2)
             {
-                float bob = (Mathf.Abs(mx) + Mathf.Abs(mz) > 0.1f) ? Mathf.Sin(Time.time * 10f) * 0.012f : 0f;
-                toolHoldPoint.localPosition = _toolBaseLocalPos + new Vector3(0f, bob, 0f);
+                // 쓱싹쓱싹 좌우 대걸레 문지르기 모션!
+                float sweep = Mathf.Sin(Time.time * 16f);
+                float push = Mathf.Cos(Time.time * 16f) * 0.04f;
+                targetPos += new Vector3(sweep * 0.16f - 0.12f, -0.04f, 0.14f + push);
+                targetRot = Quaternion.Euler(14f, sweep * 18f, -sweep * 14f);
             }
+            else if (_isVacuumingNow && ActiveSlot == 1)
+            {
+                // 청소기 흡입 진동 모션
+                targetPos += new Vector3(0f, 0.01f, 0.08f) + UnityEngine.Random.insideUnitSphere * 0.011f;
+                targetRot = Quaternion.Euler(-6f, 0f, 0f);
+            }
+            else if (_grabPunchTimer > 0f)
+            {
+                // 맨손/집게 줍기 탁! 뻗기 모션
+                _grabPunchTimer -= Time.deltaTime;
+                float t = Mathf.Sin(Mathf.Clamp01(_grabPunchTimer / 0.18f) * Mathf.PI);
+                targetPos += new Vector3(-0.08f * t, -0.02f * t, 0.18f * t);
+                targetRot = Quaternion.Euler(18f * t, -12f * t, 0f);
+            }
+            else
+            {
+                // 평상시 미세한 호흡 흔들림
+                float idle = Mathf.Sin(Time.time * 2.4f) * 0.006f;
+                targetPos += new Vector3(0f, idle, 0f);
+            }
+
+            toolHoldPoint.localPosition = Vector3.Lerp(toolHoldPoint.localPosition, targetPos, 20f * Time.deltaTime);
+            toolHoldPoint.localRotation = Quaternion.Slerp(toolHoldPoint.localRotation, targetRot, 20f * Time.deltaTime);
         }
 
         private void HandleHotkeys()
@@ -196,13 +244,9 @@ namespace TrashCleaner3D
 
         private void RefreshToolVisual()
         {
-            if (_toolRenderer == null) return;
-            Color c = ActiveSlot == 1
-                ? (manager != null && manager.SuctionTier >= 3 ? new Color(0.95f, 0.72f, 0.15f) : new Color(0.85f, 0.65f, 0.45f))
-                : ActiveSlot == 2
-                    ? new Color(0.25f, 0.70f, 0.92f)
-                    : new Color(0.40f, 0.85f, 0.50f);
-            _toolRenderer.material.SetColor("_BaseColor", c);
+            if (slot1Visual != null) slot1Visual.SetActive(ActiveSlot == 1);
+            if (slot2Visual != null) slot2Visual.SetActive(ActiveSlot == 2);
+            if (slot3Visual != null) slot3Visual.SetActive(ActiveSlot == 3);
         }
 
         private void HandleInteraction()
@@ -214,13 +258,14 @@ namespace TrashCleaner3D
             AimIsDanger = false;
             AimIsTreasure = false;
             AimIsCleanable = false;
+            AimIsStain = false;
+            SuggestedSlot = 0;
             AimCleanProgress01 = -1f;
 
             if (cameraTransform == null) return;
             if (Cursor.lockState != CursorLockMode.Locked)
             {
-                AimTitle = "마우스 잠금 해제됨";
-                AimHint = "[게임 화면 클릭] 시점 조작 & 청소 재개";
+                AimTitle = "화면 클릭 → 조작 시작";
                 return;
             }
 
@@ -248,165 +293,195 @@ namespace TrashCleaner3D
 #endif
 
             Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
-            float reach = Mathf.Max(4.0f, manager.CleanRange + 1.4f);
+            float reach = Mathf.Max(4.2f, manager.CleanRange + 1.5f);
 
-            // 직선 Raycast 우선, 작은 소품(반지/캔)은 SphereCast 보조로 부드럽게 조준
-            bool hasHit = Physics.Raycast(ray, out RaycastHit hit, reach);
-            if (!hasHit || (hit.collider.GetComponentInParent<CleanableTarget>() == null &&
-                            hit.collider.GetComponentInParent<TreasureTarget>() == null &&
-                            hit.collider.GetComponentInParent<SecurityCameraController>() == null))
+            // RaycastAll로 정렬해 '바닥 얼룩' 위에 놓인 쓰레기봉투·박스·보물을 항상 최우선 조준!
+            RaycastHit[] hits = Physics.RaycastAll(ray, reach);
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            TreasureTarget hitTreasure = null;
+            SecurityCameraController hitCctv = null;
+            CleanableTarget hitTrash = null;
+            CleanableTarget hitStain = null;
+            Vector3 hitPoint = Vector3.zero;
+
+            foreach (var h in hits)
             {
-                if (Physics.SphereCast(ray, 0.14f, out RaycastHit sphereHit, reach))
+                if (h.collider.GetComponentInParent<FirstPersonCleanerController>() != null) continue;
+
+                var tr = h.collider.GetComponentInParent<TreasureTarget>();
+                if (tr != null && tr.State == TreasureState.HiddenInRoom && hitTreasure == null)
                 {
-                    if (sphereHit.collider.GetComponentInParent<TreasureTarget>() != null ||
-                        sphereHit.collider.GetComponentInParent<CleanableTarget>() != null)
+                    hitTreasure = tr;
+                    hitPoint = h.point;
+                    break;
+                }
+
+                var cc = h.collider.GetComponentInParent<SecurityCameraController>();
+                if (cc != null && hitCctv == null)
+                {
+                    hitCctv = cc;
+                    hitPoint = h.point;
+                    break;
+                }
+
+                var cl = h.collider.GetComponentInParent<CleanableTarget>();
+                if (cl != null && !cl.IsCleaned)
+                {
+                    if (cl.kind == CleanableKind.FloorStain)
                     {
-                        hit = sphereHit;
-                        hasHit = true;
+                        if (hitStain == null) { hitStain = cl; if (hitTrash == null) hitPoint = h.point; }
+                    }
+                    else
+                    {
+                        if (hitTrash == null) { hitTrash = cl; hitPoint = h.point; }
+                        break; // 쓰레기 덩어리/소품이 있으면 밑의 바닥 얼룩보다 무조건 우선!
                     }
                 }
+                else
+                {
+                    // 벽·가구(냉장고/매트리스)에 막히면 탐색 중단
+                    break;
+                }
             }
-            if (!hasHit) return;
 
-            // 1. Check Treasure Target (Priority)
-            TreasureTarget treasure = hit.collider.GetComponentInParent<TreasureTarget>();
-            if (treasure != null && treasure.State == TreasureState.HiddenInRoom)
+            // 1. Treasure (최소 텍스트 키 배지)
+            if (hitTreasure != null)
             {
-                _lastTreasure = treasure;
-                treasure.SetHighlighted(true);
+                _lastTreasure = hitTreasure;
+                hitTreasure.SetHighlighted(true);
                 AimIsTreasure = true;
                 bool seen = manager.cctv != null && manager.cctv.CanSeePosition(transform.position);
-                float nextDet = manager.PreviewDetectionIfSteal(treasure, seen);
+                float nextDet = manager.PreviewDetectionIfSteal(hitTreasure, seen);
 
-                if (treasure.isDesignatedLostItem)
+                if (hitTreasure.isDesignatedLostItem)
                 {
-                    AimTitle = $"[의뢰인 지정 분실물] {treasure.itemName}";
-                    AimHint = $"[Q] 선반 보관 (팁 +${manager.lostItemTip})   |   [E] 슈킹 (경고: 100% 발각!)";
+                    AimTitle = $"★ {hitTreasure.itemName}";
+                    AimHint = $"[Q] 보관 (+${manager.lostItemTip})   |   [E] 슈킹 (100% 발각)";
                     AimIsDanger = true;
                 }
                 else
                 {
-                    AimTitle = $"[보물] {treasure.itemName} (가치 ${treasure.value})";
-                    string cctvWarn = seen ? " [CCTV 목격 중!]" : "";
-                    AimHint = $"[E] 몰래 슈킹 (예상 발각 {nextDet:0}%{cctvWarn})   |   [Q] 의뢰인 선반 보관";
+                    AimTitle = $"{hitTreasure.itemName} (${hitTreasure.value})";
+                    AimHint = $"[E] 슈킹 ({nextDet:0}%{(seen ? " CCTV!" : "")})   |   [Q] 선반 보관";
                     AimIsDanger = seen || nextDet >= 35f;
                 }
 
-                if (pressQ) manager.ReturnTreasure(treasure);
-                else if (pressE) manager.StealTreasure(treasure, seen);
+                if (pressQ) manager.ReturnTreasure(hitTreasure);
+                else if (pressE) manager.StealTreasure(hitTreasure, seen);
                 return;
             }
 
-            // 2. Check CCTV Target (Foam Spray blinding with Slot 2 T2+)
-            SecurityCameraController camTarget = hit.collider.GetComponentInParent<SecurityCameraController>();
-            if (camTarget != null)
+            // 2. CCTV (거품 가리기)
+            if (hitCctv != null)
             {
-                AimTitle = camTarget.IsBlinded
-                    ? $"CCTV (거품으로 가려짐 · {camTarget.BlindRemaining:0.0}초)"
-                    : "감시 CCTV (작동 중)";
                 if (ActiveSlot == 2 && manager.StainTier >= 2)
                 {
-                    AimHint = camTarget.IsBlinded ? "현재 시야 차단됨" : "[좌클릭 꾹] 세제 거품으로 렌즈 가리기 (8초)";
-                    if (lmbHeld && !camTarget.IsBlinded && camTarget.ApplyFoamSpray(Time.deltaTime, 8f))
+                    AimTitle = hitCctv.IsBlinded ? $"CCTV 가려짐 ({hitCctv.BlindRemaining:0.0}s)" : "CCTV [좌클릭 꾹] 거품";
+                    if (lmbHeld && !hitCctv.IsBlinded)
                     {
-                        manager.sfx.PlayScrub();
-                        manager.ShowToast("CCTV 렌즈를 거품으로 가렸습니다! (8초간 시야 차단)");
+                        _isMoppingNow = true;
+                        if (hitCctv.ApplyFoamSpray(Time.deltaTime, 8f))
+                        {
+                            manager.sfx.PlayScrub();
+                            manager.ShowToast("CCTV 거품 가리기 완료 (8초)");
+                        }
                     }
                 }
                 else
                 {
-                    AimHint = "트럭([R])에서 [2번 장비: 세제 스프레이] 구매 후 거품으로 가릴 수 있습니다";
+                    AimTitle = "CCTV";
+                    SuggestedSlot = 2;
                 }
                 return;
             }
 
-            // 3. Check Cleanable Target (TrashPile / SmallTrash / FloorStain)
-            CleanableTarget cleanable = hit.collider.GetComponentInParent<CleanableTarget>();
-            if (cleanable != null && !cleanable.IsCleaned)
+            // 3. Cleanable (쓰레기 우선, 없으면 바닥 얼룩) — 긴 설명 글자 제거! 시각적 조준점+게이지만 표시
+            CleanableTarget cleanable = hitTrash != null ? hitTrash : hitStain;
+            if (cleanable == null) return;
+
+            _lastCleanable = cleanable;
+            cleanable.SetHighlighted(true);
+            AimIsCleanable = true;
+            AimIsStain = (cleanable.kind == CleanableKind.FloorStain);
+            AimCleanProgress01 = cleanable.CleanProgress01;
+
+            bool actionHeld = lmbHeld || holdE;
+            bool actionDown = lmbDown || pressE;
+
+            if (cleanable.kind == CleanableKind.FloorStain)
             {
-                _lastCleanable = cleanable;
-                cleanable.SetHighlighted(true);
-                AimIsCleanable = true;
-                AimTitle = cleanable.displayName;
-                AimCleanProgress01 = cleanable.CleanProgress01;
-
-                bool actionHeld = lmbHeld || holdE;
-                bool actionDown = lmbDown || pressE;
-
-                if (cleanable.kind == CleanableKind.FloorStain)
+                if (ActiveSlot != 2)
                 {
-                    if (ActiveSlot != 2)
+                    // 글자 문장 대신 아주 작은 슬롯 뱃지 + 우상단 [2]번 반짝임
+                    SuggestedSlot = 2;
+                    AimTitle = "[2] 걸레";
+                    if (actionDown) SetSlot(2); // 얼룩 클릭 시 아예 자연스럽게 2번 걸레로 자동 전환!
+                    return;
+                }
+
+                if (actionHeld)
+                {
+                    _isMoppingNow = true;
+                    float mopPower = (manager.StainTier == 1 ? 0.9f : 1.75f) * (1f + manager.LvSpeed * 0.18f);
+                    if (cleanable.ApplyCleanDamage(mopPower * Time.deltaTime, toolHoldPoint))
                     {
-                        AimHint = "키보드 [2]번(걸레)으로 전환 후 [좌클릭 꾹] 닦기";
-                        return;
-                    }
-                    AimHint = "[좌클릭 꾹] 바닥 얼룩 닦아내기";
-                    if (actionHeld)
-                    {
-                        float mopPower = (manager.StainTier == 1 ? 0.85f : 1.7f) * (1f + manager.LvSpeed * 0.18f);
-                        if (cleanable.ApplyCleanDamage(mopPower * Time.deltaTime, toolHoldPoint))
-                        {
-                            manager.OnCleanableFinished(cleanable);
-                        }
+                        manager.OnCleanableFinished(cleanable);
                     }
                 }
-                else
+            }
+            else
+            {
+                if (ActiveSlot != 1)
                 {
-                    if (ActiveSlot != 1)
+                    SuggestedSlot = 1;
+                    AimTitle = "[1] 수거";
+                    if (actionDown) SetSlot(1); // 쓰레기 클릭 시 자연스럽게 1번 수거 장비로 자동 전환!
+                    return;
+                }
+
+                if (!manager.CanPickUpMoreTrash(cleanable.bagCost))
+                {
+                    AimTitle = "가방 가득 참! ([V] / [R])";
+                    AimIsDanger = true;
+                    return;
+                }
+
+                bool isVacuum = manager.SuctionTier >= 3;
+                if (isVacuum && actionHeld)
+                {
+                    _isVacuumingNow = true;
+                    float dps = 1.9f * manager.CleanSpeedMultiplier;
+                    if (cleanable.ApplyCleanDamage(dps * Time.deltaTime, toolHoldPoint))
                     {
-                        AimHint = "키보드 [1]번(수거/청소기)으로 전환 후 [좌클릭 또는 E] 줍기";
-                        return;
+                        manager.OnCleanableFinished(cleanable);
                     }
-
-                    if (!manager.CanPickUpMoreTrash(cleanable.bagCost))
+                    Collider[] near = Physics.OverlapSphere(hitPoint, manager.AreaRadius);
+                    foreach (var col in near)
                     {
-                        AimHint = "가방 가득 참! [V] 가방 강화 또는 [R] 트럭 복귀";
-                        AimIsDanger = true;
-                        return;
-                    }
-
-                    bool isVacuum = manager.SuctionTier >= 3;
-                    AimHint = isVacuum
-                        ? "[좌클릭 또는 E 꾹] 청소기 연속 흡입!"
-                        : "[좌클릭 또는 E 꾹] 쓰레기 줍기 / 치우기";
-
-                    if (isVacuum && actionHeld)
-                    {
-                        if (toolHoldPoint != null)
+                        var other = col.GetComponentInParent<CleanableTarget>();
+                        if (other != null && other != cleanable && !other.IsCleaned &&
+                            other.kind == CleanableKind.SmallTrash && manager.CanPickUpMoreTrash(other.bagCost))
                         {
-                            toolHoldPoint.localPosition = _toolBaseLocalPos + Random.insideUnitSphere * 0.008f;
-                        }
-                        float dps = 1.8f * manager.CleanSpeedMultiplier;
-                        if (cleanable.ApplyCleanDamage(dps * Time.deltaTime, toolHoldPoint))
-                        {
-                            manager.OnCleanableFinished(cleanable);
-                        }
-                        Collider[] near = Physics.OverlapSphere(hit.point, manager.AreaRadius);
-                        foreach (var col in near)
-                        {
-                            var other = col.GetComponentInParent<CleanableTarget>();
-                            if (other != null && other != cleanable && !other.IsCleaned &&
-                                other.kind == CleanableKind.SmallTrash && manager.CanPickUpMoreTrash(other.bagCost))
+                            if (other.ApplyCleanDamage(dps * 0.8f * Time.deltaTime, toolHoldPoint))
                             {
-                                if (other.ApplyCleanDamage(dps * 0.8f * Time.deltaTime, toolHoldPoint))
-                                {
-                                    manager.OnCleanableFinished(other);
-                                }
+                                manager.OnCleanableFinished(other);
                             }
                         }
                     }
-                    else if (!isVacuum && (actionDown || (actionHeld && _clickCooldown <= 0f)))
+                }
+                else if (!isVacuum && (actionDown || (actionHeld && _clickCooldown <= 0f)))
+                {
+                    _clickCooldown = manager.SuctionTier == 1 ? 0.30f : 0.16f;
+                    _grabPunchTimer = 0.18f;
+                    float dmg = 0.80f * manager.CleanSpeedMultiplier;
+                    if (cleanable.ApplyCleanDamage(dmg, toolHoldPoint))
                     {
-                        _clickCooldown = manager.SuctionTier == 1 ? 0.34f : 0.18f;
-                        float dmg = 0.72f * manager.CleanSpeedMultiplier;
-                        if (cleanable.ApplyCleanDamage(dmg, toolHoldPoint))
-                        {
-                            manager.OnCleanableFinished(cleanable);
-                        }
-                        else
-                        {
-                            manager.sfx.PlayScrub();
-                        }
+                        manager.OnCleanableFinished(cleanable);
+                    }
+                    else
+                    {
+                        manager.sfx.PlayScrub();
                     }
                 }
             }

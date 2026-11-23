@@ -342,21 +342,64 @@ namespace TrashCleaner3D.Editor
             flash.shadows = LightShadows.Soft;
             flash.enabled = true;
 
-            // Simple 1st-person held tool visual (bottom right)
+            // 3 distinct 1st-person held tool models (Slot 1: Glove/Nozzle, Slot 2: T-Shaped Mop, Slot 3: Mask/Scanner)
             GameObject toolHolder = new GameObject("HeldTool");
             toolHolder.transform.SetParent(camObj.transform, false);
-            toolHolder.transform.localPosition = new Vector3(0.32f, -0.26f, 0.55f);
-            GameObject nozzle = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            nozzle.name = "ToolNozzle";
-            nozzle.transform.SetParent(toolHolder.transform, false);
-            nozzle.transform.localRotation = Quaternion.Euler(78f, -10f, 0f);
-            nozzle.transform.localScale = new Vector3(0.08f, 0.24f, 0.08f);
-            Object.DestroyImmediate(nozzle.GetComponent<Collider>());
-            nozzle.GetComponent<Renderer>().sharedMaterial = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            toolHolder.transform.localPosition = new Vector3(0.30f, -0.26f, 0.56f);
+
+            Material matGlove = CreateSimpleLitMaterial("Mat_Tool_GloveYellow", new Color(0.95f, 0.76f, 0.18f), 0.35f);
+            Material matMopStick = CreateSimpleLitMaterial("Mat_Tool_MopStick", new Color(0.24f, 0.62f, 0.88f), 0.35f);
+            Material matMopHead = CreateSimpleLitMaterial("Mat_Tool_MopHead", new Color(0.90f, 0.92f, 0.94f), 0.1f);
+            Material matScanner = CreateSimpleLitMaterial("Mat_Tool_MaskGreen", new Color(0.25f, 0.72f, 0.42f), 0.35f);
+
+            // Slot 1 Visual: Glove / Vacuum Nozzle
+            GameObject v1 = new GameObject("Visual_Slot1_Grab");
+            v1.transform.SetParent(toolHolder.transform, false);
+            GameObject arm = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            arm.transform.SetParent(v1.transform, false);
+            arm.transform.localRotation = Quaternion.Euler(78f, -10f, 0f);
+            arm.transform.localScale = new Vector3(0.085f, 0.22f, 0.085f);
+            Object.DestroyImmediate(arm.GetComponent<Collider>());
+            arm.GetComponent<Renderer>().sharedMaterial = matGlove;
+
+            // Slot 2 Visual: T-Shaped Mop (Stick + Wide Cloth Head)
+            GameObject v2 = new GameObject("Visual_Slot2_Mop");
+            v2.transform.SetParent(toolHolder.transform, false);
+            GameObject stick = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            stick.transform.SetParent(v2.transform, false);
+            stick.transform.localPosition = new Vector3(0f, -0.05f, 0.10f);
+            stick.transform.localRotation = Quaternion.Euler(52f, 0f, 0f);
+            stick.transform.localScale = new Vector3(0.035f, 0.42f, 0.035f);
+            Object.DestroyImmediate(stick.GetComponent<Collider>());
+            stick.GetComponent<Renderer>().sharedMaterial = matMopStick;
+
+            GameObject mopHead = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            mopHead.transform.SetParent(v2.transform, false);
+            mopHead.transform.localPosition = new Vector3(0f, -0.28f, 0.42f);
+            mopHead.transform.localRotation = Quaternion.Euler(10f, 0f, 0f);
+            mopHead.transform.localScale = new Vector3(0.32f, 0.055f, 0.12f);
+            Object.DestroyImmediate(mopHead.GetComponent<Collider>());
+            mopHead.GetComponent<Renderer>().sharedMaterial = matMopHead;
+            v2.SetActive(false);
+
+            // Slot 3 Visual: Mask / Detector
+            GameObject v3 = new GameObject("Visual_Slot3_Mask");
+            v3.transform.SetParent(toolHolder.transform, false);
+            GameObject device = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            device.transform.SetParent(v3.transform, false);
+            device.transform.localPosition = new Vector3(0f, -0.04f, 0.05f);
+            device.transform.localRotation = Quaternion.Euler(15f, -15f, 0f);
+            device.transform.localScale = new Vector3(0.14f, 0.09f, 0.08f);
+            Object.DestroyImmediate(device.GetComponent<Collider>());
+            device.GetComponent<Renderer>().sharedMaterial = matScanner;
+            v3.SetActive(false);
 
             var ctrl = player.AddComponent<FirstPersonCleanerController>();
             ctrl.cameraTransform = camObj.transform;
             ctrl.toolHoldPoint = toolHolder.transform;
+            ctrl.slot1Visual = v1;
+            ctrl.slot2Visual = v2;
+            ctrl.slot3Visual = v3;
             ctrl.flashlight = flash;
             return ctrl;
         }
@@ -388,25 +431,10 @@ namespace TrashCleaner3D.Editor
         /// </summary>
         private static void EnsureAccurateColliders(GameObject go)
         {
-            var filters = go.GetComponentsInChildren<MeshFilter>(true);
-            bool addedAny = false;
-            foreach (var mf in filters)
-            {
-                if (mf.sharedMesh == null) continue;
-                if (mf.GetComponent<Collider>() == null)
-                {
-                    var bc = mf.gameObject.AddComponent<BoxCollider>();
-                    Bounds mb = mf.sharedMesh.bounds;
-                    bc.center = mb.center;
-                    bc.size = Vector3.Max(mb.size, Vector3.one * 0.12f);
-                }
-                addedAny = true;
-            }
-            if (!addedAny && go.GetComponentInChildren<Collider>() == null)
-            {
-                var bc = go.AddComponent<BoxCollider>();
-                bc.size = Vector3.one * 0.35f;
-            }
+            // SpawnNormalizedModel이 이미 Scale(1,1,1) 래퍼에 정확한 BoxCollider를 붙였으면 중복 생성 방지
+            if (go.GetComponent<Collider>() != null) return;
+            var bc = go.AddComponent<BoxCollider>();
+            bc.size = Vector3.one * 0.35f;
         }
 
         private static void PlaceCleanableStain(string name, string displayName, Vector3 pos, float size, Material mat, Transform parent)
@@ -418,10 +446,10 @@ namespace TrashCleaner3D.Editor
             go.transform.rotation = Quaternion.Euler(90f, Random.Range(0f, 360f), 0f);
             go.transform.localScale = new Vector3(size, size, 1f);
             go.GetComponent<Renderer>().sharedMaterial = mat;
-            // Make collider slightly thicker so raycast always hits cleanly
+            // Thin floor-hugging collider so it never blocks trash piles resting above it
             Object.DestroyImmediate(go.GetComponent<Collider>());
             var col = go.AddComponent<BoxCollider>();
-            col.size = new Vector3(1f, 1f, 0.12f);
+            col.size = new Vector3(1f, 1f, 0.015f);
 
             var c = go.AddComponent<CleanableTarget>();
             c.kind = CleanableKind.FloorStain;
@@ -432,35 +460,37 @@ namespace TrashCleaner3D.Editor
             c.cleanWeight = 1.5f;
         }
 
-        private static Bounds CalculateLocalBounds(GameObject go)
-        {
-            var renderers = go.GetComponentsInChildren<Renderer>();
-            if (renderers.Length == 0) return new Bounds(Vector3.zero, Vector3.one * 0.3f);
-            Bounds world = renderers[0].bounds;
-            for (int i = 1; i < renderers.Length; i++) world.Encapsulate(renderers[i].bounds);
-            Vector3 localCenter = go.transform.InverseTransformPoint(world.center);
-            Vector3 s = go.transform.lossyScale;
-            Vector3 localSize = new Vector3(
-                s.x > 0.0001f ? world.size.x / s.x : world.size.x,
-                s.y > 0.0001f ? world.size.y / s.y : world.size.y,
-                s.z > 0.0001f ? world.size.z / s.z : world.size.z
-            );
-            return new Bounds(localCenter, localSize);
-        }
-
         /// <summary>
-        /// Poly Haven FBX 모델의 실제 바운딩 크기를 측정해 목표 미터(targetMaxDim)로 정확히 정규화하고
-        /// 바닥(pos.y)에 딱 맞게 안착 + URP PBR 머티리얼 자동 연결.
+        /// Poly Haven FBX 모델을 Scale (1,1,1) 래퍼 오브젝트에 감싸고,
+        /// 실제 월드 Bounds 크기를 targetMaxDim 미터로 정규화한 뒤
+        /// 래퍼에 정확한 BoxCollider를 붙여 회전/스케일/중첩 프리팹과 무관하게 100% 조준되게 합니다.
         /// </summary>
         private static GameObject SpawnNormalizedModel(GameObject prefab, string name, Vector3 pos, Quaternion rot, float targetMaxDim, Transform parent)
         {
             if (prefab == null) return null;
+
+            GameObject wrapper = new GameObject(name);
+            wrapper.transform.SetParent(parent, false);
+            wrapper.transform.position = pos;
+            wrapper.transform.rotation = rot;
+            wrapper.transform.localScale = Vector3.one;
+
             GameObject inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
-            inst.name = name;
-            inst.transform.SetParent(parent, false);
-            inst.transform.position = Vector3.zero;
-            inst.transform.rotation = Quaternion.identity;
+            if (PrefabUtility.IsPartOfPrefabInstance(inst))
+            {
+                PrefabUtility.UnpackPrefabInstance(inst, PrefabUnpackMode.Completely, InteractionMode.AutomatedAction);
+            }
+            inst.name = "Visual";
+            inst.transform.SetParent(wrapper.transform, false);
+            inst.transform.localPosition = Vector3.zero;
+            inst.transform.localRotation = Quaternion.identity;
             inst.transform.localScale = Vector3.one;
+
+            // Remove any stray colliders on FBX children
+            foreach (var oldCol in inst.GetComponentsInChildren<Collider>(true))
+            {
+                Object.DestroyImmediate(oldCol);
+            }
 
             // Bind URP PBR Material from sibling textures folder
             string assetPath = AssetDatabase.GetAssetPath(prefab);
@@ -481,7 +511,10 @@ namespace TrashCleaner3D.Editor
                 }
             }
 
-            // Normalize scale so models are never tiny or huge
+            // Measure & normalize scale inside wrapper (with wrapper at identity first)
+            wrapper.transform.position = Vector3.zero;
+            wrapper.transform.rotation = Quaternion.identity;
+
             var renderers = inst.GetComponentsInChildren<Renderer>(true);
             if (renderers.Length > 0)
             {
@@ -490,23 +523,24 @@ namespace TrashCleaner3D.Editor
                 float maxDim = Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z));
                 if (maxDim > 0.0001f)
                 {
-                    float scaleFactor = targetMaxDim / maxDim;
-                    inst.transform.localScale = Vector3.one * scaleFactor;
+                    inst.transform.localScale = Vector3.one * (targetMaxDim / maxDim);
                 }
-                // Recompute bottom offset to rest cleanly on floor
+
+                // Re-measure after scaling and center horizontally + rest bottom on y = 0
                 b = renderers[0].bounds;
                 for (int i = 1; i < renderers.Length; i++) b.Encapsulate(renderers[i].bounds);
-                float liftY = -b.min.y;
-                inst.transform.position = new Vector3(pos.x, pos.y + liftY, pos.z);
-                inst.transform.rotation = rot;
-            }
-            else
-            {
-                inst.transform.position = pos;
-                inst.transform.rotation = rot;
+                inst.transform.localPosition = new Vector3(-b.center.x, -b.min.y, -b.center.z);
+
+                // Attach clean exact BoxCollider directly to Scale(1,1,1) wrapper!
+                var box = wrapper.AddComponent<BoxCollider>();
+                box.center = new Vector3(0f, b.size.y * 0.5f, 0f);
+                box.size = Vector3.Max(b.size, Vector3.one * 0.22f);
             }
 
-            return inst;
+            // Place wrapper at final world pos/rot
+            wrapper.transform.position = pos;
+            wrapper.transform.rotation = rot;
+            return wrapper;
         }
 
         private static void SetupPostProcessing()
@@ -650,7 +684,8 @@ namespace TrashCleaner3D.Editor
             mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
             mat.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
             mat.SetFloat("_ZWrite", 0f);
-            mat.SetFloat("_Smoothness", 0.1f);
+            // Wet glossy sheen so player visually recognizes stains need mopping without reading text
+            mat.SetFloat("_Smoothness", 0.58f);
             mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             mat.renderQueue = (int)RenderQueue.Transparent;
             EditorUtility.SetDirty(mat);

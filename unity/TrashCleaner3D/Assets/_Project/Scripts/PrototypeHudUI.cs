@@ -115,38 +115,59 @@ namespace TrashCleaner3D
             string s2 = manager.StainTier == 1 ? "걸레" : "세제+대걸레";
             string s3 = manager.MaskTier == 1 ? "노마스크" : manager.MaskTier == 2 ? "마스크" : "방독면";
             int act = controller != null ? controller.ActiveSlot : 1;
-            GUI.Label(new Rect(sw - 334, 118, 308, 22),
-                $"{(act == 1 ? "▶" : "")}[1]{s1}  {(act == 2 ? "▶" : "")}[2]{s2}  {(act == 3 ? "▶" : "")}[3]{s3}", _labelStyle);
-            GUI.Label(new Rect(sw - 334, 142, 308, 22), "[WASD] 이동 · [F] 손전등 · [ESC] 마우스 해제", _labelStyle);
+            int sug = controller != null ? controller.SuggestedSlot : 0;
+            bool blink = Mathf.Sin(Time.time * 12f) > 0f;
+            string mark1 = act == 1 ? "▶" : (sug == 1 && blink ? "★" : "");
+            string mark2 = act == 2 ? "▶" : (sug == 2 && blink ? "★" : "");
+            string mark3 = act == 3 ? "▶" : "";
+            GUI.Label(new Rect(sw - 334, 118, 308, 22), $"{mark1}[1]{s1}  {mark2}[2]{s2}  {mark3}[3]{s3}", _labelStyle);
+            GUI.Label(new Rect(sw - 334, 142, 308, 22), "[좌클릭] 청소/닦기 · [F] 손전등 · [H] 도움말", _labelStyle);
 
-            // 3. 중앙 조준점(타겟별 색상 변화) & 상호작용 프롬프트 + 청소 진행 바
+            // 3. 시각적 조준점 (글자 박스 최소화: 일반 쓰레기·얼룩은 게이지 바만, 보물만 최소 키 뱃지)
             Texture2D dotTex = controller != null && controller.AimIsTreasure ? _yellowTex
+                : controller != null && controller.AimIsStain ? _blueTex
                 : controller != null && controller.AimIsCleanable ? _greenTex : _barBgTex;
-            float dotSize = (controller != null && (controller.AimIsCleanable || controller.AimIsTreasure)) ? 8f : 5f;
+            float dotSize = (controller != null && (controller.AimIsCleanable || controller.AimIsTreasure)) ? 9f : 5f;
             GUI.DrawTexture(new Rect(sw / 2f - dotSize / 2f, sh / 2f - dotSize / 2f, dotSize, dotSize), dotTex);
 
-            if (controller != null && !string.IsNullOrEmpty(controller.AimTitle))
+            if (controller != null)
             {
-                bool showProgress = controller.AimCleanProgress01 > 0.01f;
-                Rect promptRect = new Rect(sw / 2f - 270, sh / 2f + 22, 540, showProgress ? 74 : 58);
-                GUI.Box(promptRect, "", _boxStyle);
-                _centerStyle.normal.textColor = controller.AimIsDanger ? new Color(1f, 0.45f, 0.40f)
-                    : controller.AimIsTreasure ? new Color(1f, 0.88f, 0.30f) : Color.white;
-                GUI.Label(new Rect(promptRect.x, promptRect.y + 6, promptRect.width, 24), controller.AimTitle, _centerStyle);
-                _centerStyle.normal.textColor = new Color(0.95f, 0.90f, 0.65f);
-                GUI.Label(new Rect(promptRect.x, promptRect.y + 28, promptRect.width, 24), controller.AimHint, _centerStyle);
-                if (showProgress)
+                // 청소/닦기 진행 중일 때 얇은 바 1줄만 표시 (시야 방해 0%)
+                if (controller.AimCleanProgress01 > 0.01f)
                 {
-                    DrawBar(new Rect(promptRect.x + 80, promptRect.y + 56, promptRect.width - 160, 10), controller.AimCleanProgress01, _greenTex);
+                    DrawBar(new Rect(sw / 2f - 65, sh / 2f + 16, 130, 8),
+                        controller.AimCleanProgress01,
+                        controller.AimIsStain ? _blueTex : _greenTex);
+                }
+
+                // 보물·가방꽉참·마우스해제 등 필수 정보만 컴팩트 뱃지로 표시
+                if (!string.IsNullOrEmpty(controller.AimTitle))
+                {
+                    bool hasHint = !string.IsNullOrEmpty(controller.AimHint);
+                    float bw = hasHint ? 420 : 180;
+                    float bh = hasHint ? 52 : 28;
+                    Rect promptRect = new Rect(sw / 2f - bw / 2f, sh / 2f + 28, bw, bh);
+                    GUI.Box(promptRect, "", _boxStyle);
+                    _centerStyle.normal.textColor = controller.AimIsDanger ? new Color(1f, 0.45f, 0.40f)
+                        : controller.AimIsTreasure ? new Color(1f, 0.88f, 0.30f) : Color.white;
+                    GUI.Label(new Rect(promptRect.x, promptRect.y + 4, promptRect.width, 22), controller.AimTitle, _centerStyle);
+                    if (hasHint)
+                    {
+                        _centerStyle.normal.textColor = new Color(0.95f, 0.90f, 0.65f);
+                        GUI.Label(new Rect(promptRect.x, promptRect.y + 26, promptRect.width, 22), controller.AimHint, _centerStyle);
+                    }
+                }
+
+                // 도움말은 [H] 키 눌렀을 때만 열림 (기본은 화면 깔끔!)
+                if (controller.ShowHelpOverlay)
+                {
+                    GUI.Box(new Rect(16, sh - 122, 360, 106), "", _boxStyle);
+                    GUI.Label(new Rect(28, sh - 114, 340, 22), "조작법 ([H]로 닫기)", _titleStyle);
+                    GUI.Label(new Rect(28, sh - 88, 340, 20), "• 쓰레기/얼룩: 조준 후 [좌클릭 꾹] (자동 장비 전환 지원)", _labelStyle);
+                    GUI.Label(new Rect(28, sh - 66, 340, 20), "• 보물: [E] 슈킹 / [Q] 선반 보관", _labelStyle);
+                    GUI.Label(new Rect(28, sh - 44, 340, 20), "• [1/2/3] 장비 · [Z/X/C/V] 강화 · [R] 트럭 · [F] 손전등", _labelStyle);
                 }
             }
-
-            // 3-B. 좌하단 상시 조작법 가이드 (처음 플레이해도 헷갈리지 않게)
-            GUI.Box(new Rect(16, sh - 126, 360, 110), "", _boxStyle);
-            GUI.Label(new Rect(28, sh - 118, 340, 22), "조작법 안내", _titleStyle);
-            GUI.Label(new Rect(28, sh - 92, 340, 20), "• 쓰레기 줍기/청소 (1번) · 얼룩 닦기 (2번): [좌클릭 꾹] 또는 [E]", _labelStyle);
-            GUI.Label(new Rect(28, sh - 70, 340, 20), "• 보물 발견 시: [E] 몰래 슈킹   /   [Q] 의뢰인 선반 보관", _labelStyle);
-            GUI.Label(new Rect(28, sh - 48, 340, 20), "• [1/2/3] 장비 전환 · [Z/X/C/V] 즉시 강화 · [R] 트럭 정비", _labelStyle);
 
             // 4. 토스트 알림 (상단 중앙)
             if (!string.IsNullOrEmpty(manager.ToastMessage))
