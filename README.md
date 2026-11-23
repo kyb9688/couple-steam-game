@@ -1,17 +1,16 @@
-# 뜯고 녹여라! (가제: Scrap to Gold)
+# TrashCleaner3D — 3D 쓰레기집 특수청소 프로젝트 (최신 메인)
 
-커플 2인 팀의 첫 스팀(PC) 상업 게임 프로젝트 저장소입니다.  
-**나사 하나씩 풀던 1평 공방에서 시작해, 전자석·유압 파쇄기·황금 용광로로 외계 우주선까지 통째로 으깨 금괴를 뽑아내는 밝고 아기자기한 2D 자동화 인크리멘탈 게임**을 만듭니다.
+> **Unity 6 프로젝트 위치:** **`unity/TrashCleaner3D/`** *(Unity `6000.6.10f1` · Universal 3D URP)*
 
----
-
-## 프로젝트 한눈에 보기
-- **목표:** 6개월 내 PC(Steam) 정식 출시 (2026.11 ~ 2027.05) · 초기 매출 **\$1,000 달성**
-- **장르 & 가격:** 2D 쇼트 액티브 자동화 인크리멘탈 (2.5~4시간 완결형 · \$4.99~\$5.99)
-- **엔진 & 협업:** Godot 4.3+ (GDScript) · AI 코딩 & AI 아트(스팀 투명 공개) · GitHub Desktop 협업
-- **역할 분담 (DRI):**
-  - **본인 (Systems & Build Lead):** 코어 루프, 밸런스(`game/data/*.json`), AI 코딩(`game/scripts/`), 스팀 빌드
-  - **여자친구 (Visual, Brand & Growth Lead):** 코지 공방 화풍·UI·캡슐 아트(`game/assets/`), 스토어·마케팅·일정 관리
+### 🚀 2인 공유 실행 방법 (여자친구 PC / 본인 PC 공통)
+1. **GitHub Desktop**에서 `Fetch origin` → **`Pull origin`** 클릭.
+2. **Unity Hub** 열기 → 오른쪽 위 **`추가` → `디스크에서 프로젝트 추가`** → 내 PC의 `couple-steam-game\unity\TrashCleaner3D` 폴더 선택.
+3. Unity 에디터가 열리면 상단 메뉴 **`TrashCleaner` → `Build Room 01 Playable Prototype`** 클릭 → 가운데 **Play(`▶`)** 버튼으로 바로 테스트!
+   - 조작: `WASD` 이동 · `마우스` 시점 · `좌클릭` 청소/닦기/CCTV 거품 · `1/2/3` 장비 전환 · `E` 슈킹 · `Q` 보관 · `Z/X/C/V` 현장 강화 · `F` 손전등 · `R` 트럭 복귀
+4. **충돌 방지 협업 규칙 (필수):**
+   - **오빠 (파트 A):** `unity/TrashCleaner3D/Assets/_Project/Scripts/`, `Editor/` 수정
+   - **여자친구 (파트 B):** `unity/TrashCleaner3D/Assets/_Project/Scenes/`, `Art/` (방 배치·에셋 추가) 수정  
+   *(같은 `.unity` 씬 파일을 두 사람이 동시에 열어서 수정하지 마세요!)*
 
 ---
 
