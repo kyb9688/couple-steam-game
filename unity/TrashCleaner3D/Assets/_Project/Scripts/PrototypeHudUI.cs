@@ -259,7 +259,9 @@ namespace TrashCleaner3D
             float rx = x + 40 + halfW;
             GUI.DrawTexture(new Rect(rx, btnY, halfW, btnH), offer.isDesignatedLostItem ? _redTex : _goldTex);
             GUI.DrawTexture(new Rect(rx + 3, btnY + 3, halfW - 6, btnH - 6), _darkTex);
-            string eyes = offer.isDesignatedLostItem ? "🚨 100% 발각!" : new string('👁', offer.riskIcons);
+            string eyes = offer.isDesignatedLostItem ? "[100% 발각!]"
+                : offer.riskIcons == 1 ? "●○○ (낮음)"
+                : offer.riskIcons == 2 ? "●●○ (주의)" : "●●● (높음!)";
             string knockWarn = manager.IsKnockAlertActive ? "\n⚠ 문 밖 인기척!" : "";
             if (GUI.Button(new Rect(rx + 6, btnY + 6, halfW - 12, btnH - 12),
                 $"😈 몰래 슈킹 [E]\n\n+${offer.value:N0}\n위험도 {eyes}{knockWarn}", _nodeBtnStyle))
