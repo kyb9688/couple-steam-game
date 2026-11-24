@@ -5,13 +5,14 @@ using UnityEngine.Rendering;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v0.5 1,000+ GPU Instancing 쓰레기 매니저:
-    /// - 방 면적 +50% 확장(7.2m x 6.0m) 규격에 맞춰 풍성한 입체 산 배치!
-    /// - 방해되던 초록 빛기둥 완전 삭제! 대신 10% 이하 탐지 업그레이드 시
-    ///   남은 쓰레기 주위에만 은은한 투시 황금 테두리(DetectOutlineXRay)로 깔끔하게 표시!
+    /// v0.6 2,250+ GPU Instancing 쓰레기 매니저 (+50% 확장 방 면적 2.25배에 맞춘 압도적 물량, 5드로우콜 렉 0%!):
+    /// - 답답한 클릭 쿨타임 대신 '바닥에 눌어붙은 쓰레기 떼어내기(초반 3클릭→2클릭→1클릭)' 방식 적용!
+    /// - 매 클릭마다 즉각 들썩임+소리 반응(입력 씹힘 0%) + 10% 이하 황금 투시 테두리 유지!
     /// </summary>
     public class InstancedTrashSwarm : MonoBehaviour
     {
+        public const int InitialSwarmCount = 2250;
+
         public struct TrashUnit
         {
             public Vector3 pos;
@@ -19,7 +20,9 @@ namespace TrashCleaner3D
             public float baseScale;
             public float curScale;
             public int typeIdx;
-            public byte state; // 0:Idle, 1:Popping, 2:Sucking, 3:Cleaned
+            public byte state;     // 0:Idle, 1:Popping, 2:Sucking, 3:Cleaned
+            public byte hp;        // 바닥에 눌어붙은 강도 (기본 3 → 떼어내기 힘 강화 시 3→2→1클릭 컷!)
+            public float hopTimer; // 떼어내기 클릭 시 톡! 들썩이는 피드백 애니메이션
             public float timer;
             public Vector3 startPos;
             public Vector3 endPos;
@@ -44,18 +47,15 @@ namespace TrashCleaner3D
         private int _cleanedCount;
         private Transform _suckDestination;
 
-        // Per-frame instancing buffers
         private Matrix4x4[][] _batchMatrices;
         private int[] _batchCounts;
         private RenderParams[] _renderParams;
 
-        // 1) Hover White Outline pass
         private Matrix4x4[][] _outlineMatrices;
         private int[] _outlineCounts;
         private Material _outlineMat;
         private RenderParams _outlineRenderParams;
 
-        // 2) 10% Remaining X-Ray Gold Outline pass (NO ugly green poles!)
         private Matrix4x4[][] _detectMatrices;
         private int[] _detectCounts;
         private Material _detectMat;
@@ -69,11 +69,23 @@ namespace TrashCleaner3D
         public int CleanedCount => _cleanedCount;
         public int RemainingCount => Mathf.Max(0, _unitCount - _cleanedCount);
 
+        public float SelectedPeelProgress01
+        {
+            get
+            {
+                if (_selectedIndices.Count == 0) return -1f;
+                int idx = _selectedIndices[0];
+                if (idx < 0 || idx >= _unitCount || _units[idx].state != 0) return -1f;
+                if (_units[idx].hp >= 3) return -1f;
+                return Mathf.Clamp01((3 - _units[idx].hp) / 3f);
+            }
+        }
+
         private void Awake()
         {
             if (meshTypes.Count > 0 && (_units == null || _units.Length == 0))
             {
-                SpawnInitialSwarm(1000);
+                SpawnInitialSwarm(InitialSwarmCount);
             }
         }
 
@@ -82,7 +94,7 @@ namespace TrashCleaner3D
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
             if (_units == null || _units.Length == 0)
             {
-                SpawnInitialSwarm(1000);
+                SpawnInitialSwarm(InitialSwarmCount);
             }
             else
             {
@@ -161,23 +173,25 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// +50% 확장된 방(7.2m x 6.0m, x: -3.6~+3.6, z: -3.0~+3.0)에 1,000개 쓰레기 입체 산 배치!
+        /// 확장된 7.2m x 6.0m 방 전체를 빈틈없이 뒤덮는 2,250개 입체 쓰레기 산 생성!
         /// </summary>
         public void SpawnInitialSwarm(int count)
         {
             if (meshTypes.Count == 0) return;
-            InitializeCapacity(count + 500);
+            InitializeCapacity(count + 750);
 
             Vector3[] hubs =
             {
-                new Vector3(1.95f, 0f, 0.85f),   // 문 열자마자 바로 정면 앞!
-                new Vector3(0.65f, 0f, 0.55f),   // 중앙 정면!
-                new Vector3(2.45f, 0f, -0.75f),  // 좌측(동쪽) 벽 산!
-                new Vector3(1.45f, 0f, -1.95f),  // 안쪽 정면 산!
-                new Vector3(-0.55f, 0f, 1.35f),  // 냉장고 옆 산!
-                new Vector3(-0.55f, 0f, -0.65f), // 방 중앙!
-                new Vector3(-2.15f, 0f, 1.35f),  // 북서 구석 산!
-                new Vector3(-2.30f, 0f, -1.55f)  // 매트리스 위 산!
+                new Vector3(1.95f, 0f, 0.95f),
+                new Vector3(0.65f, 0f, 0.65f),
+                new Vector3(2.60f, 0f, -0.65f),
+                new Vector3(1.65f, 0f, -1.95f),
+                new Vector3(-0.55f, 0f, 1.55f),
+                new Vector3(-0.55f, 0f, -0.65f),
+                new Vector3(-2.35f, 0f, 1.55f),
+                new Vector3(-2.30f, 0f, -1.55f),
+                new Vector3(0.20f, 0f, -2.15f),
+                new Vector3(-2.65f, 0f, 0.25f)
             };
 
             for (int i = 0; i < count; i++)
@@ -186,24 +200,21 @@ namespace TrashCleaner3D
                 if (i < count * 0.78f)
                 {
                     Vector3 h = hubs[i % hubs.Length];
-                    Vector2 off = Random.insideUnitCircle * Random.Range(0.10f, 1.28f);
-                    float dist01 = Mathf.Clamp01(off.magnitude / 1.28f);
-                    float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.06f, 0.62f);
+                    Vector2 off = Random.insideUnitCircle * Random.Range(0.08f, 1.38f);
+                    float dist01 = Mathf.Clamp01(off.magnitude / 1.38f);
+                    float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.06f, 0.72f);
                     pos = new Vector3(
-                        Mathf.Clamp(h.x + off.x, -3.22f, 3.22f),
+                        Mathf.Clamp(h.x + off.x, -3.28f, 3.28f),
                         0.06f + yStack,
-                        Mathf.Clamp(h.z + off.y, -2.65f, 2.55f)
+                        Mathf.Clamp(h.z + off.y, -2.70f, 2.60f)
                     );
                 }
                 else
                 {
-                    pos = new Vector3(Random.Range(-3.15f, 3.15f), 0.06f, Random.Range(-2.60f, 2.50f));
+                    pos = new Vector3(Random.Range(-3.22f, 3.22f), 0.06f, Random.Range(-2.65f, 2.55f));
                 }
 
-                // 매트리스 위(x < -1.55 && z < -0.55)는 매트리스 상단(y=0.32) 위에 얹기
                 if (pos.x < -1.55f && pos.z < -0.55f) pos.y += 0.32f;
-
-                // 안쪽으로 열리는 현관문 바로 뒤 최소 회전 공간(x > 1.50 && z > 1.90) 살짝 비우기
                 if (pos.x > 1.50f && pos.z > 1.90f) pos.z -= 1.05f;
 
                 AddUnit(pos, pos, false);
@@ -242,6 +253,8 @@ namespace TrashCleaner3D
                 curScale = baseS,
                 typeIdx = tIdx,
                 state = popAnimation ? (byte)1 : (byte)0,
+                hp = 3, // 바닥에 눌어붙은 강도 3 (초반 3클릭 톡톡톡! → 강화 시 2클릭 → 1클릭 컷!)
+                hopTimer = 0f,
                 timer = 0f,
                 startPos = startPos,
                 endPos = endPos,
@@ -290,24 +303,39 @@ namespace TrashCleaner3D
             }
         }
 
-        public int PickSelectedUnits(Transform suckDest, int maxGrab)
+        /// <summary>
+        /// 요청 #5: 답답한 쿨타임 대신 즉각 반응하는 '떼어내기 클릭'!
+        /// 매 클릭마다 hp가 깎이며 톡! 들썩이고, hp가 0이 되면 봉투로 쏙 흡입됨!
+        /// </summary>
+        public void HitOrPickSelectedUnits(Transform suckDest, int maxTargets, int pickDamage, out int peeledCount, out int pickedCount)
         {
-            if (maxGrab <= 0 || _selectedIndices.Count == 0) return 0;
+            peeledCount = 0;
+            pickedCount = 0;
+            if (maxTargets <= 0 || _selectedIndices.Count == 0) return;
             _suckDestination = suckDest;
 
-            int grabbed = 0;
-            for (int k = 0; k < _selectedIndices.Count && grabbed < maxGrab; k++)
+            int processed = 0;
+            for (int k = 0; k < _selectedIndices.Count && processed < maxTargets; k++)
             {
                 int idx = _selectedIndices[k];
-                if (idx >= 0 && idx < _unitCount && _units[idx].state == 0)
+                if (idx < 0 || idx >= _unitCount || _units[idx].state != 0) continue;
+                processed++;
+
+                if (_units[idx].hp > pickDamage)
                 {
-                    _units[idx].state = 2;
+                    _units[idx].hp = (byte)(_units[idx].hp - pickDamage);
+                    _units[idx].hopTimer = 0.14f; // 톡! 들썩이며 떼어지는 손맛!
+                    peeledCount++;
+                }
+                else
+                {
+                    _units[idx].hp = 0;
+                    _units[idx].state = 2; // Sucking!
                     _units[idx].timer = 0f;
-                    grabbed++;
+                    pickedCount++;
                 }
             }
-            _selectedIndices.Clear();
-            return grabbed;
+            if (pickedCount > 0) _selectedIndices.Clear();
         }
 
         public void ResetSwarm(int initialCount)
@@ -331,7 +359,7 @@ namespace TrashCleaner3D
 
             bool showDetectOutline = manager != null && manager.HasBeaconDetect &&
                                      manager.Phase == GamePhase.Phase1_TrashRemoval &&
-                                     RemainingCount > 0 && (RemainingCount <= 60 || manager.Phase1Percent >= 90f);
+                                     RemainingCount > 0 && (RemainingCount <= 80 || manager.Phase1Percent >= 90f);
 
             if (showDetectOutline && _detectMat != null)
             {
@@ -343,6 +371,13 @@ namespace TrashCleaner3D
             {
                 byte st = _units[i].state;
                 if (st == 3) continue;
+
+                float hopY = 0f;
+                if (_units[i].hopTimer > 0f)
+                {
+                    _units[i].hopTimer = Mathf.Max(0f, _units[i].hopTimer - dt);
+                    hopY = Mathf.Sin((_units[i].hopTimer / 0.14f) * Mathf.PI) * 0.11f;
+                }
 
                 if (st == 1)
                 {
@@ -359,9 +394,9 @@ namespace TrashCleaner3D
                 }
                 else if (st == 2)
                 {
-                    _units[i].pos = Vector3.MoveTowards(_units[i].pos, destPos, 14.5f * dt);
+                    _units[i].pos = Vector3.MoveTowards(_units[i].pos, destPos, 15.0f * dt);
                     _units[i].rot = _units[i].rot * Quaternion.Euler(0f, 540f * dt, 260f * dt);
-                    _units[i].curScale = Mathf.MoveTowards(_units[i].curScale, 0f, _units[i].baseScale * 4.0f * dt);
+                    _units[i].curScale = Mathf.MoveTowards(_units[i].curScale, 0f, _units[i].baseScale * 4.2f * dt);
 
                     if ((_units[i].pos - destPos).sqrMagnitude < 0.04f || _units[i].curScale <= 0.002f)
                     {
@@ -376,11 +411,11 @@ namespace TrashCleaner3D
                 int c = _batchCounts[tIdx];
                 if (c < 1023)
                 {
-                    Matrix4x4 mtx = Matrix4x4.TRS(_units[i].pos, _units[i].rot, Vector3.one * _units[i].curScale);
+                    Vector3 drawPos = hopY > 0f ? _units[i].pos + Vector3.up * hopY : _units[i].pos;
+                    Matrix4x4 mtx = Matrix4x4.TRS(drawPos, _units[i].rot, Vector3.one * _units[i].curScale);
                     _batchMatrices[tIdx][c] = mtx;
                     _batchCounts[tIdx] = c + 1;
 
-                    // 10% 이하 탐지: 초록 기둥 대신 남은 쓰레기 주위에 깔끔한 황금 투시 테두리만 표시!
                     if (showDetectOutline && st == 0)
                     {
                         int dc = _detectCounts[tIdx];
@@ -393,7 +428,6 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 마우스 호버 중인 정확히 N개에 선명한 하얀색 외곽 테두리
             for (int k = 0; k < _selectedIndices.Count; k++)
             {
                 int idx = _selectedIndices[k];
@@ -402,12 +436,12 @@ namespace TrashCleaner3D
                 int oc = _outlineCounts[tIdx];
                 if (oc < 1023)
                 {
-                    _outlineMatrices[tIdx][oc] = Matrix4x4.TRS(_units[idx].pos, _units[idx].rot, Vector3.one * _units[idx].curScale);
+                    float hopY = _units[idx].hopTimer > 0f ? Mathf.Sin((_units[idx].hopTimer / 0.14f) * Mathf.PI) * 0.11f : 0f;
+                    _outlineMatrices[tIdx][oc] = Matrix4x4.TRS(_units[idx].pos + Vector3.up * hopY, _units[idx].rot, Vector3.one * _units[idx].curScale);
                     _outlineCounts[tIdx] = oc + 1;
                 }
             }
 
-            // 1) 일반 3D 쓰레기 렌더
             for (int t = 0; t < meshTypes.Count; t++)
             {
                 int cnt = _batchCounts[t];
@@ -417,7 +451,6 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 2) 10% 이하 탐지 황금 투시 테두리 렌더 (기둥 0개, 시야 방해 0%!)
             if (showDetectOutline && _detectMat != null)
             {
                 for (int t = 0; t < meshTypes.Count; t++)
@@ -430,7 +463,6 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 3) 마우스 호버 하얀색 외곽 테두리 렌더
             if (_outlineMat != null)
             {
                 for (int t = 0; t < meshTypes.Count; t++)

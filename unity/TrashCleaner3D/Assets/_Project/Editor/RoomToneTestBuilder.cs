@@ -22,7 +22,7 @@ namespace TrashCleaner3D.Editor
         private const string ArtRoot = "Assets/_Project/Art";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 35;
+        private const int SceneBuildVersion = 36;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -147,16 +147,17 @@ namespace TrashCleaner3D.Editor
             CreateWorldBox("Microwave", new Vector3(0.78f, 1.72f, d / 2f - 0.40f), new Vector3(0.52f, 0.32f, 0.42f), matCeiling, roomRoot.transform, true);
             CreateWorldBox("Mattress", new Vector3(-2.45f, 0.16f, -1.75f), new Vector3(1.75f, 0.32f, 2.25f), matMattress, roomRoot.transform, true);
 
-            // 4. Outside Yard (z: 3.0 ~ 13.5) + 4-Stage Evolving Vehicle (공공 쓰레기통 → 리어카 → 다마스 → 1톤 트럭!)
+            // 4. Outside Yard (z: 3.0 ~ 16.8) + 4-Stage Evolving Vehicle at z = 10.60
+            // * 앞벽 버그 완전 수정: 북쪽 경계 펜스를 쓰레기통 훨씬 뒤(z=16.5)로 이동 → 뒤로 날아가도 벽에 안 막히고 직접 걸어가 회수 가능!
             GameObject outsideRoot = new GameObject("Outside_Truck_Area");
-            CreateWorldBox("Parking_Floor", new Vector3(2.1f, -0.30f, 8.2f), new Vector3(9.6f, 0.6f, 10.6f), matOutdoorFloor, outsideRoot.transform, true);
+            CreateWorldBox("Parking_Floor", new Vector3(2.1f, -0.30f, 9.9f), new Vector3(11.0f, 0.6f, 13.8f), matOutdoorFloor, outsideRoot.transform, true);
 
             GameObject stepCurb = CreateWorldBox("Door_StepCurb", new Vector3(2.1f, 0.015f, 3.02f), new Vector3(1.1f, 0.03f, 0.10f), matCeiling, outsideRoot.transform, true);
             Object.DestroyImmediate(stepCurb.GetComponent<Collider>());
 
-            CreateInvisibleFence("Fence_Outside_North", new Vector3(2.1f, 1.2f, 9.75f), new Vector3(9.6f, 2.4f, 0.15f), outsideRoot.transform);
-            CreateInvisibleFence("Fence_Outside_West", new Vector3(-2.5f, 1.2f, 6.4f), new Vector3(0.15f, 2.4f, 7.2f), outsideRoot.transform);
-            CreateInvisibleFence("Fence_Outside_East", new Vector3(6.7f, 1.2f, 6.4f), new Vector3(0.15f, 2.4f, 7.2f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_North", new Vector3(2.1f, 1.2f, 16.5f), new Vector3(11.0f, 2.4f, 0.15f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_West", new Vector3(-3.3f, 1.2f, 9.9f), new Vector3(0.15f, 2.4f, 13.8f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_East", new Vector3(7.5f, 1.2f, 9.9f), new Vector3(0.15f, 2.4f, 13.8f), outsideRoot.transform);
 
             GameObject porchLightObj = new GameObject("Porch_Light");
             porchLightObj.transform.SetParent(outsideRoot.transform, false);
@@ -300,6 +301,10 @@ namespace TrashCleaner3D.Editor
                 new Vector3(0.05f, 0f, -1.95f),
                 new Vector3(-1.25f, 0f, -0.55f),
                 new Vector3(-2.80f, 0f, 0.05f),
+                new Vector3(0.10f, 0f, 1.75f),
+                new Vector3(2.90f, 0f, -2.25f),
+                new Vector3(-0.85f, 0f, -2.10f),
+                new Vector3(-2.65f, 0f, 2.10f),
             };
 
             for (int i = 0; i < pilePositions.Length; i++)
