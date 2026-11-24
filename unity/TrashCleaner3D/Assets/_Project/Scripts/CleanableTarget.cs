@@ -40,6 +40,7 @@ namespace TrashCleaner3D
         private bool _highlighted;
         private float _hitShakeTimer;
         private GameObject _beaconObj;
+        private GameObject _whiteOutlineRoot;
 
         // Burst pop-out animation (0.55s parabola then zero-physics rest!)
         private bool _isPoppingOut;
@@ -57,6 +58,37 @@ namespace TrashCleaner3D
             _initialPos = transform.position;
             _renderers = GetComponentsInChildren<Renderer>(true);
             _mpb = new MaterialPropertyBlock();
+            if (kind == CleanableKind.TrashPile)
+            {
+                BuildWhiteOutline();
+            }
+        }
+
+        private void BuildWhiteOutline()
+        {
+            var mfs = GetComponentsInChildren<MeshFilter>(true);
+            if (mfs.Length == 0) return;
+
+            Material outlineMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            outlineMat.SetColor("_BaseColor", Color.white);
+            outlineMat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Front);
+
+            _whiteOutlineRoot = new GameObject("_WhiteOutline");
+            _whiteOutlineRoot.transform.SetParent(transform, false);
+            foreach (var mf in mfs)
+            {
+                if (mf.sharedMesh == null) continue;
+                GameObject copy = new GameObject(mf.name + "_Outline");
+                copy.transform.SetParent(_whiteOutlineRoot.transform, false);
+                copy.transform.position = mf.transform.position;
+                copy.transform.rotation = mf.transform.rotation;
+                copy.transform.localScale = mf.transform.lossyScale * 1.07f;
+                copy.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
+                var mr = copy.AddComponent<MeshRenderer>();
+                mr.sharedMaterial = outlineMat;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+            _whiteOutlineRoot.SetActive(false);
         }
 
         public void StartPopOut(Vector3 startPos, Vector3 landingPos)
@@ -94,8 +126,10 @@ namespace TrashCleaner3D
         {
             if (_highlighted == on || _isCleaned) return;
             _highlighted = on;
+            if (_whiteOutlineRoot != null) _whiteOutlineRoot.SetActive(on);
+
             Color em = on
-                ? (kind == CleanableKind.FloorStain ? new Color(0.12f, 0.28f, 0.35f) : new Color(0.28f, 0.34f, 0.14f))
+                ? (kind == CleanableKind.FloorStain ? new Color(0.28f, 0.34f, 0.38f) : new Color(0.22f, 0.22f, 0.22f))
                 : Color.black;
             for (int i = 0; i < _renderers.Length; i++)
             {

@@ -90,8 +90,9 @@ namespace TrashCleaner3D
         public int LvPokerFace { get; private set; }     // 0~4 (즉시 슈킹 해프닝·의심 확률 완화)
 
         // Derived Gameplay Stats
-        public float SweepRadius => (HasVacuumUnlocked ? 1.85f : 1.05f) + LvSweepRadius * 0.25f;
-        public int SweepPerTick => HasVacuumUnlocked ? 18 : (4 + LvSweepRadius * 2);
+        public float SweepRadius => (HasVacuumUnlocked ? 1.85f : 0.78f) + LvSweepRadius * 0.22f;
+        public int ScoopPerClick => 10 + LvSweepRadius * 5; // 맨손 1클릭당 하얗게 선택된 쓰레기 10개→35개 한 웅큼 줍기!
+        public int SweepPerTick => HasVacuumUnlocked ? 18 : ScoopPerClick;
         public float FistDamage => (HasVacuumUnlocked ? 3.5f : 1.0f) + LvFistPower * 0.75f;
         public float ScrubSpeedMult => (HasMopUnlocked ? 2.6f : 1.0f) * (1f + LvScrubPower * 0.45f);
 

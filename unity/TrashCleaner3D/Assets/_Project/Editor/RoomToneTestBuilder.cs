@@ -22,7 +22,7 @@ namespace TrashCleaner3D.Editor
         private const string ArtRoot = "Assets/_Project/Art";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 31;
+        private const int SceneBuildVersion = 32;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -120,9 +120,23 @@ namespace TrashCleaner3D.Editor
             CreateWorldBox("Wall_North_Right", new Vector3(2.275f, h / 2f, d / 2f + 0.15f), new Vector3(0.45f, h, 0.3f), matWall, roomRoot.transform, true);
             CreateWorldBox("Wall_North_Header", new Vector3(1.50f, 2.375f, d / 2f + 0.15f), new Vector3(1.15f, 0.45f, 0.3f), matWall, roomRoot.transform, true);
 
-            // Swung-Open Mustard Yellow Door beside doorway
-            GameObject openDoor = CreateWorldBox("Door_SwungOpen", new Vector3(2.12f, 1.05f, d / 2f + 0.56f), new Vector3(0.08f, 2.1f, 0.92f), matDoor, roomRoot.transform, true);
-            openDoor.transform.rotation = Quaternion.Euler(0f, -14f, 0f);
+            // Interactive Closed Mustard Yellow Entrance Door ([F] 키로 열고 들어가면 1,000개 쓰레기가 극적으로 공개!)
+            Material matDoorHandle = CreateSimpleLitMaterial("Mat_Door_HandleMetal", new Color(0.18f, 0.19f, 0.22f), 0.72f);
+            GameObject doorHinge = new GameObject("Door_Interactive_Hinge");
+            doorHinge.transform.SetParent(roomRoot.transform, false);
+            doorHinge.transform.position = new Vector3(2.03f, 0f, 2.02f);
+
+            GameObject doorLeaf = CreateLocalBox("Door_Leaf", new Vector3(-0.54f, 1.075f, 0f), new Vector3(1.08f, 2.15f, 0.08f), matDoor, doorHinge.transform, false);
+            GameObject handleOut = CreateLocalBox("Door_Handle_Out", new Vector3(-0.92f, 1.02f, 0.07f), new Vector3(0.14f, 0.04f, 0.07f), matDoorHandle, doorHinge.transform, false);
+            Object.DestroyImmediate(handleOut.GetComponent<Collider>());
+            GameObject handleIn = CreateLocalBox("Door_Handle_In", new Vector3(-0.92f, 1.02f, -0.07f), new Vector3(0.14f, 0.04f, 0.07f), matDoorHandle, doorHinge.transform, false);
+            Object.DestroyImmediate(handleIn.GetComponent<Collider>());
+
+            var doorCtrl = doorHinge.AddComponent<InteractiveDoor>();
+            doorCtrl.hingePivot = doorHinge.transform;
+            doorCtrl.doorCollider = doorLeaf.GetComponent<Collider>();
+            doorCtrl.closedAngleY = 0f;
+            doorCtrl.openAngleY = -98f;
 
             CreateWorldBox("Wall_South", new Vector3(0, h / 2f, -d / 2f - 0.15f), new Vector3(w + 0.4f, h, 0.3f), matWall, roomRoot.transform, true);
             CreateWorldBox("Wall_East", new Vector3(w / 2f + 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
@@ -286,10 +300,10 @@ namespace TrashCleaner3D.Editor
             }
             thrownBagTmpl.SetActive(false);
 
-            // 10. Player Spawn (Clear open spot looking toward trash mountain & open door truck!)
+            // 10. Player Spawn OUTSIDE facing the closed Mustard Yellow Front Door! ([F]로 문 열고 극적 진입!)
             GameObject spawnObj = new GameObject("PlayerSpawnPoint");
-            spawnObj.transform.position = new Vector3(-0.15f, 0.15f, -1.55f);
-            spawnObj.transform.rotation = Quaternion.Euler(0f, 22f, 0f);
+            spawnObj.transform.position = new Vector3(1.50f, 0.15f, 3.05f);
+            spawnObj.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
 
             FirstPersonCleanerController playerCtrl = CreateFpsPlayer(
                 spawnObj.transform.position, spawnObj.transform.rotation,

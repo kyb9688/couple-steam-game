@@ -183,16 +183,24 @@ namespace TrashCleaner3D
                 GUI.Label(dr, $"[문 앞 인기척] {manager.DoorVisitorTimer:0.0}초간 트럭 슛 금지", _centerStyle);
             }
 
-            // 6. 화면 중앙 조준점 & 얇은 봉투/진행 게이지
+            // 6. 화면 중앙 조준점 & 문 열기 / 봉투 게이지
             if (controller != null)
             {
-                Texture2D dot = controller.AimIsPile ? _orangeTex
+                Texture2D dot = controller.AimDoor != null ? _whiteTex
+                    : controller.AimIsPile ? _orangeTex
                     : controller.AimIsSwarmNear ? _greenTex
                     : controller.AimIsStain ? _blueTex : _barBgTex;
-                float ds = (controller.AimIsPile || controller.AimIsSwarmNear || controller.AimIsStain) ? 8f : 5f;
+                float ds = (controller.AimDoor != null || controller.AimIsPile || controller.AimIsSwarmNear || controller.AimIsStain) ? 8f : 5f;
                 GUI.DrawTexture(new Rect(sw / 2f - ds / 2f, sh / 2f - ds / 2f, ds, ds), dot);
 
-                if (manager.Phase == GamePhase.Phase1_TrashRemoval && !manager.HasVacuumUnlocked && manager.HandBagCount > 0)
+                if (controller.AimDoor != null)
+                {
+                    Rect dp = new Rect(sw / 2f - 66, sh / 2f + 18, 132, 26);
+                    GUI.DrawTexture(dp, _darkTex);
+                    _centerStyle.normal.textColor = Color.white;
+                    GUI.Label(dp, controller.AimDoor.IsOpen ? "[F] 문 닫기" : "[F] 문 열기", _centerStyle);
+                }
+                else if (manager.Phase == GamePhase.Phase1_TrashRemoval && !manager.HasVacuumUnlocked && manager.HandBagCount > 0)
                 {
                     float fill = Mathf.Clamp01(manager.HandBagCount / (float)manager.HandBagCapacity);
                     DrawBar(new Rect(sw / 2f - 48, sh / 2f + 16, 96, 6), fill, manager.IsHandBagFull ? _goldTex : _greenTex);
@@ -225,9 +233,9 @@ namespace TrashCleaner3D
                 if (controller.ShowHelp)
                 {
                     GUI.DrawTexture(new Rect(14, sh - 92, 340, 78), _darkTex);
-                    GUI.Label(new Rect(24, sh - 86, 320, 18), "[좌클릭 꾹] 바닥 쓰레기 훑기 / 큰 봉투 터뜨리기", _smallLabelStyle);
+                    GUI.Label(new Rect(24, sh - 86, 320, 18), "[F] 현관문 열기/닫기 · [좌클릭] 하얀 테두리 쓰레기 줍기", _smallLabelStyle);
                     GUI.Label(new Rect(24, sh - 66, 320, 18), "[우클릭] 봉투 트럭 슛 · 문 밖 나가면 악취 환기", _smallLabelStyle);
-                    GUI.Label(new Rect(24, sh - 46, 320, 18), "[Tab] 스킬트리 & 보물 정산 · [F] 손전등 · [H] 닫기", _smallLabelStyle);
+                    GUI.Label(new Rect(24, sh - 46, 320, 18), "[Tab] 스킬트리 & 보물 정산 · [T] 손전등 · [H] 닫기", _smallLabelStyle);
                 }
             }
 
@@ -237,7 +245,7 @@ namespace TrashCleaner3D
                 Rect hr = new Rect(sw / 2f - 230, sh - 40, 460, 26);
                 GUI.DrawTexture(hr, _darkTex);
                 _centerStyle.normal.textColor = new Color(0.85f, 0.90f, 0.95f);
-                GUI.Label(hr, "[좌클릭 꾹] 훑기  ·  [우클릭] 트럭 슛  ·  [Tab] 강화  ·  [H] 도움말", _centerStyle);
+                GUI.Label(hr, "[F] 문 열기  ·  [좌클릭] 줍기/터뜨리기  ·  [우클릭] 슛  ·  [Tab] 강화", _centerStyle);
             }
             else if (!string.IsNullOrEmpty(manager.ToastMessage))
             {
