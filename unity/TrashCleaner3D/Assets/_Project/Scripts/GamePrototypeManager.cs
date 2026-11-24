@@ -5,151 +5,169 @@ namespace TrashCleaner3D
 {
     public enum GamePhase
     {
-        Phase1_TrashRemoval, // 1단계: 큰 봉투 퍽! 뜯기 → 작은 쓰레기 봉투에 담아 트럭 슛 (100% 철거)
-        Phase2_FloorMopping, // 2단계: 쓰레기 100% 후 바닥 얼룩 물티슈/대걸레 문질러 닦기
-        MindMapUpgrade,      // 턴 종료(스태미나 소진) → 마인드맵 스킬트리 강화
-        GachaStealPopup,     // 보물 발견! 화려한 가챠 연출 + 3.5초 좌(보관) vs 우(슈킹) 본능 선택
-        RoomCompleted        // 방 완청 결과 & 별점 리뷰
+        Phase1_TrashRemoval, // 1단계: 1,000+ 쓰레기 광역 훑기 + 큰 봉투 터뜨리기 → 트럭 슛 (100% 철거)
+        Phase2_FloorMopping, // 2단계: 바닥 얼룩 물티슈/대걸레 마우스 흔들어 닦기
+        MindMapUpgrade,      // [Tab] 언제든 여는 아이콘형 마인드맵 + 보물 보관/즉시 슈킹
+        RoomCompleted        // 방 100% 완청 정산 & 별점 리뷰
     }
 
     public enum TreasureRarity { Common, Rare, Legendary }
 
     [System.Serializable]
-    public struct GachaTreasureOffer
+    public class DiscoveredTreasure
     {
         public string itemName;
         public int value;
         public TreasureRarity rarity;
         public bool isDesignatedLostItem;
-        public int riskIcons; // 1~3 직관적 눈알 아이콘
+        public int riskLevel; // 1~3
+        public bool resolved;
+        public bool wasStolen;
     }
 
     /// <summary>
-    /// TrashCleaner3D v0.2 핵심 게임 매니저.
-    /// - 시간 타이머 대신 '행동 스태미나' 기반 짧은 턴 (스트레스 없이 25~35초마다 마인드맵 도파민!)
-    /// - 1단계 쓰레기 100% 철거(10% 이하 빛기둥 탐지) → 2단계 바닥 걸레질 피날레
-    /// - 큰 봉투 퍽! 터뜨리기 → 작은 쓰레기 스폰 + 보물 가챠 좌/우 3.5초 본능 선택
-    /// - 직관적 4단계 의심 눈알 + 문 밖 인기척 긴장감 이벤트
+    /// TrashCleaner3D v0.3 중앙 매니저:
+    /// - 강제 턴 종료·시간초 삭제! [Tab]으로 언제든 작은 아이콘 마인드맵 강화
+    /// - 상단 악취 바(0~100%): 25/50/75/100% 단계별 누적 디버프, 열린 현관문 밖(z>2.0) 나가면 시원하게 회복
+    /// - 1,000+ GPU-Instanced 쓰레기 동전줍기식 훑기 + 진공청소기 해방감
+    /// - [Tab] 즉시 슈킹 + 즉시 발동하는 재밌는 현장 해프닝(집주인 카톡 추궁 / 문 앞 이웃 10초 등장)
     /// </summary>
     public class GamePrototypeManager : MonoBehaviour
     {
         [Header("Scene References")]
         public FirstPersonCleanerController player;
+        public InstancedTrashSwarm trashSwarm;
         public Transform playerSpawnPoint;
         public Transform truckBedGoal;
         public Transform truckVisualTransform;
         public Light ceilingLight;
         public ProceduralSfx sfx;
-        public GameObject[] burstSmallTrashPrefabs;
         public GameObject thrownBagPrefab;
-        public Transform dynamicTrashParent;
 
         [Header("Room 01 Config")]
         public string roomTitle = "Stage 1 · 반지하 자취 원룸";
         public string clientMemo = "침대 밑 '엄마가 주신 금반지'만 꼭 지켜주세요!";
-        public int baseCleanReward = 220;
-        public int lostItemTip = 65;
+        public int baseCleanReward = 350;
+        public int lostItemTip = 90;
 
         public GamePhase Phase { get; private set; } = GamePhase.Phase1_TrashRemoval;
-        private GamePhase _phaseBeforePopup = GamePhase.Phase1_TrashRemoval;
-        private GamePhase _phaseBeforeMindMap = GamePhase.Phase1_TrashRemoval;
+        private GamePhase _phaseBeforeTab = GamePhase.Phase1_TrashRemoval;
 
-        public int TurnCount { get; private set; } = 1;
         public int Money { get; private set; } = 0;
 
-        // 행동 스태미나 (시간 제한 스트레스 없이, 행동할 때만 소모 → 짧은 턴 도파민!)
-        public float Stamina { get; private set; } = 24f;
-        public float MaxStamina => 24f + LvStamina * 12f;
+        // ===== 악취 누적 (0 ~ 100%, 문 밖 z > 2.0 나가면 2초 만에 회복!) =====
+        public float StenchPercent { get; private set; } = 0f;
+        public bool IsOutsideVentilating { get; private set; }
+        private float _coughTimer = 4f;
 
-        // 왼손 쓰레기봉투 적재량 (꽉 차면 트럭으로 슛!)
+        /// <summary>0:쾌적(<25), 1:25%(이속↓), 2:50%(+손놀림↓), 3:75%(+어질/기침), 4:100%(전체 강화!)</summary>
+        public int StenchStage => StenchPercent >= 99.5f ? 4 : StenchPercent >= 75f ? 3 : StenchPercent >= 50f ? 2 : StenchPercent >= 25f ? 1 : 0;
+        public float StenchMoveSpeedMult => StenchStage == 4 ? 0.65f : StenchStage >= 1 ? 0.85f : 1.0f;
+        public float StenchWorkSpeedMult => StenchStage == 4 ? 0.50f : StenchStage >= 2 ? 0.75f : 1.0f;
+        public float StenchGainPerSec => 2.8f * (1f - LvMask * 0.16f); // 마스크 Lv.5 시 80% 차단!
+
+        // ===== 왼손 쓰레기봉투 (1,000개 물량에 맞춘 넉넉한 적재량 + 청소기 해금 시 무한 압축!) =====
         public int HandBagCount { get; private set; } = 0;
-        public int HandBagCapacity => 6 + LvBagSize * 3;
-        public bool IsHandBagFull => HandBagCount >= HandBagCapacity;
+        public int HandBagCapacity => 60 + LvBagSize * 45;
+        public bool IsHandBagFull => !HasVacuumUnlocked && HandBagCount >= HandBagCapacity;
 
-        // ===== 마인드맵 12개 노드 레벨 =====
-        // 👊 주먹·파괴 갈래
-        public int LvFistPower { get; private set; }     // 0~5 (기본 1.0 → 4방 컷에서 1방 컷으로!)
-        public int LvShockwave { get; private set; }     // 0~3 (터뜨릴 때 주변 봉투 연쇄 충격)
+        // ===== 아이콘형 마인드맵 12개 노드 =====
+        // 👊 주먹·흡입 갈래
+        public int LvSweepRadius { get; private set; }   // 0~5 (초반부터 넓은 0.90m → 2.0m)
+        public int LvFistPower { get; private set; }     // 0~4 (큰 봉투 4방→1방 컷)
+        public bool HasVacuumUnlocked { get; private set; } // 진공청소기 (광역 폭풍 흡입 + 봉투 제한 해제!)
         public bool HasBeaconDetect { get; private set; }// 10% 이하 빛기둥 탐지
         // 🛍️ 봉투·트럭 갈래
-        public int LvBagSize { get; private set; }       // 0~4 (봉투 용량 6 → 18)
-        public int LvTruckSize { get; private set; }     // 0~3 (트럭 짐칸 확대 + 골인 보너스)
+        public int LvBagSize { get; private set; }       // 0~4 (봉투 용량 60 → 240)
+        public int LvTruckSize { get; private set; }     // 0~3 (트럭 짐칸 확대 + 슛 보너스)
         public bool HasTruckMagnet { get; private set; } // 대충 던져도 트럭으로 빨려 들어감
-        // 💚 체력·닦기 갈래
-        public int LvStamina { get; private set; }       // 0~5 (최대 스태미나 24 → 84)
-        public bool HasMopUnlocked { get; private set; } // 물티슈 → 시원한 T자 대걸레 구매!
-        public int LvScrubPower { get; private set; }    // 0~3 (얼룩 닦기 속도 업)
+        // 💚 마스크·걸레 갈래
+        public int LvMask { get; private set; }          // 0~5 (악취 누적 속도 대폭 완화)
+        public bool HasMopUnlocked { get; private set; } // 물티슈 → T자 대걸레
+        public int LvScrubPower { get; private set; }    // 0~3 (얼룩 닦기 고속화)
         // 😈 보물·슈킹 갈래
-        public int LvTreasureLuck { get; private set; }  // 0~3 (보물 등장 확률 & 가치 업)
-        public int LvPokerFace { get; private set; }     // 0~4 (의심도 상승 완화)
-        public int LvBlackMarket { get; private set; }   // 0~3 (슈킹 보물 금액 +25%/Lv)
+        public int LvTreasureLuck { get; private set; }  // 0~3 (보물 가치 & 발견 확률 업)
+        public int LvPokerFace { get; private set; }     // 0~4 (즉시 슈킹 해프닝·의심 확률 완화)
 
-        // Derived combat/clean stats
-        public float FistDamage => 1.0f + LvFistPower * 0.65f;
-        public float ScrubSpeedMult => (HasMopUnlocked ? 2.5f : 1.0f) * (1f + LvScrubPower * 0.45f);
-        public float TreasureValueMult => 1f + LvBlackMarket * 0.25f;
+        // Derived Gameplay Stats
+        public float SweepRadius => (HasVacuumUnlocked ? 1.75f : 0.90f) + LvSweepRadius * 0.22f;
+        public int SweepPerTick => HasVacuumUnlocked ? 14 : (3 + LvSweepRadius * 2);
+        public float FistDamage => (HasVacuumUnlocked ? 3.5f : 1.0f) + LvFistPower * 0.75f;
+        public float ScrubSpeedMult => (HasMopUnlocked ? 2.6f : 1.0f) * (1f + LvScrubPower * 0.45f);
 
-        // Phase 1 & Phase 2 Progress Tracking
-        private readonly List<CleanableTarget> _phase1Items = new List<CleanableTarget>();
+        // Progress Tracking (Big Piles + 1,000+ Instanced Swarm + Phase 2 Stains)
+        private readonly List<CleanableTarget> _bigPiles = new List<CleanableTarget>();
         private readonly List<CleanableTarget> _phase2Stains = new List<CleanableTarget>();
-        private readonly List<GameObject> _spawnedBurstObjects = new List<GameObject>();
 
-        public int Phase1Total { get; private set; }
-        public int Phase1Cleaned { get; private set; }
-        public int Phase2Total { get; private set; }
-        public int Phase2Cleaned { get; private set; }
+        public int Phase1Total => _bigPiles.Count * 10 + (trashSwarm != null ? trashSwarm.TotalCount : 0);
+        public int Phase1Cleaned
+        {
+            get
+            {
+                int pilesDone = 0;
+                foreach (var p in _bigPiles) if (p == null || p.IsCleaned) pilesDone++;
+                return pilesDone * 10 + (trashSwarm != null ? trashSwarm.CleanedCount : 0);
+            }
+        }
+        public float Phase1Percent => Phase1Total > 0 ? Mathf.Clamp01(Phase1Cleaned / (float)Phase1Total) * 100f : 100f;
 
-        public float Phase1Percent => Phase1Total > 0 ? (Phase1Cleaned / (float)Phase1Total) * 100f : 100f;
-        public float Phase2Percent => Phase2Total > 0 ? (Phase2Cleaned / (float)Phase2Total) * 100f : 100f;
-        public float OverallCleanPercent => Phase1Percent * 0.72f + Phase2Percent * 0.28f;
+        public int Phase2Total => _phase2Stains.Count;
+        public int Phase2Cleaned
+        {
+            get
+            {
+                int done = 0;
+                foreach (var s in _phase2Stains) if (s == null || s.IsCleaned) done++;
+                return done;
+            }
+        }
+        public float Phase2Percent => Phase2Total > 0 ? Mathf.Clamp01(Phase2Cleaned / (float)Phase2Total) * 100f : 100f;
+        public float OverallCleanPercent => Phase1Percent * 0.78f + Phase2Percent * 0.22f;
 
-        // Gacha Instinct Steal State (3.5s countdown!)
-        public GachaTreasureOffer CurrentOffer { get; private set; }
-        public float OfferTimer { get; private set; }
-        public const float OfferDuration = 3.5f;
-        private int _gachaRollIndex;
-        private bool _designatedOffered;
+        // ===== 발굴 보물함 + 즉시 슈킹 & 재밌는 현장 해프닝 =====
+        public readonly List<DiscoveredTreasure> DiscoveredTreasures = new List<DiscoveredTreasure>();
+        public int PendingTreasureCount
+        {
+            get
+            {
+                int c = 0;
+                foreach (var t in DiscoveredTreasures) if (!t.resolved) c++;
+                return c;
+            }
+        }
 
-        // 직관적 의심도 (내부 0~100, 화면엔 숫자 숨기고 4단계 눈알 표시!)
         private float _internalSuspicion;
         public int StolenCount { get; private set; }
         public int StolenValue { get; private set; }
         public bool StoleDesignatedItem { get; private set; }
 
-        // 문 밖 인기척(노크/발소리) 3.5초 긴장감 이벤트
-        public bool IsKnockAlertActive => _knockAlertTimer > 0f;
-        private float _knockAlertTimer;
-        private float _nextKnockCooldown = 16f;
+        // 즉시 슈킹 해프닝 2종!
+        public float RemoteWatchTimer { get; private set; }   // 📱 집주인 카톡 추궁 15초 원격 감시
+        public string LandlordMessage { get; private set; } = "";
+        public float DoorVisitorTimer { get; private set; }   // 🚪 문 앞 집주인/이웃 10초 등장 (슛 금지!)
 
-        // Settlement
+        public int SuspicionStage => StoleDesignatedItem || _internalSuspicion >= 60f ? 3
+            : _internalSuspicion >= 32f ? 2 : _internalSuspicion >= 12f ? 1 : 0;
+
+        // Settlement & Toast
         public bool LastWasCaught { get; private set; }
         public int LastStarRating { get; private set; } = 5;
         public string LastReviewText { get; private set; } = "";
         public string ToastMessage { get; private set; } = "";
         private float _toastTimer;
-
-        /// <summary>
-        /// 0: 평온(초록), 1: 의아함(노랑), 2: 의심!(주황), 3: 들통 직전!!(빨강)
-        /// </summary>
-        public int SuspicionStage
-        {
-            get
-            {
-                if (StoleDesignatedItem || _internalSuspicion >= 60f) return 3;
-                if (_internalSuspicion >= 32f) return 2;
-                if (_internalSuspicion >= 12f) return 1;
-                return 0;
-            }
-        }
+        private float _pitchCombo;
+        private float _pitchResetTimer;
+        private int _gachaIndex;
+        private bool _designatedFound;
 
         private static readonly (string name, int val, TreasureRarity rarity)[] TreasurePool =
         {
-            ("구겨진 5만 원권 뭉치", 85, TreasureRarity.Common),
-            ("무선 이어폰 케이스", 75, TreasureRarity.Common),
-            ("중고 휴대용 게임기", 130, TreasureRarity.Rare),
-            ("빈티지 금시계", 180, TreasureRarity.Rare),
-            ("숨겨둔 비상금 봉투", 240, TreasureRarity.Rare),
-            ("24K 미니 골드바", 380, TreasureRarity.Legendary)
+            ("구겨진 5만 원권 뭉치", 95, TreasureRarity.Common),
+            ("무선 이어폰 케이스", 85, TreasureRarity.Common),
+            ("중고 휴대용 게임기", 150, TreasureRarity.Rare),
+            ("빈티지 금시계", 210, TreasureRarity.Rare),
+            ("비상금 봉투", 260, TreasureRarity.Rare),
+            ("24K 미니 골드바", 420, TreasureRarity.Legendary)
         };
 
         private void Awake()
@@ -159,58 +177,21 @@ namespace TrashCleaner3D
 
         private void Start()
         {
-            CollectInitialTargets();
-            Stamina = MaxStamina;
+            if (trashSwarm == null) trashSwarm = FindFirstObjectByType<InstancedTrashSwarm>();
+            CollectTargets();
             UpdateAtmosphere();
             UpdateTruckVisualScale();
-            ShowToast("1단계: 큰 봉투를 주먹으로 퍽!퍽! 터뜨리고, 봉투를 채워 문 밖 트럭에 슛 하세요!");
+            ShowToast("좌클릭 꾹 + 시선 훑기로 바닥 쓰레기 1,000개를 동전처럼 쓸어 담으세요! ([Tab] 스킬트리)");
         }
 
-        private void CollectInitialTargets()
+        private void CollectTargets()
         {
-            _phase1Items.Clear();
+            _bigPiles.Clear();
             _phase2Stains.Clear();
             foreach (var c in FindObjectsByType<CleanableTarget>(FindObjectsSortMode.None))
             {
                 if (c.kind == CleanableKind.FloorStain) _phase2Stains.Add(c);
-                else _phase1Items.Add(c);
-            }
-            RecountProgress();
-        }
-
-        private void RecountProgress()
-        {
-            Phase1Total = _phase1Items.Count;
-            Phase1Cleaned = 0;
-            int p1Remaining = 0;
-            foreach (var c in _phase1Items)
-            {
-                if (c == null || c.IsCleaned) Phase1Cleaned++;
-                else p1Remaining++;
-            }
-
-            Phase2Total = _phase2Stains.Count;
-            Phase2Cleaned = 0;
-            int p2Remaining = 0;
-            foreach (var s in _phase2Stains)
-            {
-                if (s == null || s.IsCleaned) Phase2Cleaned++;
-                else p2Remaining++;
-            }
-
-            // 10% 이하(또는 3개 이하) 탐지 빛기둥 업그레이드 자동 발동!
-            bool showP1Beacon = HasBeaconDetect && Phase == GamePhase.Phase1_TrashRemoval &&
-                                p1Remaining > 0 && (p1Remaining <= 3 || Phase1Percent >= 90f);
-            foreach (var c in _phase1Items)
-            {
-                if (c != null) c.SetBeaconVisible(showP1Beacon && !c.IsCleaned);
-            }
-
-            bool showP2Beacon = HasBeaconDetect && Phase == GamePhase.Phase2_FloorMopping &&
-                                p2Remaining > 0 && p2Remaining <= 2;
-            foreach (var s in _phase2Stains)
-            {
-                if (s != null) s.SetBeaconVisible(showP2Beacon && !s.IsCleaned);
+                else if (c.kind == CleanableKind.TrashPile) _bigPiles.Add(c);
             }
         }
 
@@ -222,195 +203,251 @@ namespace TrashCleaner3D
                 if (_toastTimer <= 0f) ToastMessage = "";
             }
 
-            // 가챠 3.5초 본능 선택 타이머
-            if (Phase == GamePhase.GachaStealPopup)
+            if (_pitchResetTimer > 0f)
             {
-                OfferTimer -= Time.deltaTime;
-                if (OfferTimer <= 0f)
-                {
-                    ResolveGachaChoice(steal: false);
-                }
-                return;
+                _pitchResetTimer -= Time.deltaTime;
+                if (_pitchResetTimer <= 0f) _pitchCombo = 0f;
             }
 
             if (Phase != GamePhase.Phase1_TrashRemoval && Phase != GamePhase.Phase2_FloorMopping) return;
 
-            // 문 밖 인기척 긴장감 이벤트 (신호등식 3.5초 경고)
-            if (_knockAlertTimer > 0f)
+            // 즉시 슈킹 해프닝 타이머
+            if (RemoteWatchTimer > 0f)
             {
-                _knockAlertTimer -= Time.deltaTime;
+                RemoteWatchTimer -= Time.deltaTime;
+                if (RemoteWatchTimer <= 0f) LandlordMessage = "";
+            }
+            if (DoorVisitorTimer > 0f)
+            {
+                DoorVisitorTimer -= Time.deltaTime;
+                if (DoorVisitorTimer <= 0f) ShowToast("문 밖 집주인이 돌아갔습니다. 이제 다시 트럭에 슛 하세요!");
+            }
+
+            // 악취 바 누적 vs 열린 현관문 밖(z > 2.0f) 환기 회복!
+            if (player != null)
+            {
+                IsOutsideVentilating = player.transform.position.z > 2.0f;
+                if (IsOutsideVentilating)
+                {
+                    if (StenchPercent > 0.1f)
+                    {
+                        StenchPercent = Mathf.Max(0f, StenchPercent - 48f * Time.deltaTime);
+                    }
+                }
+                else
+                {
+                    float roomFilth = Mathf.Lerp(1.0f, 0.25f, OverallCleanPercent / 100f);
+                    StenchPercent = Mathf.Min(100f, StenchPercent + StenchGainPerSec * roomFilth * Time.deltaTime);
+                }
+            }
+
+            // 75%+ 어질/숨참 기침 효과음
+            if (StenchStage >= 3 && !IsOutsideVentilating)
+            {
+                _coughTimer -= Time.deltaTime;
+                if (_coughTimer <= 0f)
+                {
+                    _coughTimer = StenchStage == 4 ? 2.6f : 4.5f;
+                    sfx.PlayScrub();
+                }
+            }
+
+            // 10% 이하 탐지 빛기둥 (큰 봉투 & 얼룩)
+            bool p1Beacon = HasBeaconDetect && Phase == GamePhase.Phase1_TrashRemoval && Phase1Percent >= 90f;
+            foreach (var p in _bigPiles) if (p != null) p.SetBeaconVisible(p1Beacon && !p.IsCleaned);
+            bool p2Beacon = HasBeaconDetect && Phase == GamePhase.Phase2_FloorMopping && (Phase2Total - Phase2Cleaned) <= 2;
+            foreach (var s in _phase2Stains) if (s != null) s.SetBeaconVisible(p2Beacon && !s.IsCleaned);
+        }
+
+        public void OnInstancedTrashCollected(int reward)
+        {
+            Money += reward;
+            if (!HasVacuumUnlocked)
+            {
+                HandBagCount = Mathf.Min(HandBagCapacity, HandBagCount + 1);
+            }
+
+            // 동전 줍기 음정 상승 피드백!
+            _pitchResetTimer = 0.35f;
+            _pitchCombo = Mathf.Min(1.65f, _pitchCombo + 0.015f);
+            if (Time.frameCount % 2 == 0) sfx.PlayPop(0.85f + _pitchCombo * 0.45f);
+
+            UpdateAtmosphere();
+            CheckPhase1Complete();
+        }
+
+        public void OnBigPileBurst(CleanableTarget pile)
+        {
+            Money += pile.rewardMoney;
+            sfx.PlayPop(0.68f);
+
+            // 큰 봉투가 퍽! 터지면 1,000+ GPU 스웜으로 28개 작은 쓰레기가 분수처럼 쏟아짐!
+            if (trashSwarm != null)
+            {
+                trashSwarm.SpawnBurstFountain(pile.transform.position, 28);
+            }
+
+            // 보물 발견 (현장 팝업 없이 발견 보물함에 자동 저장 + 구석 배너!)
+            float chance = 0.55f + LvTreasureLuck * 0.12f;
+            if (Random.value < chance || _gachaIndex == 1)
+            {
+                DiscoverTreasureSilently();
+            }
+            _gachaIndex++;
+
+            UpdateAtmosphere();
+            CheckPhase1Complete();
+        }
+
+        private void DiscoverTreasureSilently()
+        {
+            DiscoveredTreasure item;
+            if (!_designatedFound && _gachaIndex >= 2)
+            {
+                _designatedFound = true;
+                item = new DiscoveredTreasure
+                {
+                    itemName = "엄마가 주신 금반지 (지정 분실물!)",
+                    value = 280,
+                    rarity = TreasureRarity.Legendary,
+                    isDesignatedLostItem = true,
+                    riskLevel = 3
+                };
             }
             else
             {
-                _nextKnockCooldown -= Time.deltaTime;
-                if (_nextKnockCooldown <= 0f)
+                int maxIdx = Mathf.Min(TreasurePool.Length, 3 + LvTreasureLuck);
+                var pick = TreasurePool[Random.Range(0, maxIdx)];
+                item = new DiscoveredTreasure
                 {
-                    _knockAlertTimer = 3.5f;
-                    _nextKnockCooldown = Random.Range(18f, 28f);
-                    sfx.PlayAlert();
-                }
+                    itemName = pick.name,
+                    value = Mathf.RoundToInt(pick.val * (1f + LvTreasureLuck * 0.2f)),
+                    rarity = pick.rarity,
+                    isDesignatedLostItem = false,
+                    riskLevel = pick.rarity == TreasureRarity.Legendary ? 3 : pick.rarity == TreasureRarity.Rare ? 2 : 1
+                };
+            }
+
+            DiscoveredTreasures.Add(item);
+            sfx.PlayChime();
+            ShowToast($"✨ 보물 발굴: [{item.itemName}]! [Tab] 마인드맵에서 보관/슈킹 결정 가능");
+        }
+
+        /// <summary>
+        /// [Tab]에서 즉시 보관 or 즉시 슈킹 (즉시 슈킹 시 재밌는 현장 해프닝 확률 발동!)
+        /// </summary>
+        public void ResolveTreasure(DiscoveredTreasure item, bool steal)
+        {
+            if (item == null || item.resolved) return;
+            item.resolved = true;
+            item.wasStolen = steal;
+
+            if (!steal)
+            {
+                int tip = item.isDesignatedLostItem ? lostItemTip : Mathf.Max(20, item.value / 5);
+                Money += tip;
+                sfx.PlayChime();
+                ShowToast($"[정직 보관] {item.itemName} 반납 완료! 팁 +${tip}");
+                return;
+            }
+
+            // 즉시 슈킹! 돈은 바로 입금 (성장 쾌감 유지)
+            StolenCount++;
+            StolenValue += item.value;
+            Money += item.value;
+            sfx.PlaySteal();
+
+            if (item.isDesignatedLostItem)
+            {
+                StoleDesignatedItem = true;
+                _internalSuspicion = 100f;
+                TriggerImmediateStealEvent(true);
+                return;
+            }
+
+            float addSusp = item.riskLevel * 12f + StolenCount * 5f - LvPokerFace * 4f;
+            if (RemoteWatchTimer > 0f) addSusp *= 1.8f; // 원격 감시 중 추가 슈킹 시 의심 급상승!
+            _internalSuspicion = Mathf.Clamp(_internalSuspicion + Mathf.Max(5f, addSusp), 0f, 95f);
+
+            // 즉시 디메리트 해프닝 확률 체크 (돈 뺏기 대신 재밌는 실시간 긴장감!)
+            float eventChance = Mathf.Clamp(18f + item.riskLevel * 14f + StolenCount * 8f - LvPokerFace * 8f, 10f, 85f);
+            if (Random.Range(0f, 100f) < eventChance)
+            {
+                TriggerImmediateStealEvent(false);
+            }
+            else
+            {
+                ShowToast($"[몰래 슈킹 성공!] +${item.value} 즉시 입금! 마인드맵 강화에 쓰세요.");
             }
         }
 
-        public void ConsumeStamina(float amount)
+        private void TriggerImmediateStealEvent(bool severe)
         {
-            if (Phase != GamePhase.Phase1_TrashRemoval && Phase != GamePhase.Phase2_FloorMopping) return;
-            Stamina -= amount;
-            if (Stamina <= 0f)
+            sfx.PlayAlert();
+            if (severe || Random.value < 0.5f)
             {
-                Stamina = 0f;
-                OpenMindMap("체력이 바닥났습니다! 번 돈으로 마인드맵을 강화하고 바로 재투입하세요!");
+                RemoteWatchTimer = 15f;
+                LandlordMessage = severe
+                    ? "📱 집주인 카톡: \"사장님!! 침대 밑 반지 케이스 알람 떴는데 뭐 하세요?!\""
+                    : "📱 집주인 카톡: \"사장님, 방금 홈캠 모션 감지 떴는데 귀중품 건드리셨나요??\"";
+                ShowToast("⚠ 집주인 카톡 추궁! 15초간 원격 감시 발동 (추가 슈킹 주의!)");
             }
-        }
-
-        public void OnTrashPileBurst(CleanableTarget pile)
-        {
-            Money += pile.rewardMoney;
-            sfx.PlayPop(0.75f);
-
-            // 주변 봉투 충격파 업그레이드
-            if (LvShockwave > 0)
+            else
             {
-                float radius = 1.1f + LvShockwave * 0.45f;
-                foreach (var other in _phase1Items)
-                {
-                    if (other != null && other != pile && !other.IsCleaned && other.kind == CleanableKind.TrashPile)
-                    {
-                        if (Vector3.Distance(pile.transform.position, other.transform.position) <= radius)
-                        {
-                            if (other.ApplyCleanDamage(FistDamage * 0.45f * LvShockwave, null))
-                            {
-                                OnTrashPileBurst(other);
-                            }
-                        }
-                    }
-                }
+                DoorVisitorTimer = 10f;
+                ShowToast("🚪 똑똑! 집주인이 문 앞 복도에 10초간 나타났습니다! (10초간 문 밖 슛 금지!)");
             }
-
-            // 작은 쓰레기 2~3개 통통 튀어나오기 (0.45초 포물선 후 물리 OFF!)
-            SpawnBurstSmallTrash(pile.transform.position, pile.burstSpawnCount);
-
-            RecountProgress();
-            UpdateAtmosphere();
-
-            // 보물 가챠 판정 (초반에도 재밌게 자주 터지도록 40% + 행운 업글당 +12%!)
-            float chance = 0.42f + LvTreasureLuck * 0.12f;
-            if (pile.containsTreasureChance && (Random.value < chance || _gachaRollIndex == 1))
-            {
-                TriggerGachaOffer();
-            }
-            _gachaRollIndex++;
-
-            CheckPhase1Completion();
-        }
-
-        private void SpawnBurstSmallTrash(Vector3 origin, int count)
-        {
-            if (burstSmallTrashPrefabs == null || burstSmallTrashPrefabs.Length == 0) return;
-            for (int i = 0; i < count; i++)
-            {
-                GameObject src = burstSmallTrashPrefabs[Random.Range(0, burstSmallTrashPrefabs.Length)];
-                if (src == null) continue;
-                GameObject clone = Instantiate(src, origin + Vector3.up * 0.25f, Quaternion.Euler(0, Random.Range(0, 360f), 0), dynamicTrashParent);
-                clone.SetActive(true);
-                var ct = clone.GetComponent<CleanableTarget>();
-                if (ct != null)
-                {
-                    // 방 경계(-2.0..2.0, -1.65..1.65) 안으로만 착지시켜 100% 도달 보장!
-                    Vector2 offset = Random.insideUnitCircle.normalized * Random.Range(0.45f, 0.95f);
-                    Vector3 land = new Vector3(
-                        Mathf.Clamp(origin.x + offset.x, -1.85f, 1.85f),
-                        0.02f,
-                        Mathf.Clamp(origin.z + offset.y, -1.55f, 1.55f)
-                    );
-                    ct.StartPopOut(origin + Vector3.up * 0.35f, land);
-                    _phase1Items.Add(ct);
-                }
-                _spawnedBurstObjects.Add(clone);
-            }
-        }
-
-        public void OnSmallTrashPicked(CleanableTarget item)
-        {
-            HandBagCount = Mathf.Min(HandBagCapacity, HandBagCount + item.bagCost);
-            Money += item.rewardMoney;
-            sfx.PlayPop(Mathf.Lerp(0.9f, 1.45f, HandBagCount / (float)HandBagCapacity));
-            RecountProgress();
-            UpdateAtmosphere();
-
-            if (IsHandBagFull)
-            {
-                ShowToast("봉투 꽉 참! 열린 현관문 밖 트럭 짐칸으로 [우클릭] 농구 슛!");
-            }
-
-            CheckPhase1Completion();
         }
 
         public void ThrowHandBag(Vector3 spawnPos, Vector3 forwardDir)
         {
             if (HandBagCount <= 0) return;
 
+            if (DoorVisitorTimer > 0f)
+            {
+                sfx.PlayAlert();
+                ShowToast("🚪 지금 문 밖에 집주인이 보고 있어서 던질 수 없습니다! 잠시 기다리세요!");
+                return;
+            }
+
             int count = HandBagCount;
             HandBagCount = 0;
             sfx.PlayPop(0.65f);
 
-            GameObject bagObj;
-            if (thrownBagPrefab != null)
-            {
-                bagObj = Instantiate(thrownBagPrefab, spawnPos, Quaternion.identity);
-                bagObj.SetActive(true);
-            }
-            else
-            {
-                bagObj = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                bagObj.transform.position = spawnPos;
-                bagObj.transform.localScale = Vector3.one * 0.36f;
-            }
+            GameObject bagObj = thrownBagPrefab != null
+                ? Instantiate(thrownBagPrefab, spawnPos, Quaternion.identity)
+                : GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            bagObj.SetActive(true);
+            bagObj.transform.position = spawnPos;
 
             var rb = bagObj.GetComponent<Rigidbody>();
             if (rb == null) rb = bagObj.AddComponent<Rigidbody>();
             rb.mass = 1.2f;
 
             var proj = bagObj.AddComponent<ThrownTrashBag>();
-            Vector3 launchVel = forwardDir.normalized * 7.8f + Vector3.up * 3.4f;
-            proj.Launch(launchVel, spawnPos, truckBedGoal, this, count, HasTruckMagnet);
+            proj.Launch(forwardDir.normalized * 8.2f + Vector3.up * 3.4f, spawnPos, truckBedGoal, this, count, HasTruckMagnet);
         }
 
         public void OnBagScored(int count, float distance, bool directHit)
         {
-            int basePay = count * 5;
-            int truckBonus = LvTruckSize * 12;
-            int longShot = (directHit && distance >= 3.8f) ? 25 : (directHit ? 12 : 0);
-            int total = basePay + truckBonus + longShot;
-            Money += total;
-
+            int bonus = Mathf.RoundToInt(count * 0.6f) + LvTruckSize * 15 + (directHit && distance >= 3.8f ? 30 : directHit ? 15 : 0);
+            Money += bonus;
             if (directHit)
             {
                 sfx.PlayChime();
-                string label = distance >= 3.8f ? "3점 롱 슛 골인!!" : "나이스 슛 골인!";
-                ShowToast($"{label} 트럭 수거 완료 +${total}");
+                ShowToast(distance >= 3.8f ? $"🏀 3점 롱 슛 골인!! 트럭 보너스 +${bonus}" : $"🏀 나이스 슛! 트럭 보너스 +${bonus}");
             }
-            else
-            {
-                ShowToast($"트럭 자동 회수 +${total}");
-            }
-
-            CheckPhase1Completion();
+            CheckPhase1Complete();
         }
 
-        private void CheckPhase1Completion()
+        private void CheckPhase1Complete()
         {
             if (Phase != GamePhase.Phase1_TrashRemoval) return;
-            if (Phase1Cleaned >= Phase1Total && Phase1Total > 0 && HandBagCount == 0)
+            if (Phase1Cleaned >= Phase1Total && Phase1Total > 0 && (HandBagCount == 0 || HasVacuumUnlocked))
             {
                 Phase = GamePhase.Phase2_FloorMopping;
                 sfx.PlayFanfare();
-                RecountProgress();
-                ShowToast("1단계 쓰레기 100% 철거 완료! 이제 2단계: 바닥 얼룩을 마우스로 쓱쓱 문질러 닦으세요!");
-            }
-            else if (Phase1Cleaned >= Phase1Total && HandBagCount > 0)
-            {
-                ShowToast("마지막 봉투를 현관문 밖 트럭에 던져 넣으면 2단계 걸레질로 넘어갑니다!");
+                ShowToast("🎉 1단계 쓰레기 100% 철거 완료! 이제 2단계: 마우스를 흔들어 바닥 얼룩을 닦으세요!");
             }
         }
 
@@ -418,161 +455,91 @@ namespace TrashCleaner3D
         {
             Money += stain.rewardMoney;
             sfx.PlayChime();
-            RecountProgress();
             UpdateAtmosphere();
-
             if (Phase == GamePhase.Phase2_FloorMopping && Phase2Cleaned >= Phase2Total && Phase2Total > 0)
             {
                 FinishRoomComplete();
             }
         }
 
-        private void TriggerGachaOffer()
+        public void ToggleMindMap()
         {
-            _phaseBeforePopup = Phase;
-            Phase = GamePhase.GachaStealPopup;
-            OfferTimer = OfferDuration;
-            UnlockCursor(true);
-
-            // 3번째 보물쯤에 의뢰인 지정 분실물(엄마 금반지) 한 번 출현시켜 양심 밀당!
-            if (!_designatedOffered && _gachaRollIndex >= 2)
+            if (Phase == GamePhase.RoomCompleted) return;
+            if (Phase == GamePhase.MindMapUpgrade)
             {
-                _designatedOffered = true;
-                CurrentOffer = new GachaTreasureOffer
-                {
-                    itemName = "엄마가 주신 금반지 (의뢰인 분실물!)",
-                    value = 260,
-                    rarity = TreasureRarity.Legendary,
-                    isDesignatedLostItem = true,
-                    riskIcons = 3
-                };
-                sfx.PlayFanfare();
-                return;
-            }
-
-            int maxIdx = Mathf.Min(TreasurePool.Length, 3 + LvTreasureLuck);
-            var pick = TreasurePool[Random.Range(0, maxIdx)];
-            int finalVal = Mathf.RoundToInt(pick.val * TreasureValueMult);
-            int risk = pick.rarity == TreasureRarity.Legendary ? 3 : pick.rarity == TreasureRarity.Rare ? 2 : 1;
-
-            CurrentOffer = new GachaTreasureOffer
-            {
-                itemName = pick.name,
-                value = finalVal,
-                rarity = pick.rarity,
-                isDesignatedLostItem = false,
-                riskIcons = risk
-            };
-
-            if (pick.rarity == TreasureRarity.Legendary) sfx.PlayFanfare();
-            else sfx.PlayChime();
-        }
-
-        public void ResolveGachaChoice(bool steal)
-        {
-            if (Phase != GamePhase.GachaStealPopup) return;
-
-            if (!steal)
-            {
-                int tip = CurrentOffer.isDesignatedLostItem ? lostItemTip : Mathf.Max(15, CurrentOffer.value / 6);
-                Money += tip;
-                sfx.PlayChime();
-                ShowToast($"[정직 보관] {CurrentOffer.itemName} 선반에 올려둠! 팁 +${tip}");
+                Phase = _phaseBeforeTab;
+                UnlockCursor(false);
             }
             else
             {
-                StolenCount++;
-                StolenValue += CurrentOffer.value;
-                Money += CurrentOffer.value;
-
-                if (CurrentOffer.isDesignatedLostItem)
-                {
-                    StoleDesignatedItem = true;
-                    _internalSuspicion = 100f;
-                    sfx.PlayAlert();
-                    ShowToast($"의뢰인 지정 분실물 슈킹!! +${CurrentOffer.value} (집주인이 무조건 눈치챕니다!)");
-                }
-                else
-                {
-                    float baseAdd = CurrentOffer.riskIcons * 11f + StolenCount * 4.5f;
-                    float knockBonus = IsKnockAlertActive ? 22f : 0f;
-                    float pokerCut = LvPokerFace * 4.5f;
-                    _internalSuspicion = Mathf.Clamp(_internalSuspicion + Mathf.Max(5f, baseAdd + knockBonus - pokerCut), 0f, 95f);
-                    sfx.PlaySteal();
-                    ShowToast(IsKnockAlertActive
-                        ? $"문 밖 인기척 중에 슈킹! +${CurrentOffer.value} (의심도 급상승!!)"
-                        : $"몰래 슈킹 성공! +${CurrentOffer.value}");
-                }
+                _phaseBeforeTab = Phase;
+                Phase = GamePhase.MindMapUpgrade;
+                UnlockCursor(true);
             }
-
-            Phase = _phaseBeforePopup;
-            UnlockCursor(false);
         }
 
-        public void OpenMindMap(string reasonToast = "")
-        {
-            if (Phase != GamePhase.Phase1_TrashRemoval && Phase != GamePhase.Phase2_FloorMopping) return;
-            _phaseBeforeMindMap = Phase;
-            Phase = GamePhase.MindMapUpgrade;
-            UnlockCursor(true);
-            if (!string.IsNullOrEmpty(reasonToast)) ShowToast(reasonToast);
-        }
-
-        public void ResumeNextTurnFromMindMap()
-        {
-            TurnCount++;
-            Stamina = MaxStamina;
-            if (player != null && playerSpawnPoint != null)
-            {
-                player.TeleportTo(playerSpawnPoint.position, playerSpawnPoint.rotation);
-            }
-            Phase = _phaseBeforeMindMap;
-            RecountProgress();
-            UnlockCursor(false);
-            ShowToast($"{TurnCount}턴 투입! (이전 청소 진행도 그대로 유지)");
-        }
-
-        // ===== 마인드맵 노드 구매 함수 (12종) =====
-        public int CostFist => Mathf.RoundToInt(25 * Mathf.Pow(1.75f, LvFistPower));
-        public int CostShockwave => Mathf.RoundToInt(90 * Mathf.Pow(2.0f, LvShockwave));
-        public int CostBeacon => 60;
-        public int CostBagSize => Mathf.RoundToInt(30 * Mathf.Pow(1.8f, LvBagSize));
-        public int CostTruckSize => Mathf.RoundToInt(70 * Mathf.Pow(1.9f, LvTruckSize));
-        public int CostTruckMagnet => 180;
-        public int CostStamina => Mathf.RoundToInt(25 * Mathf.Pow(1.75f, LvStamina));
-        public int CostMop => 75;
+        // ===== 마인드맵 12개 노드 가격 & 구매 =====
+        public int CostSweep => Mathf.RoundToInt(35 * Mathf.Pow(1.75f, LvSweepRadius));
+        public int CostFist => Mathf.RoundToInt(40 * Mathf.Pow(1.8f, LvFistPower));
+        public int CostVacuum => 280;
+        public int CostBeacon => 70;
+        public int CostBag => Mathf.RoundToInt(40 * Mathf.Pow(1.8f, LvBagSize));
+        public int CostTruck => Mathf.RoundToInt(80 * Mathf.Pow(1.9f, LvTruckSize));
+        public int CostMagnet => 180;
+        public int CostMask => Mathf.RoundToInt(35 * Mathf.Pow(1.75f, LvMask));
+        public int CostMop => 85;
         public int CostScrub => Mathf.RoundToInt(110 * Mathf.Pow(1.85f, LvScrubPower));
-        public int CostLuck => Mathf.RoundToInt(55 * Mathf.Pow(1.85f, LvTreasureLuck));
-        public int CostPoker => Mathf.RoundToInt(80 * Mathf.Pow(1.85f, LvPokerFace));
-        public int CostMarket => Mathf.RoundToInt(130 * Mathf.Pow(1.9f, LvBlackMarket));
+        public int CostLuck => Mathf.RoundToInt(65 * Mathf.Pow(1.85f, LvTreasureLuck));
+        public int CostPoker => Mathf.RoundToInt(75 * Mathf.Pow(1.85f, LvPokerFace));
+
+        public int CountAffordableUpgrades()
+        {
+            int c = 0;
+            if (LvSweepRadius < 5 && Money >= CostSweep) c++;
+            if (LvFistPower < 4 && Money >= CostFist) c++;
+            if (LvSweepRadius >= 2 && !HasVacuumUnlocked && Money >= CostVacuum) c++;
+            if (LvFistPower >= 1 && !HasBeaconDetect && Money >= CostBeacon) c++;
+            if (LvBagSize < 4 && Money >= CostBag) c++;
+            if (LvBagSize >= 1 && LvTruckSize < 3 && Money >= CostTruck) c++;
+            if (LvTruckSize >= 1 && !HasTruckMagnet && Money >= CostMagnet) c++;
+            if (LvMask < 5 && Money >= CostMask) c++;
+            if (LvMask >= 1 && !HasMopUnlocked && Money >= CostMop) c++;
+            if (HasMopUnlocked && LvScrubPower < 3 && Money >= CostScrub) c++;
+            if (LvTreasureLuck < 3 && Money >= CostLuck) c++;
+            if (LvTreasureLuck >= 1 && LvPokerFace < 4 && Money >= CostPoker) c++;
+            return c;
+        }
 
         public bool BuyNode(string id)
         {
             switch (id)
             {
+                case "sweep":
+                    if (LvSweepRadius >= 5 || Money < CostSweep) return false;
+                    Money -= CostSweep; LvSweepRadius++; break;
                 case "fist":
-                    if (LvFistPower >= 5 || Money < CostFist) return false;
+                    if (LvFistPower >= 4 || Money < CostFist) return false;
                     Money -= CostFist; LvFistPower++; break;
-                case "shock":
-                    if (LvFistPower < 1 || LvShockwave >= 3 || Money < CostShockwave) return false;
-                    Money -= CostShockwave; LvShockwave++; break;
+                case "vacuum":
+                    if (LvSweepRadius < 2 || HasVacuumUnlocked || Money < CostVacuum) return false;
+                    Money -= CostVacuum; HasVacuumUnlocked = true; HandBagCount = 0; break;
                 case "beacon":
                     if (LvFistPower < 1 || HasBeaconDetect || Money < CostBeacon) return false;
                     Money -= CostBeacon; HasBeaconDetect = true; break;
                 case "bag":
-                    if (LvBagSize >= 4 || Money < CostBagSize) return false;
-                    Money -= CostBagSize; LvBagSize++; break;
+                    if (LvBagSize >= 4 || Money < CostBag) return false;
+                    Money -= CostBag; LvBagSize++; break;
                 case "truck":
-                    if (LvBagSize < 1 || LvTruckSize >= 3 || Money < CostTruckSize) return false;
-                    Money -= CostTruckSize; LvTruckSize++; UpdateTruckVisualScale(); break;
+                    if (LvBagSize < 1 || LvTruckSize >= 3 || Money < CostTruck) return false;
+                    Money -= CostTruck; LvTruckSize++; UpdateTruckVisualScale(); break;
                 case "magnet":
-                    if (LvTruckSize < 1 || HasTruckMagnet || Money < CostTruckMagnet) return false;
-                    Money -= CostTruckMagnet; HasTruckMagnet = true; break;
-                case "stamina":
-                    if (LvStamina >= 5 || Money < CostStamina) return false;
-                    Money -= CostStamina; LvStamina++; break;
+                    if (LvTruckSize < 1 || HasTruckMagnet || Money < CostMagnet) return false;
+                    Money -= CostMagnet; HasTruckMagnet = true; break;
+                case "mask":
+                    if (LvMask >= 5 || Money < CostMask) return false;
+                    Money -= CostMask; LvMask++; break;
                 case "mop":
-                    if (LvStamina < 1 || HasMopUnlocked || Money < CostMop) return false;
+                    if (LvMask < 1 || HasMopUnlocked || Money < CostMop) return false;
                     Money -= CostMop; HasMopUnlocked = true; break;
                 case "scrub":
                     if (!HasMopUnlocked || LvScrubPower >= 3 || Money < CostScrub) return false;
@@ -583,9 +550,6 @@ namespace TrashCleaner3D
                 case "poker":
                     if (LvTreasureLuck < 1 || LvPokerFace >= 4 || Money < CostPoker) return false;
                     Money -= CostPoker; LvPokerFace++; break;
-                case "market":
-                    if (LvTreasureLuck < 1 || LvBlackMarket >= 3 || Money < CostMarket) return false;
-                    Money -= CostMarket; LvBlackMarket++; break;
                 default: return false;
             }
             sfx.PlayUpgrade();
@@ -601,34 +565,38 @@ namespace TrashCleaner3D
 
         private void FinishRoomComplete()
         {
+            // 미결정 보물이 남아있으면 자동 정직 반납 처리
+            foreach (var t in DiscoveredTreasures)
+            {
+                if (!t.resolved) ResolveTreasure(t, false);
+            }
+
             float effectiveChance = StoleDesignatedItem ? 100f
                 : StolenCount == 0 ? 0f
                 : (StolenCount >= 4 ? Mathf.Max(_internalSuspicion, 25f) : Mathf.Clamp(_internalSuspicion, 5f, 95f));
 
             LastWasCaught = StolenCount > 0 && Random.Range(0f, 100f) < effectiveChance;
-
             if (LastWasCaught)
             {
-                int penalty = StolenValue + Mathf.RoundToInt(baseCleanReward * 0.5f);
-                Money = Mathf.Max(0, Money - penalty);
+                Money += Mathf.RoundToInt(baseCleanReward * 0.5f); // 업글·돈 안 뺏고 보너스 수당만 50% 삭감!
                 LastStarRating = 1;
                 LastReviewText = StoleDesignatedItem
-                    ? "\"방은 새 집 됐는데 엄마 유품 금반지 어디 갔어요?! 바로 경찰서 갑니다.\""
-                    : "\"청소는 잘해주셨는데 집 물건이 너무 많이 사라졌네요? 당장 신고합니다.\"";
+                    ? "\"방은 새 집 됐는데 엄마 금반지가 없어졌어요! 악덕 업체 신고합니다 ★☆☆☆☆\""
+                    : "\"청소는 잘해주셨는데 집 물건이 너무 많이 사라졌네요? 평판 바닥 찍어드립니다 ★☆☆☆☆\"";
                 sfx.PlayAlert();
             }
             else if (StolenCount == 0)
             {
                 Money += baseCleanReward;
                 LastStarRating = 5;
-                LastReviewText = "\"와 진짜 새 집이 됐어요!! 물건도 다 지켜주시고 최고예요 ㅠㅠ\"";
+                LastReviewText = "\"와 쓰레기 1,000개가 싹 사라졌어요!! 물건도 다 지켜주시고 최고예요 ★★★★★\"";
                 sfx.PlayFanfare();
             }
             else
             {
                 Money += baseCleanReward;
                 LastStarRating = 3;
-                LastReviewText = "\"방이 엄청 깨끗해졌네요! 근데 원래 여기 있던 내 비상금이 어디 갔지...?\"";
+                LastReviewText = "\"완전 새 집 됐네요! 근데 원래 여기 있던 내 비상금이 어디 갔지...? ★★★☆☆\"";
                 sfx.PlayFanfare();
             }
 
@@ -638,43 +606,39 @@ namespace TrashCleaner3D
 
         public void ReplayRoomKeepUpgrades()
         {
-            foreach (var obj in _spawnedBurstObjects)
-            {
-                if (obj != null) Destroy(obj);
-            }
-            _spawnedBurstObjects.Clear();
+            foreach (var p in _bigPiles) if (p != null) p.ResetForNewRun();
+            foreach (var s in _phase2Stains) if (s != null) s.ResetForNewRun();
+            if (trashSwarm != null) trashSwarm.ResetSwarm(1000);
 
-            _phase1Items.RemoveAll(c => c == null);
-            foreach (var c in _phase1Items) c.ResetForNewRun();
-            foreach (var s in _phase2Stains) s.ResetForNewRun();
-
+            DiscoveredTreasures.Clear();
             HandBagCount = 0;
+            StenchPercent = 0f;
             StolenCount = 0;
             StolenValue = 0;
             StoleDesignatedItem = false;
             _internalSuspicion = 0f;
-            _gachaRollIndex = 0;
-            _designatedOffered = false;
-            TurnCount = 1;
-            Stamina = MaxStamina;
+            RemoteWatchTimer = 0f;
+            DoorVisitorTimer = 0f;
+            LandlordMessage = "";
+            _gachaIndex = 0;
+            _designatedFound = false;
             Phase = GamePhase.Phase1_TrashRemoval;
 
-            RecountProgress();
             UpdateAtmosphere();
             if (player != null && playerSpawnPoint != null)
             {
                 player.TeleportTo(playerSpawnPoint.position, playerSpawnPoint.rotation);
             }
             UnlockCursor(false);
-            ShowToast("단골 원룸 재발 의뢰 시작! 강화된 능력으로 시원하게 쓸어버리세요!");
+            ShowToast("단골 원룸 재발 의뢰! 강화된 장비로 1,000개 쓰레기를 싹쓸이하세요!");
         }
 
         private void UpdateAtmosphere()
         {
             float t = Mathf.Clamp01(OverallCleanPercent / 100f);
-            RenderSettings.fogDensity = Mathf.Lerp(0.038f, 0.003f, t);
+            RenderSettings.fogDensity = Mathf.Lerp(0.036f, 0.003f, t);
             RenderSettings.fogColor = Color.Lerp(new Color(0.18f, 0.16f, 0.12f), new Color(0.80f, 0.83f, 0.85f), t);
-            RenderSettings.ambientLight = Color.Lerp(new Color(0.25f, 0.23f, 0.19f), new Color(0.62f, 0.63f, 0.64f), t);
+            RenderSettings.ambientLight = Color.Lerp(new Color(0.26f, 0.24f, 0.20f), new Color(0.62f, 0.63f, 0.64f), t);
             if (ceilingLight != null)
             {
                 ceilingLight.color = Color.Lerp(new Color(1.0f, 0.91f, 0.74f), new Color(1.0f, 0.99f, 0.96f), t);
@@ -685,7 +649,7 @@ namespace TrashCleaner3D
         public void ShowToast(string msg)
         {
             ToastMessage = msg;
-            _toastTimer = 3.6f;
+            _toastTimer = 3.5f;
         }
 
         private static void UnlockCursor(bool unlock)
