@@ -16,15 +16,50 @@ namespace TrashCleaner3D.Editor
     /// - 2단계 바닥 얼룩 6개 (물티슈 → 대걸레) + 진공청소기 1인칭 비주얼 포함
     /// 메뉴: TrashCleaner > Build Room 01 Playable Prototype
     /// </summary>
+    [InitializeOnLoad]
     public static class RoomToneTestBuilder
     {
         private const string ArtRoot = "Assets/_Project/Art";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
+        private const int SceneBuildVersion = 31;
+        private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
+
+        static RoomToneTestBuilder()
+        {
+            if (Application.isBatchMode) return;
+            if (EditorPrefs.GetInt(SceneVerPrefKey, 0) >= SceneBuildVersion) return;
+
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                EditorApplication.playModeStateChanged += OnPlayModeChangedForAutoBuild;
+            }
+            else
+            {
+                EditorApplication.delayCall += TryAutoRebuildOnce;
+            }
+        }
+
+        private static void OnPlayModeChangedForAutoBuild(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.EnteredEditMode)
+            {
+                EditorApplication.playModeStateChanged -= OnPlayModeChangedForAutoBuild;
+                EditorApplication.delayCall += TryAutoRebuildOnce;
+            }
+        }
+
+        private static void TryAutoRebuildOnce()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+            if (EditorPrefs.GetInt(SceneVerPrefKey, 0) >= SceneBuildVersion) return;
+            BuildRoom01();
+        }
 
         [MenuItem("TrashCleaner/Build Room 01 Playable Prototype")]
         public static void BuildRoom01()
         {
+            EditorPrefs.SetInt(SceneVerPrefKey, SceneBuildVersion);
             Directory.CreateDirectory(MatRoot);
             Directory.CreateDirectory("Assets/_Project/Scenes");
             AssetDatabase.Refresh();

@@ -292,17 +292,28 @@ namespace TrashCleaner3D
                     }
                 }
 
-                // 2) 바닥 1,000+ GPU-Instanced 쓰레기 넓은 반경 동전 줍기! (정밀 클릭 불필요!)
-                if (hasWorldPoint && manager.trashSwarm != null)
+                // 2) 바닥 1,000+ GPU-Instanced 쓰레기 넓은 반경 동전 줍기! (벽을 보거나 허공을 봐도 전방 바닥으로 자동 보정)
+                if (manager.trashSwarm != null)
                 {
+                    Vector3 sweepPos;
+                    if (hasWorldPoint && Vector3.Distance(cameraTransform.position, worldAimPoint) <= 4.2f)
+                    {
+                        sweepPos = worldAimPoint;
+                    }
+                    else
+                    {
+                        Vector3 forwardPoint = cameraTransform.position + cameraTransform.forward * 2.2f;
+                        sweepPos = new Vector3(forwardPoint.x, 0.12f, forwardPoint.z);
+                    }
+
                     float r = manager.SweepRadius;
-                    AimIsSwarmNear = manager.trashSwarm.HasAnyIdleNear(worldAimPoint, r);
+                    AimIsSwarmNear = manager.trashSwarm.HasAnyIdleNear(sweepPos, r);
 
                     if (lmbHeld)
                     {
                         if (manager.IsHandBagFull)
                         {
-                            if (lmbDown) manager.ShowToast("봉투 가득 참! 열린 문 밖 트럭에 [우클릭] 슛 하세요!");
+                            if (lmbDown) manager.ShowToast("봉투 가득! 문 밖 트럭에 [우클릭] 슛");
                             return;
                         }
 
@@ -310,12 +321,12 @@ namespace TrashCleaner3D
 
                         if (_sweepTickTimer <= 0f)
                         {
-                            _sweepTickTimer = (manager.HasVacuumUnlocked ? 0.04f : 0.09f) / workMult;
+                            _sweepTickTimer = (manager.HasVacuumUnlocked ? 0.035f : 0.07f) / workMult;
                             int spaceLeft = manager.HasVacuumUnlocked ? 99 : Mathf.Max(0, manager.HandBagCapacity - manager.HandBagCount);
                             int maxGrab = Mathf.Min(manager.SweepPerTick, spaceLeft);
                             Transform dest = manager.HasVacuumUnlocked ? rightToolPivot : (leftBagPivot != null ? leftBagPivot : rightToolPivot);
 
-                            int grabbed = manager.trashSwarm.SweepAt(worldAimPoint, r, maxGrab, dest);
+                            int grabbed = manager.trashSwarm.SweepAt(sweepPos, r, maxGrab, dest);
                             if (grabbed > 0 && !manager.HasVacuumUnlocked && _punchTimer <= 0f)
                             {
                                 _grabSwingTimer = 0.14f;

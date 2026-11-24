@@ -68,30 +68,30 @@ namespace TrashCleaner3D
 
         // ===== 왼손 쓰레기봉투 (1,000개 물량에 맞춘 넉넉한 적재량 + 청소기 해금 시 무한 압축!) =====
         public int HandBagCount { get; private set; } = 0;
-        public int HandBagCapacity => 60 + LvBagSize * 45;
+        public int HandBagCapacity => 120 + LvBagSize * 80;
         public bool IsHandBagFull => !HasVacuumUnlocked && HandBagCount >= HandBagCapacity;
 
         // ===== 아이콘형 마인드맵 12개 노드 =====
-        // 👊 주먹·흡입 갈래
-        public int LvSweepRadius { get; private set; }   // 0~5 (초반부터 넓은 0.90m → 2.0m)
+        // 주먹·흡입 갈래
+        public int LvSweepRadius { get; private set; }   // 0~5 (초반부터 넓은 1.05m → 2.3m)
         public int LvFistPower { get; private set; }     // 0~4 (큰 봉투 4방→1방 컷)
         public bool HasVacuumUnlocked { get; private set; } // 진공청소기 (광역 폭풍 흡입 + 봉투 제한 해제!)
         public bool HasBeaconDetect { get; private set; }// 10% 이하 빛기둥 탐지
-        // 🛍️ 봉투·트럭 갈래
-        public int LvBagSize { get; private set; }       // 0~4 (봉투 용량 60 → 240)
+        // 봉투·트럭 갈래
+        public int LvBagSize { get; private set; }       // 0~4 (봉투 용량 120 → 440)
         public int LvTruckSize { get; private set; }     // 0~3 (트럭 짐칸 확대 + 슛 보너스)
         public bool HasTruckMagnet { get; private set; } // 대충 던져도 트럭으로 빨려 들어감
-        // 💚 마스크·걸레 갈래
+        // 마스크·걸레 갈래
         public int LvMask { get; private set; }          // 0~5 (악취 누적 속도 대폭 완화)
         public bool HasMopUnlocked { get; private set; } // 물티슈 → T자 대걸레
         public int LvScrubPower { get; private set; }    // 0~3 (얼룩 닦기 고속화)
-        // 😈 보물·슈킹 갈래
+        // 보물·슈킹 갈래
         public int LvTreasureLuck { get; private set; }  // 0~3 (보물 가치 & 발견 확률 업)
         public int LvPokerFace { get; private set; }     // 0~4 (즉시 슈킹 해프닝·의심 확률 완화)
 
         // Derived Gameplay Stats
-        public float SweepRadius => (HasVacuumUnlocked ? 1.75f : 0.90f) + LvSweepRadius * 0.22f;
-        public int SweepPerTick => HasVacuumUnlocked ? 14 : (3 + LvSweepRadius * 2);
+        public float SweepRadius => (HasVacuumUnlocked ? 1.85f : 1.05f) + LvSweepRadius * 0.25f;
+        public int SweepPerTick => HasVacuumUnlocked ? 18 : (4 + LvSweepRadius * 2);
         public float FistDamage => (HasVacuumUnlocked ? 3.5f : 1.0f) + LvFistPower * 0.75f;
         public float ScrubSpeedMult => (HasMopUnlocked ? 2.6f : 1.0f) * (1f + LvScrubPower * 0.45f);
 
@@ -178,10 +178,30 @@ namespace TrashCleaner3D
         private void Start()
         {
             if (trashSwarm == null) trashSwarm = FindFirstObjectByType<InstancedTrashSwarm>();
+            // 구버전 씬에서 실행되더라도 1,000개 쓰레기가 비지 않도록 런타임 안전망 자동 생성
+            if (trashSwarm == null)
+            {
+                GameObject swObj = new GameObject("TrashSwarm_1000_AutoFallback");
+                trashSwarm = swObj.AddComponent<InstancedTrashSwarm>();
+                trashSwarm.manager = this;
+                GameObject tmp = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                Mesh cubeMesh = tmp.GetComponent<MeshFilter>().sharedMesh;
+                Destroy(tmp);
+                Material fbMat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                fbMat.SetColor("_BaseColor", new Color(0.86f, 0.78f, 0.62f));
+                fbMat.enableInstancing = true;
+                trashSwarm.meshTypes.Add(new InstancedTrashSwarm.TrashMeshType
+                {
+                    label = "쓰레기",
+                    mesh = cubeMesh,
+                    material = fbMat,
+                    normalizedScale = 0.16f
+                });
+                trashSwarm.SpawnInitialSwarm(1000);
+            }
             CollectTargets();
             UpdateAtmosphere();
             UpdateTruckVisualScale();
-            ShowToast("좌클릭 꾹 + 시선 훑기로 바닥 쓰레기 1,000개를 동전처럼 쓸어 담으세요! ([Tab] 스킬트리)");
         }
 
         private void CollectTargets()
@@ -192,6 +212,7 @@ namespace TrashCleaner3D
             {
                 if (c.kind == CleanableKind.FloorStain) _phase2Stains.Add(c);
                 else if (c.kind == CleanableKind.TrashPile) _bigPiles.Add(c);
+                else if (c.kind == CleanableKind.SmallTrash) c.gameObject.SetActive(false); // 구버전 잔여 오브젝트 자동 정리
             }
         }
 
@@ -330,7 +351,7 @@ namespace TrashCleaner3D
 
             DiscoveredTreasures.Add(item);
             sfx.PlayChime();
-            ShowToast($"✨ 보물 발굴: [{item.itemName}]! [Tab] 마인드맵에서 보관/슈킹 결정 가능");
+            ShowToast($"★ 보물 발굴: [{item.itemName}] ([Tab] 보관/슈킹)");
         }
 
         /// <summary>
@@ -388,14 +409,14 @@ namespace TrashCleaner3D
             {
                 RemoteWatchTimer = 15f;
                 LandlordMessage = severe
-                    ? "📱 집주인 카톡: \"사장님!! 침대 밑 반지 케이스 알람 떴는데 뭐 하세요?!\""
-                    : "📱 집주인 카톡: \"사장님, 방금 홈캠 모션 감지 떴는데 귀중품 건드리셨나요??\"";
-                ShowToast("⚠ 집주인 카톡 추궁! 15초간 원격 감시 발동 (추가 슈킹 주의!)");
+                    ? "[집주인 카톡] \"사장님!! 침대 밑 반지 케이스 알람 떴는데 뭐 하세요?!\""
+                    : "[집주인 카톡] \"사장님, 방금 홈캠 모션 감지 떴는데 귀중품 건드리셨나요??\"";
+                ShowToast("[경고] 집주인 카톡 추궁! 15초간 원격 감시 발동 (추가 슈킹 주의)");
             }
             else
             {
                 DoorVisitorTimer = 10f;
-                ShowToast("🚪 똑똑! 집주인이 문 앞 복도에 10초간 나타났습니다! (10초간 문 밖 슛 금지!)");
+                ShowToast("[똑똑!] 문 앞 복도에 집주인이 10초간 나타났습니다 (트럭 슛 금지)");
             }
         }
 
@@ -406,7 +427,7 @@ namespace TrashCleaner3D
             if (DoorVisitorTimer > 0f)
             {
                 sfx.PlayAlert();
-                ShowToast("🚪 지금 문 밖에 집주인이 보고 있어서 던질 수 없습니다! 잠시 기다리세요!");
+                ShowToast("문 밖에 집주인이 보고 있습니다! 잠시 기다리세요");
                 return;
             }
 
@@ -435,7 +456,7 @@ namespace TrashCleaner3D
             if (directHit)
             {
                 sfx.PlayChime();
-                ShowToast(distance >= 3.8f ? $"🏀 3점 롱 슛 골인!! 트럭 보너스 +${bonus}" : $"🏀 나이스 슛! 트럭 보너스 +${bonus}");
+                ShowToast(distance >= 3.8f ? $"★ 3점 롱 슛 골인! +${bonus}" : $"★ 나이스 슛! +${bonus}");
             }
             CheckPhase1Complete();
         }
