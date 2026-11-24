@@ -96,15 +96,14 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 타이트한 트럭 짐칸 골인 판정 (초반엔 정확히 짐칸 안으로 넣어야 골인! 트럭 확장 강화 시 넓어짐)
+            // 눈에 보이는 수거함 투입구(쓰레기통→리어카→다마스→1톤 트럭) 크기와 100% 일치하는 정직한 판정!
             if (truckGoal != null && manager != null)
             {
-                float halfW = 0.56f + manager.LvTruckSize * 0.24f;
-                float halfD = 0.52f + manager.LvTruckSize * 0.22f;
+                Vector3 halfExt = manager.GetGoalOpeningHalfExtents();
                 Vector3 diff = transform.position - truckGoal.position;
 
-                bool insideXZ = Mathf.Abs(diff.x) <= halfW && Mathf.Abs(diff.z) <= halfD;
-                bool insideY = diff.y >= -0.45f && diff.y <= 0.55f;
+                bool insideXZ = Mathf.Abs(diff.x) <= halfExt.x && Mathf.Abs(diff.z) <= halfExt.z;
+                bool insideY = diff.y >= -0.55f && diff.y <= halfExt.y;
 
                 if (insideXZ && insideY)
                 {
@@ -113,7 +112,7 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 0.6초 이후 땅에 굴러 멈췄거나 속도가 느려지면 다시 주울 수 있는 상태로 전환! (절대 자동 삭제 안 함!)
+            // 0.6초 이후 땅에 굴러 멈췄거나 속도가 느려지면 다시 주울 수 있는 상태로 전환!
             if (!IsRetrievable && _lifeTimer >= 0.65f && (_rb.linearVelocity.magnitude < 0.75f || transform.position.y < 0.35f))
             {
                 IsRetrievable = true;
@@ -122,7 +121,7 @@ namespace TrashCleaner3D
             // 맵 밖으로 떨어졌을 때만 현관문 앞 마당으로 안전 복귀
             if (transform.position.y < -2.0f)
             {
-                transform.position = new Vector3(1.5f, 0.5f, 3.2f);
+                transform.position = new Vector3(2.1f, 0.5f, 4.4f);
                 _rb.linearVelocity = Vector3.zero;
                 IsRetrievable = true;
             }
@@ -131,6 +130,11 @@ namespace TrashCleaner3D
         public void RetrieveIntoHand()
         {
             if (_scored) return;
+            if (manager != null && !manager.CanPickUpDroppedBag)
+            {
+                manager.ShowToast("1봉지만 보유 가능");
+                return;
+            }
             _scored = true;
             if (manager != null)
             {

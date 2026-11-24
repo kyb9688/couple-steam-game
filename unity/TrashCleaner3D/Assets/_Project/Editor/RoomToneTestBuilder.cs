@@ -22,7 +22,7 @@ namespace TrashCleaner3D.Editor
         private const string ArtRoot = "Assets/_Project/Art";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 34;
+        private const int SceneBuildVersion = 35;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -108,23 +108,23 @@ namespace TrashCleaner3D.Editor
             RenderSettings.fogColor = new Color(0.18f, 0.16f, 0.12f);
             RenderSettings.fogDensity = 0.032f;
 
-            // 3. Room 01 Shell (4.8m x 4.0m x 2.6m) with OPEN DOORWAY on North-East (x: 0.95 ~ 2.05)
+            // 3. Room 01 Shell (+50% 확장: 7.2m x 6.0m x 2.8m) with Doorway at x: 1.55 ~ 2.65
             GameObject roomRoot = new GameObject("Room01_KoreanStudio");
-            float w = 4.8f, d = 4.0f, h = 2.6f;
+            float w = 7.2f, d = 6.0f, h = 2.8f;
 
             CreateWorldBox("Floor", new Vector3(0, -0.30f, 0), new Vector3(w + 0.4f, 0.6f, d + 0.4f), matFloor, roomRoot.transform, true);
             CreateWorldBox("Ceiling", new Vector3(0, h + 0.15f, 0), new Vector3(w + 0.4f, 0.3f, d + 0.4f), matCeiling, roomRoot.transform, true);
 
-            // North Wall split around Open Doorway (x: 0.95 to 2.05, height: 0 to 2.15)
-            CreateWorldBox("Wall_North_Left", new Vector3(-0.725f, h / 2f, d / 2f + 0.15f), new Vector3(3.35f, h, 0.3f), matWall, roomRoot.transform, true);
-            CreateWorldBox("Wall_North_Right", new Vector3(2.275f, h / 2f, d / 2f + 0.15f), new Vector3(0.45f, h, 0.3f), matWall, roomRoot.transform, true);
-            CreateWorldBox("Wall_North_Header", new Vector3(1.50f, 2.375f, d / 2f + 0.15f), new Vector3(1.15f, 0.45f, 0.3f), matWall, roomRoot.transform, true);
+            // North Wall split around Doorway (x: 1.55 to 2.65, height: 0 to 2.15)
+            CreateWorldBox("Wall_North_Left", new Vector3(-1.125f, h / 2f, d / 2f + 0.15f), new Vector3(5.35f, h, 0.3f), matWall, roomRoot.transform, true);
+            CreateWorldBox("Wall_North_Right", new Vector3(3.225f, h / 2f, d / 2f + 0.15f), new Vector3(1.15f, h, 0.3f), matWall, roomRoot.transform, true);
+            CreateWorldBox("Wall_North_Header", new Vector3(2.10f, 2.475f, d / 2f + 0.15f), new Vector3(1.15f, 0.65f, 0.3f), matWall, roomRoot.transform, true);
 
-            // Interactive Closed Mustard Yellow Entrance Door ([F] 키로 열고 들어가면 1,000개 쓰레기가 극적으로 공개!)
+            // Interactive Closed Mustard Yellow Entrance Door
             Material matDoorHandle = CreateSimpleLitMaterial("Mat_Door_HandleMetal", new Color(0.18f, 0.19f, 0.22f), 0.72f);
             GameObject doorHinge = new GameObject("Door_Interactive_Hinge");
             doorHinge.transform.SetParent(roomRoot.transform, false);
-            doorHinge.transform.position = new Vector3(2.03f, 0f, 2.02f);
+            doorHinge.transform.position = new Vector3(2.64f, 0f, 3.02f);
 
             GameObject doorLeaf = CreateLocalBox("Door_Leaf", new Vector3(-0.54f, 1.075f, 0f), new Vector3(1.08f, 2.15f, 0.08f), matDoor, doorHinge.transform, false);
             GameObject handleOut = CreateLocalBox("Door_Handle_Out", new Vector3(-0.92f, 1.02f, 0.07f), new Vector3(0.14f, 0.04f, 0.07f), matDoorHandle, doorHinge.transform, false);
@@ -142,98 +142,115 @@ namespace TrashCleaner3D.Editor
             CreateWorldBox("Wall_East", new Vector3(w / 2f + 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
             CreateWorldBox("Wall_West", new Vector3(-w / 2f - 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
 
-            // Basic Korean Studio Furniture
-            CreateWorldBox("Fridge", new Vector3(0.35f, 0.72f, d / 2f - 0.35f), new Vector3(0.62f, 1.44f, 0.62f), matAppliance, roomRoot.transform, true);
-            CreateWorldBox("Microwave", new Vector3(0.35f, 1.59f, d / 2f - 0.35f), new Vector3(0.48f, 0.30f, 0.38f), matCeiling, roomRoot.transform, true);
-            CreateWorldBox("Mattress", new Vector3(-1.45f, 0.15f, -0.95f), new Vector3(1.45f, 0.30f, 1.90f), matMattress, roomRoot.transform, true);
+            // Basic Korean Studio Furniture (scaled to larger room!)
+            CreateWorldBox("Fridge", new Vector3(0.78f, 0.78f, d / 2f - 0.40f), new Vector3(0.70f, 1.56f, 0.70f), matAppliance, roomRoot.transform, true);
+            CreateWorldBox("Microwave", new Vector3(0.78f, 1.72f, d / 2f - 0.40f), new Vector3(0.52f, 0.32f, 0.42f), matCeiling, roomRoot.transform, true);
+            CreateWorldBox("Mattress", new Vector3(-2.45f, 0.16f, -1.75f), new Vector3(1.75f, 0.32f, 2.25f), matMattress, roomRoot.transform, true);
 
-            // 4. Outside Yard Walkway (z: 2.0 ~ 8.3) + Trash Truck Farther Out (z: 9.20, 문에서 약 7.2m 거리!)
+            // 4. Outside Yard (z: 3.0 ~ 13.5) + 4-Stage Evolving Vehicle (공공 쓰레기통 → 리어카 → 다마스 → 1톤 트럭!)
             GameObject outsideRoot = new GameObject("Outside_Truck_Area");
-            CreateWorldBox("Parking_Floor", new Vector3(1.5f, -0.30f, 6.9f), new Vector3(7.2f, 0.6f, 9.8f), matOutdoorFloor, outsideRoot.transform, true);
+            CreateWorldBox("Parking_Floor", new Vector3(2.1f, -0.30f, 8.2f), new Vector3(9.6f, 0.6f, 10.6f), matOutdoorFloor, outsideRoot.transform, true);
 
-            // 낮은 문턱(콜라이더 제거 → 문 밖으로 걸어 나갈 때 걸림 0%)
-            GameObject stepCurb = CreateWorldBox("Door_StepCurb", new Vector3(1.5f, 0.015f, 2.02f), new Vector3(1.1f, 0.03f, 0.10f), matCeiling, outsideRoot.transform, true);
+            GameObject stepCurb = CreateWorldBox("Door_StepCurb", new Vector3(2.1f, 0.015f, 3.02f), new Vector3(1.1f, 0.03f, 0.10f), matCeiling, outsideRoot.transform, true);
             Object.DestroyImmediate(stepCurb.GetComponent<Collider>());
 
-            // 바깥 마당 안전 투명 펜스 (z=2.0~8.25까지 자유롭게 걸어 나가 숨 쉬고, 실패한 봉투도 주워 트럭에 던질 수 있음!)
-            CreateInvisibleFence("Fence_Outside_North", new Vector3(1.5f, 1.2f, 8.35f), new Vector3(7.2f, 2.4f, 0.15f), outsideRoot.transform);
-            CreateInvisibleFence("Fence_Outside_West", new Vector3(-1.9f, 1.2f, 5.2f), new Vector3(0.15f, 2.4f, 6.6f), outsideRoot.transform);
-            CreateInvisibleFence("Fence_Outside_East", new Vector3(4.9f, 1.2f, 5.2f), new Vector3(0.15f, 2.4f, 6.6f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_North", new Vector3(2.1f, 1.2f, 9.75f), new Vector3(9.6f, 2.4f, 0.15f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_West", new Vector3(-2.5f, 1.2f, 6.4f), new Vector3(0.15f, 2.4f, 7.2f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_East", new Vector3(6.7f, 1.2f, 6.4f), new Vector3(0.15f, 2.4f, 7.2f), outsideRoot.transform);
 
-            // 바깥 현관등 (문 앞을 따뜻하게 비춤)
             GameObject porchLightObj = new GameObject("Porch_Light");
             porchLightObj.transform.SetParent(outsideRoot.transform, false);
-            porchLightObj.transform.position = new Vector3(1.50f, 2.45f, 3.1f);
+            porchLightObj.transform.position = new Vector3(2.10f, 2.55f, 4.2f);
             Light porchLight = porchLightObj.AddComponent<Light>();
             porchLight.type = LightType.Point;
             porchLight.color = new Color(1.0f, 0.94f, 0.80f);
-            porchLight.intensity = 10f;
-            porchLight.range = 8.0f;
+            porchLight.intensity = 11f;
+            porchLight.range = 9.0f;
             porchLight.shadows = LightShadows.None;
 
-            GameObject truckRoot = new GameObject("TrashTruck_Goal");
+            GameObject truckRoot = new GameObject("TrashVehicle_Goal");
             truckRoot.transform.SetParent(outsideRoot.transform, false);
-            truckRoot.transform.position = new Vector3(1.50f, 0.0f, 9.20f);
+            truckRoot.transform.position = new Vector3(2.10f, 0.0f, 10.60f);
 
-            // 초반에는 넣기 도전적인 좁은 짐칸(1.18 x 0.92 x 1.08) → 트럭 확장 강화할수록 넓어지는 쾌감!
-            GameObject truckBedVisual = new GameObject("TruckBed_Scalable");
-            truckBedVisual.transform.SetParent(truckRoot.transform, false);
-            truckBedVisual.transform.localPosition = new Vector3(0f, 0.48f, 0f);
-            truckBedVisual.transform.localScale = new Vector3(1.18f, 0.92f, 1.08f);
+            Material matBinBody = CreateSimpleLitMaterial("Mat_Veh_BinDark", new Color(0.24f, 0.28f, 0.30f), 0.35f);
+            Material matCartBlue = CreateSimpleLitMaterial("Mat_Veh_CartBlue", new Color(0.18f, 0.45f, 0.78f), 0.38f);
+            Material matDamasCream = CreateSimpleLitMaterial("Mat_Veh_DamasCream", new Color(0.92f, 0.90f, 0.82f), 0.45f);
+            Material matWheelBlack = CreateSimpleLitMaterial("Mat_Veh_WheelBlack", new Color(0.10f, 0.10f, 0.12f), 0.2f);
+            Material matGlass = CreateSimpleLitMaterial("Mat_Veh_Glass", new Color(0.28f, 0.46f, 0.58f), 0.85f);
 
-            CreateLocalBox("Bed_Bottom", new Vector3(0f, -0.44f, 0f), new Vector3(1f, 0.12f, 1f), matTruckBody, truckBedVisual.transform, false);
-            CreateLocalBox("Bed_BackWall", new Vector3(0f, 0.12f, 0.48f), new Vector3(1f, 1.24f, 0.08f), matTruckBody, truckBedVisual.transform, false);
-            CreateLocalBox("Bed_FrontLip", new Vector3(0f, -0.10f, -0.48f), new Vector3(1f, 0.72f, 0.08f), matTruckGlow, truckBedVisual.transform, false);
-            CreateLocalBox("Bed_LeftWall", new Vector3(-0.48f, 0f, 0f), new Vector3(0.08f, 1f, 1f), matTruckBody, truckBedVisual.transform, false);
-            CreateLocalBox("Bed_RightWall", new Vector3(0.48f, 0f, 0f), new Vector3(0.08f, 1f, 1f), matTruckBody, truckBedVisual.transform, false);
+            // Stage 0: 공공 쓰레기통 (0.76 x 0.86 x 0.76 — 작지만 구멍이 100% 직관적!)
+            GameObject stage0 = BuildOpenContainerStage("Stage0_TrashBin", truckRoot.transform, 0.76f, 0.86f, 0.76f, 0.07f, matBinBody, matTruckGlow);
+            // Stage 1: 리어카 (1.36 x 0.78 x 1.24 + 바퀴 2개 + 손잡이!)
+            GameObject stage1 = BuildOpenContainerStage("Stage1_Handcart", truckRoot.transform, 1.36f, 0.78f, 1.24f, 0.07f, matCartBlue, matTruckGlow);
+            AddVehicleWheel(stage1.transform, new Vector3(-0.74f, 0.32f, 0f), 0.62f, matWheelBlack);
+            AddVehicleWheel(stage1.transform, new Vector3(0.74f, 0.32f, 0f), 0.62f, matWheelBlack);
+            CreateLocalBox("Handle_L", new Vector3(-0.50f, 0.62f, -0.92f), new Vector3(0.06f, 0.06f, 0.62f), matWheelBlack, stage1.transform, false);
+            CreateLocalBox("Handle_R", new Vector3(0.50f, 0.62f, -0.92f), new Vector3(0.06f, 0.06f, 0.62f), matWheelBlack, stage1.transform, false);
+            stage1.SetActive(false);
+            // Stage 2: 한국 다마스 경상용차 (1.92 x 0.84 x 1.56 오픈 짐칸 + 운전석 캐빈 + 바퀴 4개!)
+            GameObject stage2 = BuildOpenContainerStage("Stage2_Damas", truckRoot.transform, 1.92f, 0.84f, 1.56f, 0.08f, matDamasCream, matTruckGlow);
+            CreateLocalBox("Damas_Cab", new Vector3(0f, 0.86f, 1.22f), new Vector3(1.88f, 1.48f, 0.92f), matDamasCream, stage2.transform, false);
+            CreateLocalBox("Damas_Windshield", new Vector3(0f, 1.18f, 0.75f), new Vector3(1.56f, 0.56f, 0.06f), matGlass, stage2.transform, false);
+            AddVehicleWheel(stage2.transform, new Vector3(-0.96f, 0.28f, -0.45f), 0.52f, matWheelBlack);
+            AddVehicleWheel(stage2.transform, new Vector3(0.96f, 0.28f, -0.45f), 0.52f, matWheelBlack);
+            AddVehicleWheel(stage2.transform, new Vector3(-0.96f, 0.28f, 1.20f), 0.52f, matWheelBlack);
+            AddVehicleWheel(stage2.transform, new Vector3(0.96f, 0.28f, 1.20f), 0.52f, matWheelBlack);
+            stage2.SetActive(false);
+            // Stage 3: 1톤 청소 트럭 (2.60 x 0.94 x 2.15 거대 짐칸 + 운전석 캐빈 + 큰 바퀴 4개!)
+            GameObject stage3 = BuildOpenContainerStage("Stage3_Truck", truckRoot.transform, 2.60f, 0.94f, 2.15f, 0.09f, matTruckBody, matTruckGlow);
+            CreateLocalBox("Truck_Cab", new Vector3(0f, 1.05f, 1.65f), new Vector3(2.45f, 1.85f, 1.15f), matTruckBody, stage3.transform, false);
+            CreateLocalBox("Truck_Windshield", new Vector3(0f, 1.45f, 1.06f), new Vector3(2.05f, 0.65f, 0.06f), matGlass, stage3.transform, false);
+            AddVehicleWheel(stage3.transform, new Vector3(-1.30f, 0.36f, -0.60f), 0.68f, matWheelBlack);
+            AddVehicleWheel(stage3.transform, new Vector3(1.30f, 0.36f, -0.60f), 0.68f, matWheelBlack);
+            AddVehicleWheel(stage3.transform, new Vector3(-1.30f, 0.36f, 1.60f), 0.68f, matWheelBlack);
+            AddVehicleWheel(stage3.transform, new Vector3(1.30f, 0.36f, 1.60f), 0.68f, matWheelBlack);
+            stage3.SetActive(false);
 
-            // 슈킹 들켰을 때 트럭 투입구를 빨갛게 막는 집주인 단속 배리어!
-            Material matRedBarrier = CreateSimpleLitMaterial("Mat_Truck_RedBarrier", new Color(0.95f, 0.15f, 0.15f), 0.3f);
-            GameObject blockedBarrier = CreateLocalBox("TruckBlockedBarrier", new Vector3(0f, 0.56f, 0f), new Vector3(1.04f, 0.10f, 1.04f), matRedBarrier, truckBedVisual.transform, false);
-            blockedBarrier.SetActive(false);
+            GameObject[] vehicleStages = new[] { stage0, stage1, stage2, stage3 };
 
             // 투하한 쓰레기봉투가 실제로 차곡차곡 쌓이는 컨테이너!
             GameObject stackedParent = new GameObject("TruckStackedBags");
             stackedParent.transform.SetParent(truckRoot.transform, false);
-            stackedParent.transform.localPosition = new Vector3(0f, 0.18f, 0f);
+            stackedParent.transform.localPosition = new Vector3(0f, 0.22f, 0f);
 
-            // Bright spotlight illuminating truck bed
             GameObject truckLightObj = new GameObject("Truck_BeaconLight");
             truckLightObj.transform.SetParent(truckRoot.transform, false);
-            truckLightObj.transform.localPosition = new Vector3(0f, 2.8f, -0.5f);
+            truckLightObj.transform.localPosition = new Vector3(0f, 3.0f, -0.6f);
             Light truckLight = truckLightObj.AddComponent<Light>();
             truckLight.type = LightType.Point;
-            truckLight.color = new Color(0.92f, 0.96f, 1.0f);
-            truckLight.intensity = 15f;
-            truckLight.range = 9.0f;
+            truckLight.color = new Color(0.95f, 0.98f, 1.0f);
+            truckLight.intensity = 18f;
+            truckLight.range = 10.5f;
             truckLight.shadows = LightShadows.None;
 
             GameObject goalAnchor = new GameObject("GoalCenterAnchor");
             goalAnchor.transform.SetParent(truckRoot.transform, false);
             goalAnchor.transform.localPosition = new Vector3(0f, 0.62f, 0f);
 
-            // 5. Ceiling Light (No real-time shadows -> zero URP shadow atlas warnings!)
+            // 5. Ceiling Light (larger range for +50% bigger room!)
             GameObject lightObj = new GameObject("Ceiling_Light_WarmFluorescent");
             lightObj.transform.position = new Vector3(0f, h - 0.2f, 0f);
             Light ceilingLight = lightObj.AddComponent<Light>();
             ceilingLight.type = LightType.Point;
             ceilingLight.color = new Color(1.0f, 0.92f, 0.76f);
-            ceilingLight.intensity = 12f;
-            ceilingLight.range = 9.5f;
+            ceilingLight.intensity = 16f;
+            ceilingLight.range = 13.5f;
             ceilingLight.shadows = LightShadows.None;
 
             SetupPostProcessing();
 
-            // 6. Phase 2 Floor Stains (6 big glossy stains — unlocked after Phase 1 100%)
+            // 6. Phase 2 Floor Stains (8 big glossy stains across the +50% larger room)
             GameObject stainRoot = new GameObject("Phase2_FloorStains");
             Vector3[] stainPositions = new[]
             {
-                new Vector3(-0.15f, 0.008f, 0.20f),
-                new Vector3(0.85f, 0.008f, -0.35f),
-                new Vector3(1.45f, 0.009f, 0.65f),
-                new Vector3(-0.95f, 0.008f, 0.95f),
-                new Vector3(0.25f, 0.009f, -1.05f),
-                new Vector3(1.25f, 0.008f, -1.25f),
+                new Vector3(-0.35f, 0.008f, 0.35f),
+                new Vector3(1.35f, 0.008f, -0.55f),
+                new Vector3(2.25f, 0.009f, 0.95f),
+                new Vector3(-1.55f, 0.008f, 1.45f),
+                new Vector3(0.35f, 0.009f, -1.65f),
+                new Vector3(1.95f, 0.008f, -1.95f),
+                new Vector3(-2.35f, 0.008f, 0.45f),
+                new Vector3(0.45f, 0.009f, 1.55f),
             };
             for (int i = 0; i < stainPositions.Length; i++)
             {
@@ -241,13 +258,13 @@ namespace TrashCleaner3D.Editor
                 PlaceCleanableStain(
                     isMold ? $"Stain_Mold_{i + 1:00}" : $"Stain_Soup_{i + 1:00}",
                     stainPositions[i],
-                    Random.Range(1.05f, 1.35f),
+                    Random.Range(1.15f, 1.50f),
                     isMold ? matMoldDecal : matSoupDecal,
                     stainRoot.transform
                 );
             }
 
-            // 7. Phase 1 Big Breakable Piles (12개: 흰 봉투 / 회색 봉투 / 검정 봉투 / 택배박스 / 스티로폼박스)
+            // 7. Phase 1 Big Breakable Piles (16개 — 단단한 큰 봉투/박스)
             GameObject whiteBagAsset = FindModelAsset($"{ArtRoot}/Models/Trash/trash_bag_white_broken");
             GameObject grayBagAsset = FindModelAsset($"{ArtRoot}/Models/Trash/trash_bag_gray_modern");
             GameObject blackBagAsset = FindModelAsset($"{ArtRoot}/Models/Trash/trashbag");
@@ -267,20 +284,22 @@ namespace TrashCleaner3D.Editor
             GameObject trashRoot = new GameObject("Phase1_BigBreakablePiles");
             Vector3[] pilePositions = new[]
             {
-                new Vector3(1.65f, 0f, 0.42f),   // 문 열자마자 바로 정면 앞!
-                new Vector3(0.85f, 0f, 0.35f),   // 문 열자마자 바로 정면 중앙!
-                new Vector3(1.80f, 0f, -0.35f),
-                new Vector3(1.70f, 0f, -1.15f),
-                new Vector3(1.15f, 0f, -0.15f),
-                new Vector3(1.10f, 0f, -0.78f),
-                new Vector3(0.45f, 0f, 0.68f),
-                new Vector3(-0.35f, 0f, 1.32f),
-                new Vector3(-1.12f, 0f, 1.25f),
-                new Vector3(-0.28f, 0f, 0.35f),
-                new Vector3(0.45f, 0f, -0.58f),
-                new Vector3(-1.70f, 0f, 0.72f),
-                new Vector3(0.95f, 0f, -1.35f),
-                new Vector3(0.05f, 0f, -1.25f),
+                new Vector3(2.35f, 0f, 0.72f),
+                new Vector3(1.25f, 0f, 0.65f),
+                new Vector3(2.70f, 0f, -0.55f),
+                new Vector3(2.55f, 0f, -1.75f),
+                new Vector3(1.70f, 0f, -0.25f),
+                new Vector3(1.65f, 0f, -1.25f),
+                new Vector3(0.65f, 0f, 1.05f),
+                new Vector3(-0.55f, 0f, 1.95f),
+                new Vector3(-1.75f, 0f, 1.85f),
+                new Vector3(-0.45f, 0f, 0.55f),
+                new Vector3(0.65f, 0f, -0.95f),
+                new Vector3(-2.55f, 0f, 1.05f),
+                new Vector3(1.45f, 0f, -2.15f),
+                new Vector3(0.05f, 0f, -1.95f),
+                new Vector3(-1.25f, 0f, -0.55f),
+                new Vector3(-2.80f, 0f, 0.05f),
             };
 
             for (int i = 0; i < pilePositions.Length; i++)
@@ -289,7 +308,7 @@ namespace TrashCleaner3D.Editor
                 GameObject src = pileAssets[k];
                 if (src == null) continue;
                 bool isBoxLike = (k == 3 || k == 4);
-                float size = isBoxLike ? Random.Range(0.58f, 0.72f) : Random.Range(0.76f, 0.96f);
+                float size = isBoxLike ? Random.Range(0.62f, 0.78f) : Random.Range(0.82f, 1.05f);
                 GameObject pile = SpawnNormalizedModel(
                     src, $"BreakablePile_{i + 1:00}",
                     pilePositions[i], Quaternion.Euler(0f, Random.Range(0f, 360f), 0f),
@@ -297,19 +316,18 @@ namespace TrashCleaner3D.Editor
                 );
                 if (pile != null)
                 {
-                    // 단단한 큰 쓰레기봉투! 초반 맨주먹 10방(10.0 HP) → 주먹 강화 시 5방→3방→2방→1방!
                     var ct = AddCleanable(pile, CleanableKind.TrashPile, pileNames[k], 10.0f, 0, 0, 2.0f);
                     ct.burstSpawnCount = 20;
                     ct.containsTreasureChance = true;
                 }
             }
 
-            // 8. 1,000+ GPU-Instanced 3D Trash Swarm (Zero-GameObject, Zero-Lag!)
+            // 8. 1,000+ GPU-Instanced 3D Trash Swarm
             GameObject swarmObj = new GameObject("TrashSwarm_1000");
             var swarm = swarmObj.AddComponent<InstancedTrashSwarm>();
             PopulateSwarmMeshTypes(swarm);
 
-            // 9. Hidden Runtime Template for Thrown Trash Bag (Basketball Shoot!)
+            // 9. Hidden Runtime Template for Thrown Trash Bag
             GameObject templateRoot = new GameObject("_RuntimeTemplates");
             GameObject thrownBagSrc = whiteBagAsset ?? blackBagAsset;
             GameObject thrownBagTmpl = SpawnNormalizedModel(thrownBagSrc, "Template_ThrownBag", Vector3.zero, Quaternion.identity, 0.44f, templateRoot.transform);
@@ -323,14 +341,14 @@ namespace TrashCleaner3D.Editor
             }
             thrownBagTmpl.SetActive(false);
 
-            // 10. Player Spawn OUTSIDE facing the closed Mustard Yellow Front Door! ([F]로 문 열고 극적 진입!)
+            // 10. Player Spawn OUTSIDE facing the closed Mustard Yellow Front Door!
             GameObject spawnObj = new GameObject("PlayerSpawnPoint");
-            spawnObj.transform.position = new Vector3(1.50f, 0.15f, 3.05f);
+            spawnObj.transform.position = new Vector3(2.10f, 0.15f, 4.15f);
             spawnObj.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
 
             FirstPersonCleanerController playerCtrl = CreateFpsPlayer(
                 spawnObj.transform.position, spawnObj.transform.rotation,
-                matSkin, matBagBlack, matTissue, matMopStick, matMopHead, matVacuumBody, matVacuumMetal
+                matSkin, matBagBlack, matTissue, matMopStick, matMopHead, matVacuumBody, matVacuumMetal, thrownBagSrc
             );
 
             // 11. Manager & HUD Wiring
@@ -340,9 +358,8 @@ namespace TrashCleaner3D.Editor
             mgr.trashSwarm = swarm;
             mgr.playerSpawnPoint = spawnObj.transform;
             mgr.truckBedGoal = goalAnchor.transform;
-            mgr.truckVisualTransform = truckBedVisual.transform;
+            mgr.vehicleStageObjects = vehicleStages;
             mgr.truckStackedParent = stackedParent.transform;
-            mgr.truckBlockedBarrier = blockedBarrier;
             mgr.ceilingLight = ceilingLight;
             mgr.thrownBagPrefab = thrownBagTmpl;
 
@@ -355,7 +372,40 @@ namespace TrashCleaner3D.Editor
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
-            Debug.Log("[TrashCleaner3D v0.3] Room 01 Playable Prototype 생성 완료! 1,000+ GPU-Instanced 3D 쓰레기 + [Tab] 아이콘 마인드맵 + 상단 악취 바 + 문 밖 환기 + 즉시 슈킹 해프닝 준비 완료!");
+            Debug.Log("[TrashCleaner3D v0.5] +50% 확장 방 + 4단계 수거함(쓰레기통→리어카→다마스→1톤 트럭) 빌드 완료!");
+        }
+
+        private static GameObject BuildOpenContainerStage(string name, Transform parent, float w, float h, float d, float wallT, Material bodyMat, Material rimMat)
+        {
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = Vector3.zero;
+
+            // 바닥 + 4면 벽 (내부가 완전히 뚫려 있고, 상단 테두리에 밝은 노란 림을 둘러 투입구가 100% 직관적!)
+            CreateLocalBox("Bottom", new Vector3(0f, 0.08f, 0f), new Vector3(w, 0.14f, d), bodyMat, root.transform, false);
+            CreateLocalBox("Wall_Front", new Vector3(0f, h * 0.45f, -d / 2f + wallT / 2f), new Vector3(w, h * 0.90f, wallT), bodyMat, root.transform, false);
+            CreateLocalBox("Wall_Back", new Vector3(0f, h * 0.50f, d / 2f - wallT / 2f), new Vector3(w, h, wallT), bodyMat, root.transform, false);
+            CreateLocalBox("Wall_Left", new Vector3(-w / 2f + wallT / 2f, h * 0.48f, 0f), new Vector3(wallT, h * 0.96f, d), bodyMat, root.transform, false);
+            CreateLocalBox("Wall_Right", new Vector3(w / 2f - wallT / 2f, h * 0.48f, 0f), new Vector3(wallT, h * 0.96f, d), bodyMat, root.transform, false);
+
+            // 투입구 상단 노란 림 (어디에 넣어야 하는지 한눈에 직관적!)
+            CreateLocalBox("Rim_F", new Vector3(0f, h * 0.92f, -d / 2f + wallT / 2f), new Vector3(w + 0.04f, 0.07f, wallT + 0.03f), rimMat, root.transform, false);
+            CreateLocalBox("Rim_B", new Vector3(0f, h + 0.02f, d / 2f - wallT / 2f), new Vector3(w + 0.04f, 0.07f, wallT + 0.03f), rimMat, root.transform, false);
+            CreateLocalBox("Rim_L", new Vector3(-w / 2f + wallT / 2f, h * 0.97f, 0f), new Vector3(wallT + 0.03f, 0.07f, d + 0.04f), rimMat, root.transform, false);
+            CreateLocalBox("Rim_R", new Vector3(w / 2f - wallT / 2f, h * 0.97f, 0f), new Vector3(wallT + 0.03f, 0.07f, d + 0.04f), rimMat, root.transform, false);
+            return root;
+        }
+
+        private static void AddVehicleWheel(Transform parent, Vector3 localPos, float diameter, Material wheelMat)
+        {
+            GameObject wheel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            wheel.name = "Wheel";
+            wheel.transform.SetParent(parent, false);
+            wheel.transform.localPosition = localPos;
+            wheel.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            wheel.transform.localScale = new Vector3(diameter, 0.10f, diameter);
+            Object.DestroyImmediate(wheel.GetComponent<Collider>());
+            wheel.GetComponent<Renderer>().sharedMaterial = wheelMat;
         }
 
         /// <summary>
@@ -482,7 +532,7 @@ namespace TrashCleaner3D.Editor
             Vector3 startPos, Quaternion startRot,
             Material matSkin, Material matBag, Material matTissue,
             Material matMopStick, Material matMopHead,
-            Material matVacuumBody, Material matVacuumMetal)
+            Material matVacuumBody, Material matVacuumMetal, GameObject heldBagModelPrefab)
         {
             GameObject player = new GameObject("Player_FPS");
             player.transform.position = startPos;
@@ -606,20 +656,47 @@ namespace TrashCleaner3D.Editor
             head.GetComponent<Renderer>().sharedMaterial = matMopHead;
             mop.SetActive(false);
 
-            // LEFT HAND PIVOT (Compact Growing Garbage Bag — never blocks center view!)
-            GameObject leftBag = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            leftBag.name = "LeftHand_GarbageBag";
-            leftBag.transform.SetParent(camObj.transform, false);
-            leftBag.transform.localPosition = new Vector3(-0.34f, -0.32f, 0.52f);
-            leftBag.transform.localScale = Vector3.one * 0.12f;
-            Object.DestroyImmediate(leftBag.GetComponent<Collider>());
-            leftBag.GetComponent<Renderer>().sharedMaterial = matBag;
-            leftBag.SetActive(false);
+            // LEFT HAND PIVOT: 봉투가 완성되거나 떨어진 봉투를 주웠을 때 왼손에 실제 쓰레기봉지를 쥐고 있는 비주얼!
+            GameObject leftBagRoot = new GameObject("LeftHand_HeldTrashBag");
+            leftBagRoot.transform.SetParent(camObj.transform, false);
+            leftBagRoot.transform.localPosition = new Vector3(-0.34f, -0.24f, 0.54f);
+
+            GameObject leftArm = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            leftArm.transform.SetParent(leftBagRoot.transform, false);
+            leftArm.transform.localPosition = new Vector3(-0.04f, -0.02f, -0.14f);
+            leftArm.transform.localRotation = Quaternion.Euler(82f, 14f, 0f);
+            leftArm.transform.localScale = new Vector3(0.08f, 0.16f, 0.08f);
+            Object.DestroyImmediate(leftArm.GetComponent<Collider>());
+            leftArm.GetComponent<Renderer>().sharedMaterial = matSkin;
+
+            GameObject leftGrip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            leftGrip.transform.SetParent(leftBagRoot.transform, false);
+            leftGrip.transform.localPosition = new Vector3(0f, 0.02f, 0.02f);
+            leftGrip.transform.localScale = new Vector3(0.10f, 0.09f, 0.10f);
+            Object.DestroyImmediate(leftGrip.GetComponent<Collider>());
+            leftGrip.GetComponent<Renderer>().sharedMaterial = matSkin;
+
+            GameObject bagMeshObj = SpawnNormalizedModel(heldBagModelPrefab, "HeldBag_3D", Vector3.zero, Quaternion.identity, 0.32f, leftBagRoot.transform);
+            if (bagMeshObj != null)
+            {
+                foreach (var c in bagMeshObj.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+                bagMeshObj.transform.localPosition = new Vector3(0f, -0.24f, 0.04f);
+            }
+            else
+            {
+                GameObject fallbackBag = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                fallbackBag.transform.SetParent(leftBagRoot.transform, false);
+                fallbackBag.transform.localPosition = new Vector3(0f, -0.16f, 0.04f);
+                fallbackBag.transform.localScale = new Vector3(0.22f, 0.26f, 0.22f);
+                Object.DestroyImmediate(fallbackBag.GetComponent<Collider>());
+                fallbackBag.GetComponent<Renderer>().sharedMaterial = matBag;
+            }
+            leftBagRoot.SetActive(false);
 
             var ctrl = player.AddComponent<FirstPersonCleanerController>();
             ctrl.cameraTransform = camObj.transform;
             ctrl.rightToolPivot = rightPivot.transform;
-            ctrl.leftBagPivot = leftBag.transform;
+            ctrl.leftBagPivot = leftBagRoot.transform;
             ctrl.fistHandVisual = fist;
             ctrl.vacuumVisual = vacuum;
             ctrl.tissueVisual = tissue;

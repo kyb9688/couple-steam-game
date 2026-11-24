@@ -5,10 +5,10 @@ using UnityEngine.Rendering;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// 1,000개 이상의 3D 쓰레기를 렉 0%로 돌리는 GPU Instancing + Zero-GameObject 매니저.
-    /// - Awake()에서 Frame 0 즉시 생성 → 문 열자마자 방을 가득 메운 1,000개 쓰레기 산이 바로 보임!
-    /// - 커서 아래 가장 가까운 정확히 N개(초반 무조건 1개! 강화로 2→4→7→12→20개)만 선택해
-    ///   전용 URP Cull-Front 외곽선 셰이더(WhiteOutlineInstanced)로 선명한 하얀색 테두리 표시!
+    /// v0.5 1,000+ GPU Instancing 쓰레기 매니저:
+    /// - 방 면적 +50% 확장(7.2m x 6.0m) 규격에 맞춰 풍성한 입체 산 배치!
+    /// - 방해되던 초록 빛기둥 완전 삭제! 대신 10% 이하 탐지 업그레이드 시
+    ///   남은 쓰레기 주위에만 은은한 투시 황금 테두리(DetectOutlineXRay)로 깔끔하게 표시!
     /// </summary>
     public class InstancedTrashSwarm : MonoBehaviour
     {
@@ -23,7 +23,7 @@ namespace TrashCleaner3D
             public float timer;
             public Vector3 startPos;
             public Vector3 endPos;
-            public int value; // 트럭에 버릴 때 정산될 가치!
+            public int value;
         }
 
         [System.Serializable]
@@ -49,21 +49,21 @@ namespace TrashCleaner3D
         private int[] _batchCounts;
         private RenderParams[] _renderParams;
 
-        // Crisp world-space normal-extruded White Outline pass (NO solid white blob!)
+        // 1) Hover White Outline pass
         private Matrix4x4[][] _outlineMatrices;
         private int[] _outlineCounts;
         private Material _outlineMat;
         private RenderParams _outlineRenderParams;
 
-        // Exact indices currently hovered (1 piece at Lv.0, N pieces after upgrade!)
+        // 2) 10% Remaining X-Ray Gold Outline pass (NO ugly green poles!)
+        private Matrix4x4[][] _detectMatrices;
+        private int[] _detectCounts;
+        private Material _detectMat;
+        private RenderParams _detectRenderParams;
+
         private readonly List<int> _selectedIndices = new List<int>(64);
         private readonly List<(int idx, float distSq)> _candidates = new List<(int, float)>(128);
         public int HoveredCount => _selectedIndices.Count;
-
-        // Beacon mesh for 10% remaining detect upgrade
-        private Mesh _beaconMesh;
-        private Material _beaconMat;
-        private Matrix4x4[] _beaconMatrices = new Matrix4x4[64];
 
         public int TotalCount => _unitCount;
         public int CleanedCount => _cleanedCount;
@@ -109,16 +109,20 @@ namespace TrashCleaner3D
             _outlineMatrices = new Matrix4x4[types][];
             _outlineCounts = new int[types];
 
+            _detectMatrices = new Matrix4x4[types][];
+            _detectCounts = new int[types];
+
             for (int t = 0; t < meshTypes.Count; t++)
             {
                 _batchMatrices[t] = new Matrix4x4[1023];
                 _outlineMatrices[t] = new Matrix4x4[1023];
+                _detectMatrices[t] = new Matrix4x4[1023];
                 if (meshTypes[t].material != null)
                 {
                     meshTypes[t].material.enableInstancing = true;
                     _renderParams[t] = new RenderParams(meshTypes[t].material)
                     {
-                        worldBounds = new Bounds(Vector3.zero, Vector3.one * 50f),
+                        worldBounds = new Bounds(Vector3.zero, Vector3.one * 60f),
                         shadowCastingMode = ShadowCastingMode.Off,
                         receiveShadows = true
                     };
@@ -130,46 +134,50 @@ namespace TrashCleaner3D
                 Shader sh = Shader.Find("TrashCleaner3D/WhiteOutlineInstanced") ?? Shader.Find("Universal Render Pipeline/Unlit");
                 _outlineMat = new Material(sh);
                 _outlineMat.SetColor("_OutlineColor", Color.white);
-                _outlineMat.SetFloat("_OutlineWidth", 0.014f);
+                _outlineMat.SetFloat("_OutlineWidth", 0.015f);
                 _outlineMat.enableInstancing = true;
                 _outlineRenderParams = new RenderParams(_outlineMat)
                 {
-                    worldBounds = new Bounds(Vector3.zero, Vector3.one * 50f),
+                    worldBounds = new Bounds(Vector3.zero, Vector3.one * 60f),
                     shadowCastingMode = ShadowCastingMode.Off,
                     receiveShadows = false
                 };
             }
 
-            if (_beaconMesh == null)
+            if (_detectMat == null)
             {
-                GameObject tmp = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                _beaconMesh = tmp.GetComponent<MeshFilter>().sharedMesh;
-                Destroy(tmp);
-                _beaconMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-                _beaconMat.enableInstancing = true;
-                _beaconMat.SetColor("_BaseColor", new Color(0.42f, 1.0f, 0.45f, 0.65f));
+                Shader sh = Shader.Find("TrashCleaner3D/DetectOutlineXRay") ?? Shader.Find("TrashCleaner3D/WhiteOutlineInstanced") ?? Shader.Find("Universal Render Pipeline/Unlit");
+                _detectMat = new Material(sh);
+                _detectMat.SetColor("_OutlineColor", new Color(1.0f, 0.92f, 0.35f, 0.85f));
+                _detectMat.SetFloat("_OutlineWidth", 0.016f);
+                _detectMat.enableInstancing = true;
+                _detectRenderParams = new RenderParams(_detectMat)
+                {
+                    worldBounds = new Bounds(Vector3.zero, Vector3.one * 60f),
+                    shadowCastingMode = ShadowCastingMode.Off,
+                    receiveShadows = false
+                };
             }
         }
 
         /// <summary>
-        /// 문 열자마자 한눈에 가득 차 보이도록, 중앙·양옆·매트리스 위까지 입체 산(최대 0.65m 높이) 형태로 1,000개 배치!
+        /// +50% 확장된 방(7.2m x 6.0m, x: -3.6~+3.6, z: -3.0~+3.0)에 1,000개 쓰레기 입체 산 배치!
         /// </summary>
         public void SpawnInitialSwarm(int count)
         {
             if (meshTypes.Count == 0) return;
-            InitializeCapacity(count + 450);
+            InitializeCapacity(count + 500);
 
-            // 현관문(x=1.5, z=2.0)을 열었을 때 정면 시선(-Z)에 바로 걸리는 높고 풍성한 쓰레기 산 8곳!
             Vector3[] hubs =
             {
-                new Vector3(1.35f, 0f, 0.45f),   // 문 열자마자 바로 정면 앞!
-                new Vector3(0.45f, 0f, 0.35f),   // 중앙 정면!
-                new Vector3(1.55f, 0f, -0.55f),  // 좌측(동쪽) 벽 산!
-                new Vector3(0.95f, 0f, -1.25f),  // 안쪽 정면 산!
-                new Vector3(-0.35f, 0f, 0.85f),  // 냉장고 옆 산!
-                new Vector3(-0.35f, 0f, -0.45f), // 방 중앙!
-                new Vector3(-1.35f, 0f, 0.85f),  // 구석 산!
-                new Vector3(-1.30f, 0f, -0.85f)  // 매트리스 위 산!
+                new Vector3(1.95f, 0f, 0.85f),   // 문 열자마자 바로 정면 앞!
+                new Vector3(0.65f, 0f, 0.55f),   // 중앙 정면!
+                new Vector3(2.45f, 0f, -0.75f),  // 좌측(동쪽) 벽 산!
+                new Vector3(1.45f, 0f, -1.95f),  // 안쪽 정면 산!
+                new Vector3(-0.55f, 0f, 1.35f),  // 냉장고 옆 산!
+                new Vector3(-0.55f, 0f, -0.65f), // 방 중앙!
+                new Vector3(-2.15f, 0f, 1.35f),  // 북서 구석 산!
+                new Vector3(-2.30f, 0f, -1.55f)  // 매트리스 위 산!
             };
 
             for (int i = 0; i < count; i++)
@@ -178,26 +186,25 @@ namespace TrashCleaner3D
                 if (i < count * 0.78f)
                 {
                     Vector3 h = hubs[i % hubs.Length];
-                    Vector2 off = Random.insideUnitCircle * Random.Range(0.08f, 0.88f);
-                    float dist01 = Mathf.Clamp01(off.magnitude / 0.88f);
-                    // 문 열었을 때 바닥에 납작하게 묻히지 않고 '가득 쌓인' 입체감이 확 살도록 최대 0.58m까지 적층!
-                    float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.06f, 0.58f);
+                    Vector2 off = Random.insideUnitCircle * Random.Range(0.10f, 1.28f);
+                    float dist01 = Mathf.Clamp01(off.magnitude / 1.28f);
+                    float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.06f, 0.62f);
                     pos = new Vector3(
-                        Mathf.Clamp(h.x + off.x, -2.10f, 2.10f),
+                        Mathf.Clamp(h.x + off.x, -3.22f, 3.22f),
                         0.06f + yStack,
-                        Mathf.Clamp(h.z + off.y, -1.78f, 1.65f)
+                        Mathf.Clamp(h.z + off.y, -2.65f, 2.55f)
                     );
                 }
                 else
                 {
-                    pos = new Vector3(Random.Range(-2.05f, 2.05f), 0.06f, Random.Range(-1.72f, 1.62f));
+                    pos = new Vector3(Random.Range(-3.15f, 3.15f), 0.06f, Random.Range(-2.60f, 2.50f));
                 }
 
-                // 매트리스 위(-2.18..-0.70, -1.92..0.02)는 매트리스 표면(y=0.30) 위에 얹기
-                if (pos.x < -0.70f && pos.z < 0.02f) pos.y += 0.30f;
+                // 매트리스 위(x < -1.55 && z < -0.55)는 매트리스 상단(y=0.32) 위에 얹기
+                if (pos.x < -1.55f && pos.z < -0.55f) pos.y += 0.32f;
 
-                // 안쪽으로 열리는 현관문 바로 뒤 최소 회전 공간(x > 1.05 && z > 1.10)만 살짝 비워 문 열릴 때 안 겹치게
-                if (pos.x > 1.05f && pos.z > 1.10f) pos.z -= 0.90f;
+                // 안쪽으로 열리는 현관문 바로 뒤 최소 회전 공간(x > 1.50 && z > 1.90) 살짝 비우기
+                if (pos.x > 1.50f && pos.z > 1.90f) pos.z -= 1.05f;
 
                 AddUnit(pos, pos, false);
             }
@@ -209,13 +216,13 @@ namespace TrashCleaner3D
             for (int i = 0; i < count; i++)
             {
                 if (_unitCount >= _units.Length) break;
-                Vector2 off = Random.insideUnitCircle.normalized * Random.Range(0.22f, 1.05f);
+                Vector2 off = Random.insideUnitCircle.normalized * Random.Range(0.25f, 1.35f);
                 Vector3 land = new Vector3(
-                    Mathf.Clamp(origin.x + off.x, -2.0f, 2.0f),
+                    Mathf.Clamp(origin.x + off.x, -3.15f, 3.15f),
                     0.07f,
-                    Mathf.Clamp(origin.z + off.y, -1.7f, 1.55f)
+                    Mathf.Clamp(origin.z + off.y, -2.60f, 2.45f)
                 );
-                if (land.x < -0.70f && land.z < 0.02f) land.y += 0.30f;
+                if (land.x < -1.55f && land.z < -0.55f) land.y += 0.32f;
                 AddUnit(origin + Vector3.up * 0.35f, land, true);
             }
         }
@@ -224,7 +231,7 @@ namespace TrashCleaner3D
         {
             if (_unitCount >= _units.Length) return;
             int tIdx = Random.Range(0, meshTypes.Count);
-            float baseS = meshTypes[tIdx].normalizedScale * Random.Range(0.86f, 1.20f);
+            float baseS = meshTypes[tIdx].normalizedScale * Random.Range(0.86f, 1.22f);
             Quaternion baseOffset = Quaternion.Euler(meshTypes[tIdx].baseEulerOffset);
 
             _units[_unitCount++] = new TrashUnit
@@ -238,13 +245,10 @@ namespace TrashCleaner3D
                 timer = 0f,
                 startPos = startPos,
                 endPos = endPos,
-                value = 3 // 개당 $3 (버릴 때 일괄 지급!)
+                value = 3
             };
         }
 
-        /// <summary>
-        /// 마우스 조준 지점(aimPoint)에서 가장 가까운 정확히 maxSelectCount개(초반 1개!)를 골라 하얀색 테두리 대상으로 지정.
-        /// </summary>
         public void UpdateHoverSelection(bool active, Vector3 aimPoint, float searchRadius, int maxSelectCount)
         {
             _selectedIndices.Clear();
@@ -259,17 +263,13 @@ namespace TrashCleaner3D
                 Vector3 d = _units[i].pos - aimPoint;
                 d.y *= 0.65f;
                 float dSq = d.sqrMagnitude;
-                if (dSq <= rSq)
-                {
-                    _candidates.Add((i, dSq));
-                }
+                if (dSq <= rSq) _candidates.Add((i, dSq));
             }
 
             if (_candidates.Count == 0) return;
 
             if (maxSelectCount == 1)
             {
-                // 초반 1개 모드: 가장 가까운 정확히 1개만 빠르게 선택!
                 int bestIdx = _candidates[0].idx;
                 float bestD = _candidates[0].distSq;
                 for (int k = 1; k < _candidates.Count; k++)
@@ -286,16 +286,10 @@ namespace TrashCleaner3D
             {
                 _candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
                 int take = Mathf.Min(maxSelectCount, _candidates.Count);
-                for (int k = 0; k < take; k++)
-                {
-                    _selectedIndices.Add(_candidates[k].idx);
-                }
+                for (int k = 0; k < take; k++) _selectedIndices.Add(_candidates[k].idx);
             }
         }
 
-        /// <summary>
-        /// 현재 하얀색 테두리로 선택된 정확히 그 쓰레기들(초반 1개 / 업그레이드 시 N개)을 집어서 봉투로 흡입 시작!
-        /// </summary>
         public int PickSelectedUnits(Transform suckDest, int maxGrab)
         {
             if (maxGrab <= 0 || _selectedIndices.Count == 0) return 0;
@@ -307,7 +301,7 @@ namespace TrashCleaner3D
                 int idx = _selectedIndices[k];
                 if (idx >= 0 && idx < _unitCount && _units[idx].state == 0)
                 {
-                    _units[idx].state = 2; // Sucking!
+                    _units[idx].state = 2;
                     _units[idx].timer = 0f;
                     grabbed++;
                 }
@@ -332,12 +326,18 @@ namespace TrashCleaner3D
             {
                 _batchCounts[t] = 0;
                 _outlineCounts[t] = 0;
+                _detectCounts[t] = 0;
             }
 
-            bool showBeacon = manager != null && manager.HasBeaconDetect &&
-                              manager.Phase == GamePhase.Phase1_TrashRemoval &&
-                              RemainingCount > 0 && (RemainingCount <= 40 || manager.Phase1Percent >= 90f);
-            int beaconCount = 0;
+            bool showDetectOutline = manager != null && manager.HasBeaconDetect &&
+                                     manager.Phase == GamePhase.Phase1_TrashRemoval &&
+                                     RemainingCount > 0 && (RemainingCount <= 60 || manager.Phase1Percent >= 90f);
+
+            if (showDetectOutline && _detectMat != null)
+            {
+                float pulse = 0.55f + 0.40f * Mathf.Abs(Mathf.Sin(Time.time * 4.5f));
+                _detectMat.SetColor("_OutlineColor", new Color(1.0f, 0.90f, 0.32f, pulse));
+            }
 
             for (int i = 0; i < _unitCount; i++)
             {
@@ -371,25 +371,29 @@ namespace TrashCleaner3D
                         continue;
                     }
                 }
-                else if (showBeacon && beaconCount < _beaconMatrices.Length && (i % Mathf.Max(1, RemainingCount / 16) == 0))
-                {
-                    _beaconMatrices[beaconCount++] = Matrix4x4.TRS(
-                        _units[i].pos + Vector3.up * 0.9f,
-                        Quaternion.identity,
-                        new Vector3(0.05f, 0.9f, 0.05f)
-                    );
-                }
 
                 int tIdx = _units[i].typeIdx;
                 int c = _batchCounts[tIdx];
                 if (c < 1023)
                 {
-                    _batchMatrices[tIdx][c] = Matrix4x4.TRS(_units[i].pos, _units[i].rot, Vector3.one * _units[i].curScale);
+                    Matrix4x4 mtx = Matrix4x4.TRS(_units[i].pos, _units[i].rot, Vector3.one * _units[i].curScale);
+                    _batchMatrices[tIdx][c] = mtx;
                     _batchCounts[tIdx] = c + 1;
+
+                    // 10% 이하 탐지: 초록 기둥 대신 남은 쓰레기 주위에 깔끔한 황금 투시 테두리만 표시!
+                    if (showDetectOutline && st == 0)
+                    {
+                        int dc = _detectCounts[tIdx];
+                        if (dc < 1023)
+                        {
+                            _detectMatrices[tIdx][dc] = mtx;
+                            _detectCounts[tIdx] = dc + 1;
+                        }
+                    }
                 }
             }
 
-            // 선택된 정확히 N개(초반 1개!)만 전용 Cull-Front 하얀색 외곽선 배치에 추가
+            // 마우스 호버 중인 정확히 N개에 선명한 하얀색 외곽 테두리
             for (int k = 0; k < _selectedIndices.Count; k++)
             {
                 int idx = _selectedIndices[k];
@@ -403,7 +407,7 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 1) 일반 3D 쓰레기 GPU Instancing 렌더
+            // 1) 일반 3D 쓰레기 렌더
             for (int t = 0; t < meshTypes.Count; t++)
             {
                 int cnt = _batchCounts[t];
@@ -413,7 +417,20 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 2) 선택된 쓰레기 주위에 선명한 하얀색 외곽 테두리 렌더 (Cull Front → 본체 안 가림!)
+            // 2) 10% 이하 탐지 황금 투시 테두리 렌더 (기둥 0개, 시야 방해 0%!)
+            if (showDetectOutline && _detectMat != null)
+            {
+                for (int t = 0; t < meshTypes.Count; t++)
+                {
+                    int dcnt = _detectCounts[t];
+                    if (dcnt > 0 && meshTypes[t].mesh != null)
+                    {
+                        Graphics.RenderMeshInstanced(_detectRenderParams, meshTypes[t].mesh, 0, _detectMatrices[t], dcnt);
+                    }
+                }
+            }
+
+            // 3) 마우스 호버 하얀색 외곽 테두리 렌더
             if (_outlineMat != null)
             {
                 for (int t = 0; t < meshTypes.Count; t++)
@@ -424,16 +441,6 @@ namespace TrashCleaner3D
                         Graphics.RenderMeshInstanced(_outlineRenderParams, meshTypes[t].mesh, 0, _outlineMatrices[t], ocnt);
                     }
                 }
-            }
-
-            // 3) 10% 이하 빛기둥
-            if (beaconCount > 0 && _beaconMesh != null && _beaconMat != null)
-            {
-                var bp = new RenderParams(_beaconMat)
-                {
-                    worldBounds = new Bounds(Vector3.zero, Vector3.one * 50f)
-                };
-                Graphics.RenderMeshInstanced(bp, _beaconMesh, 0, _beaconMatrices, beaconCount);
             }
         }
     }
