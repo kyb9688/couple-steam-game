@@ -124,10 +124,10 @@ namespace TrashCleaner3D
             if (tissueVisual != null) tissueVisual.SetActive(isP2 && !manager.HasMopUnlocked);
             if (mopVisual != null) mopVisual.SetActive(isP2 && manager.HasMopUnlocked);
 
-            // 왼손 봉투: 시야 안 가리게 아담한 크기(0.10 → 0.21) 유지
+            // 왼손 봉투: 쓰레기가 담겨 있으면 표시 (문 밖 트럭에 버릴 때 정산!)
             if (leftBagPivot != null)
             {
-                bool showBag = !isP2 && !manager.HasVacuumUnlocked && manager.HandBagCount > 0;
+                bool showBag = manager.HandBagCount > 0;
                 leftBagPivot.gameObject.SetActive(showBag);
                 if (showBag)
                 {
@@ -237,8 +237,8 @@ namespace TrashCleaner3D
             fDown = Input.GetKeyDown(KeyCode.F);
 #endif
 
-            // 우클릭: 왼손 봉투를 문 밖 트럭 짐칸으로 농구 슛!
-            if (manager.Phase == GamePhase.Phase1_TrashRemoval && rmbDown && manager.HandBagCount > 0)
+            // 우클릭: 왼손 봉투를 문 밖 트럭(쓰레기통)에 던져 돈 정산! (1·2단계 언제든 가능)
+            if (rmbDown && manager.HandBagCount > 0)
             {
                 Vector3 origin = cameraTransform.position + cameraTransform.forward * 0.55f - cameraTransform.right * 0.14f;
                 manager.ThrowHandBag(origin, cameraTransform.forward);
@@ -330,19 +330,20 @@ namespace TrashCleaner3D
                     }
                 }
 
-                // 2) 바닥 1,000+ GPU-Instanced 쓰레기: 마우스 올리면 주위 하얀색 테두리 표시 → 클릭으로 줍기!
+                // 2) 바닥 1,000+ GPU-Instanced 쓰레기: 정확히 PickCountPerClick개(초반 무조건 1개!)만 하얀 테두리 → 클릭으로 줍기!
                 if (manager.trashSwarm != null && hasWorldPoint && Vector3.Distance(cameraTransform.position, worldAimPoint) <= 4.2f)
                 {
                     float r = manager.SweepRadius;
-                    manager.trashSwarm.SetHoverSelection(true, worldAimPoint, r);
-                    AimIsSwarmNear = manager.trashSwarm.HasAnyIdleNear(worldAimPoint, r);
+                    int pickLimit = manager.HasVacuumUnlocked ? manager.SweepPerTick : manager.PickCountPerClick;
+                    manager.trashSwarm.UpdateHoverSelection(true, worldAimPoint, r, pickLimit);
+                    AimIsSwarmNear = manager.trashSwarm.HoveredCount > 0;
 
                     bool triggerPick = manager.HasVacuumUnlocked ? lmbHeld : lmbDown;
                     if (triggerPick && AimIsSwarmNear)
                     {
                         if (manager.IsHandBagFull)
                         {
-                            if (lmbDown) manager.ShowToast("봉투 가득! 문 밖 트럭에 [우클릭] 슛");
+                            if (lmbDown) manager.ShowToast($"봉투 가득 (${manager.HandBagPendingValue})! 문 밖 트럭에 [우클릭] 버리세요");
                             return;
                         }
 
@@ -350,12 +351,12 @@ namespace TrashCleaner3D
 
                         if (!manager.HasVacuumUnlocked || _sweepTickTimer <= 0f)
                         {
-                            if (manager.HasVacuumUnlocked) _sweepTickTimer = 0.035f / workMult;
-                            int spaceLeft = manager.HasVacuumUnlocked ? 99 : Mathf.Max(0, manager.HandBagCapacity - manager.HandBagCount);
-                            int maxGrab = Mathf.Min(manager.SweepPerTick, spaceLeft);
+                            if (manager.HasVacuumUnlocked) _sweepTickTimer = 0.05f / workMult;
+                            int spaceLeft = Mathf.Max(0, manager.HandBagCapacity - manager.HandBagCount);
+                            int maxGrab = Mathf.Min(pickLimit, spaceLeft);
                             Transform dest = manager.HasVacuumUnlocked ? rightToolPivot : (leftBagPivot != null ? leftBagPivot : rightToolPivot);
 
-                            int grabbed = manager.trashSwarm.SweepAt(worldAimPoint, r, maxGrab, dest);
+                            int grabbed = manager.trashSwarm.PickSelectedUnits(dest, maxGrab);
                             if (grabbed > 0 && !manager.HasVacuumUnlocked && _punchTimer <= 0f)
                             {
                                 _grabSwingTimer = 0.16f;
@@ -364,7 +365,7 @@ namespace TrashCleaner3D
                     }
                 }
             }
-            // ===== PHASE 2: 바닥 얼룩 마우스 흔들어 닦기 =====
+            // ===== PHASE 2: 바닥 얼룩 걸레질 (좌클릭+마우스 흔들기) =====
             else if (manager.Phase == GamePhase.Phase2_FloorMopping && hitStain != null)
             {
                 _lastTarget = hitStain;
@@ -375,12 +376,12 @@ namespace TrashCleaner3D
                 if (lmbHeld)
                 {
                     float shake = mouseDelta.magnitude;
-                    float power = (0.12f + Mathf.Min(shake, 45f) * 0.09f) * manager.ScrubSpeedMult * workMult;
+                    float power = (0.35f + Mathf.Min(shake, 45f) * 0.11f) * manager.ScrubSpeedMult * workMult;
                     if (shake < 1.2f) NeedMouseShakeHint = true;
 
                     _scrubMotionWeight = 1f;
                     _scrubPhase += (6f + Mathf.Min(shake, 30f) * 0.85f) * Time.deltaTime;
-                    if (shake > 2.5f && _scrubSoundCooldown <= 0f)
+                    if (shake > 2.0f && _scrubSoundCooldown <= 0f)
                     {
                         _scrubSoundCooldown = 0.20f;
                         manager.sfx.PlayScrub();
@@ -453,7 +454,7 @@ namespace TrashCleaner3D
         {
             if (_lastTarget != null) { _lastTarget.SetHighlighted(false); _lastTarget = null; }
             if (_lastDoor != null) { _lastDoor.SetHighlighted(false); _lastDoor = null; }
-            if (manager != null && manager.trashSwarm != null) manager.trashSwarm.SetHoverSelection(false, Vector3.zero, 0f);
+            if (manager != null && manager.trashSwarm != null) manager.trashSwarm.UpdateHoverSelection(false, Vector3.zero, 0f, 0);
         }
     }
 }

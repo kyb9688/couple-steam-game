@@ -22,7 +22,7 @@ namespace TrashCleaner3D.Editor
         private const string ArtRoot = "Assets/_Project/Art";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 32;
+        private const int SceneBuildVersion = 33;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -246,18 +246,20 @@ namespace TrashCleaner3D.Editor
             GameObject trashRoot = new GameObject("Phase1_BigBreakablePiles");
             Vector3[] pilePositions = new[]
             {
-                new Vector3(1.85f, 0f, 0.45f),
+                new Vector3(1.65f, 0f, 0.42f),   // 문 열자마자 바로 정면 앞!
+                new Vector3(0.85f, 0f, 0.35f),   // 문 열자마자 바로 정면 중앙!
                 new Vector3(1.80f, 0f, -0.35f),
                 new Vector3(1.70f, 0f, -1.15f),
-                new Vector3(1.15f, 0f, 0.25f),
-                new Vector3(1.10f, 0f, -0.58f),
-                new Vector3(0.45f, 0f, 0.62f),
+                new Vector3(1.15f, 0f, -0.15f),
+                new Vector3(1.10f, 0f, -0.78f),
+                new Vector3(0.45f, 0f, 0.68f),
                 new Vector3(-0.35f, 0f, 1.32f),
                 new Vector3(-1.12f, 0f, 1.25f),
                 new Vector3(-0.28f, 0f, 0.35f),
                 new Vector3(0.45f, 0f, -0.58f),
                 new Vector3(-1.70f, 0f, 0.72f),
                 new Vector3(0.95f, 0f, -1.35f),
+                new Vector3(0.05f, 0f, -1.25f),
             };
 
             for (int i = 0; i < pilePositions.Length; i++)
@@ -266,7 +268,7 @@ namespace TrashCleaner3D.Editor
                 GameObject src = pileAssets[k];
                 if (src == null) continue;
                 bool isBoxLike = (k == 3 || k == 4);
-                float size = isBoxLike ? Random.Range(0.56f, 0.68f) : Random.Range(0.72f, 0.90f);
+                float size = isBoxLike ? Random.Range(0.58f, 0.72f) : Random.Range(0.76f, 0.96f);
                 GameObject pile = SpawnNormalizedModel(
                     src, $"BreakablePile_{i + 1:00}",
                     pilePositions[i], Quaternion.Euler(0f, Random.Range(0f, 360f), 0f),
@@ -274,9 +276,9 @@ namespace TrashCleaner3D.Editor
                 );
                 if (pile != null)
                 {
-                    // 초반 주먹 4방(4.0 HP) → 퍽! 터지면서 소형 쓰레기 25개 분수 + 보물 발굴!
-                    var ct = AddCleanable(pile, CleanableKind.TrashPile, pileNames[k], 4.0f, 12, 0, 2.0f);
-                    ct.burstSpawnCount = 25;
+                    // 초반 주먹 4방(4.0 HP) → 퍽! 터지면서 소형 쓰레기 20개 분수 + 보물 발굴!
+                    var ct = AddCleanable(pile, CleanableKind.TrashPile, pileNames[k], 4.0f, 0, 0, 2.0f);
+                    ct.burstSpawnCount = 20;
                     ct.containsTreasureChance = true;
                 }
             }
@@ -334,53 +336,25 @@ namespace TrashCleaner3D.Editor
         }
 
         /// <summary>
-        /// 1,000+ GPU Instancing용 경량 3D 소형 쓰레기 5종 세팅 (모든 머티리얼 enableInstancing = true)
+        /// 1,000+ GPU Instancing용 깔끔한 3D 소형 쓰레기 5종 세팅
+        /// (뾰족하게 깨지던 crushed 피자박스 제거 → Unity Y-up 정방향 캔·담뱃갑·통조림·생수통·구겨진 종이 사용!)
         /// </summary>
         private static void PopulateSwarmMeshTypes(InstancedTrashSwarm swarm)
         {
+            TryAddFallbackFolderType(swarm, "녹슨 캔", $"{ArtRoot}/Models/Trash/can_rusted", 0.16f, new Color(0.80f, 0.42f, 0.25f));
+            TryAddFallbackFolderType(swarm, "담뱃갑", $"{ArtRoot}/Models/Trash/cigarette_pack", 0.14f, new Color(0.88f, 0.85f, 0.78f));
+            TryAddFallbackFolderType(swarm, "통조림 캔", $"{ArtRoot}/Models/Trash/russian_food_cans_01", 0.20f, new Color(0.82f, 0.75f, 0.56f));
+            TryAddFallbackFolderType(swarm, "플라스틱 물통", $"{ArtRoot}/Models/Trash/plastic_bottle_gallon", 0.26f, new Color(0.88f, 0.92f, 0.96f));
+
             string litterFbxDir = $"{ArtRoot}/Models/Trash/street_litter_sampler/fbx";
             string litterTexDir = $"{ArtRoot}/Models/Trash/street_litter_sampler/textures";
-
-            TryAddInstancedType(swarm, "찌그러진 캔",
-                $"{litterFbxDir}/SM_PL_Cans_Soda330_crushed.fbx",
-                $"{litterTexDir}/T_SM_PL_Cans_Soda330_crushed_BaseColor.jpg",
-                $"{litterTexDir}/T_SM_PL_Cans_Soda330_crushed_Normal.png",
-                new Color(0.85f, 0.25f, 0.22f), 0.16f, 0.45f);
-
-            TryAddInstancedType(swarm, "테이크아웃 컵",
-                $"{litterFbxDir}/SM_PL_Takeout_CoffeeCup_crushed.fbx",
-                $"{litterTexDir}/T_SM_PL_Takeout_CoffeeCup_crushed_BaseColor.jpg",
-                $"{litterTexDir}/T_SM_PL_Takeout_CoffeeCup_crushed_Normal.png",
-                new Color(0.92f, 0.88f, 0.80f), 0.20f, 0.25f);
-
-            TryAddInstancedType(swarm, "페트병",
-                $"{litterFbxDir}/SM_PL_Bottles_Water500_crushed.fbx",
-                $"{litterTexDir}/T_SM_PL_Bottles_Water500_crushed_BaseColor.png",
-                $"{litterTexDir}/T_SM_PL_Bottles_Water500_crushed_Normal.png",
-                new Color(0.75f, 0.88f, 0.96f), 0.23f, 0.60f);
-
             TryAddInstancedType(swarm, "구겨진 종이",
                 $"{litterFbxDir}/SM_PL_Paper_BallMedium_crushed.fbx",
                 $"{litterTexDir}/T_SM_PL_Paper_BallMedium_crushed_BaseColor.jpg",
                 $"{litterTexDir}/T_SM_PL_Paper_BallMedium_crushed_Normal.png",
-                new Color(0.88f, 0.86f, 0.78f), 0.14f, 0.10f);
+                new Color(0.92f, 0.90f, 0.84f), 0.15f, 0.10f);
 
-            TryAddInstancedType(swarm, "배달 피자박스",
-                $"{litterFbxDir}/SM_PL_Takeout_PizzaBox_crushed.fbx",
-                $"{litterTexDir}/T_SM_PL_Takeout_PizzaBox_crushed_BaseColor.jpg",
-                $"{litterTexDir}/T_SM_PL_Takeout_PizzaBox_crushed_Normal.png",
-                new Color(0.82f, 0.68f, 0.48f), 0.30f, 0.14f);
-
-            // Fallback: street_litter_sampler가 없는 환경이라면 기존 PolyHaven 소형 모델 사용
-            if (swarm.meshTypes.Count == 0)
-            {
-                TryAddFallbackFolderType(swarm, "녹슨 캔", $"{ArtRoot}/Models/Trash/can_rusted", 0.17f, new Color(0.75f, 0.42f, 0.25f));
-                TryAddFallbackFolderType(swarm, "담뱃갑", $"{ArtRoot}/Models/Trash/cigarette_pack", 0.14f, new Color(0.85f, 0.82f, 0.75f));
-                TryAddFallbackFolderType(swarm, "통조림 캔", $"{ArtRoot}/Models/Trash/russian_food_cans_01", 0.22f, new Color(0.78f, 0.72f, 0.55f));
-                TryAddFallbackFolderType(swarm, "플라스틱 병", $"{ArtRoot}/Models/Trash/plastic_bottle_gallon", 0.26f, new Color(0.86f, 0.90f, 0.94f));
-            }
-
-            // 최후 안전망 (에셋 폴더가 아예 비어 있을 때만 기본 도형 사용)
+            // 최후 안전망
             if (swarm.meshTypes.Count == 0)
             {
                 GameObject tmp = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -659,7 +633,7 @@ namespace TrashCleaner3D.Editor
             go.GetComponent<Renderer>().sharedMaterial = mat;
             Object.DestroyImmediate(go.GetComponent<Collider>());
             var col = go.AddComponent<BoxCollider>();
-            col.size = new Vector3(1f, 1f, 0.02f);
+            col.size = new Vector3(1f, 1f, 0.08f);
 
             var c = go.AddComponent<CleanableTarget>();
             c.kind = CleanableKind.FloorStain;

@@ -200,14 +200,14 @@ namespace TrashCleaner3D
                     _centerStyle.normal.textColor = Color.white;
                     GUI.Label(dp, controller.AimDoor.IsOpen ? "[F] 문 닫기" : "[F] 문 열기", _centerStyle);
                 }
-                else if (manager.Phase == GamePhase.Phase1_TrashRemoval && !manager.HasVacuumUnlocked && manager.HandBagCount > 0)
+                else if (manager.HandBagCount > 0 && (manager.Phase == GamePhase.Phase1_TrashRemoval || controller.AimProgress01 <= 0.01f))
                 {
                     float fill = Mathf.Clamp01(manager.HandBagCount / (float)manager.HandBagCapacity);
                     DrawBar(new Rect(sw / 2f - 48, sh / 2f + 16, 96, 6), fill, manager.IsHandBagFull ? _goldTex : _greenTex);
                     if (manager.IsHandBagFull)
                     {
                         _centerStyle.normal.textColor = new Color(1f, 0.90f, 0.30f);
-                        GUI.Label(new Rect(sw / 2f - 100, sh / 2f + 24, 200, 20), "가득 참 · 문 밖 [우클릭] 슛", _centerStyle);
+                        GUI.Label(new Rect(sw / 2f - 125, sh / 2f + 24, 250, 20), $"가득 참 (${manager.HandBagPendingValue}) · 트럭에 [우클릭]", _centerStyle);
                     }
                 }
                 else if (controller.AimProgress01 > 0.01f)
@@ -346,8 +346,8 @@ namespace TrashCleaner3D
             GUI.Label(coreR, "▲\n본부", _centerStyle);
 
             // 12개 정사각형 아이콘 노드 (BMP 안전 심볼만 사용 → 콘솔 에러/경고 0!)
-            DrawIconNode(nSweep, "sweep", "◎", $"{manager.LvSweepRadius}/5", "줍기 반경 확대", $"한 번에 쓸어담는 반경 확대 (현재 {manager.SweepRadius:0.2}m)", manager.CostSweep, manager.LvSweepRadius >= 5, true, _orangeTex);
-            DrawIconNode(nVac, "vacuum", "◉", manager.HasVacuumUnlocked ? "ON" : "0/1", "진공청소기 해금", "광역 폭풍 흡입 + 봉투 제한 완전 해제 (줍기 반경 Lv.2 필요)", manager.CostVacuum, manager.HasVacuumUnlocked, manager.LvSweepRadius >= 2, _orangeTex);
+            DrawIconNode(nSweep, "sweep", "◎", $"{manager.LvSweepRadius}/5", "한 번에 줍기 증가", $"클릭 1회당 줍는 쓰레기 개수 증가 (현재 {manager.PickCountPerClick}개 → 최대 20개)", manager.CostSweep, manager.LvSweepRadius >= 5, true, _orangeTex);
+            DrawIconNode(nVac, "vacuum", "◉", manager.HasVacuumUnlocked ? "ON" : "0/1", "진공청소기 해금", "좌클릭 꾹 연속 폭풍 흡입 + 봉투 용량 3배! (한 번에 줍기 Lv.2 필요)", manager.CostVacuum, manager.HasVacuumUnlocked, manager.LvSweepRadius >= 2, _orangeTex);
             DrawIconNode(nFist, "fist", "◆", $"{manager.LvFistPower}/4", "주먹 힘 강화", $"큰 쓰레기봉투 타격 데미지 증가 (현재 {manager.FistDamage:0.1})", manager.CostFist, manager.LvFistPower >= 4, true, _orangeTex);
             DrawIconNode(nBeacon, "beacon", "✦", manager.HasBeaconDetect ? "ON" : "0/1", "10% 빛기둥 탐지", "남은 쓰레기 10% 이하일 때 위치에 빛기둥 표시 (주먹 힘 Lv.1 필요)", manager.CostBeacon, manager.HasBeaconDetect, manager.LvFistPower >= 1, _orangeTex);
 

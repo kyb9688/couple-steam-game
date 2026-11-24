@@ -13,6 +13,7 @@ namespace TrashCleaner3D
         public Transform truckGoal;
         public Vector3 throwOrigin;
         public int bagItemCount = 6;
+        public int bagPendingValue = 18;
         public bool hasMagnetUpgrade;
 
         private Rigidbody _rb;
@@ -24,12 +25,13 @@ namespace TrashCleaner3D
             _rb = GetComponent<Rigidbody>();
         }
 
-        public void Launch(Vector3 velocity, Vector3 origin, Transform goal, GamePrototypeManager mgr, int count, bool magnet)
+        public void Launch(Vector3 velocity, Vector3 origin, Transform goal, GamePrototypeManager mgr, int count, int pendingValue, bool magnet)
         {
             throwOrigin = origin;
             truckGoal = goal;
             manager = mgr;
             bagItemCount = count;
+            bagPendingValue = pendingValue;
             hasMagnetUpgrade = magnet;
 
             _rb.linearVelocity = velocity;
@@ -64,10 +66,10 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 4.5초 지나도 못 들어갔으면 자동 수거 처리(바닥에 영원히 굴러다니는 스트레스 방지)
+            // 4.2초 지나도 못 들어갔으면 자동 수거 처리(바닥에 영원히 굴러다니는 스트레스 방지)
             if (_lifeTimer >= 4.2f)
             {
-                if (manager != null) manager.OnBagScored(bagItemCount, 0f, false);
+                if (manager != null) manager.OnBagScored(bagItemCount, bagPendingValue, 0f, false);
                 Destroy(gameObject);
             }
         }
@@ -78,7 +80,7 @@ namespace TrashCleaner3D
             float dist = Vector3.Distance(throwOrigin, truckGoal.position);
             if (manager != null)
             {
-                manager.OnBagScored(bagItemCount, dist, true);
+                manager.OnBagScored(bagItemCount, bagPendingValue, dist, true);
             }
             Destroy(gameObject);
         }

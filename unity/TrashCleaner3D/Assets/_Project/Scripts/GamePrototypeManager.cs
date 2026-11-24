@@ -66,20 +66,24 @@ namespace TrashCleaner3D
         public float StenchWorkSpeedMult => StenchStage == 4 ? 0.50f : StenchStage >= 2 ? 0.75f : 1.0f;
         public float StenchGainPerSec => 2.8f * (1f - LvMask * 0.16f); // 마스크 Lv.5 시 80% 차단!
 
-        // ===== 왼손 쓰레기봉투 (1,000개 물량에 맞춘 넉넉한 적재량 + 청소기 해금 시 무한 압축!) =====
+        // ===== 왼손 쓰레기봉투 (주울 땐 돈 0! 문 밖 쓰레기 트럭에 버릴 때 모아둔 돈 일괄 정산!) =====
+        private static readonly int[] BagCapByLv = { 15, 35, 65, 110, 180 };
+        private static readonly int[] PickCountByLv = { 1, 2, 4, 7, 12, 20 };
+
         public int HandBagCount { get; private set; } = 0;
-        public int HandBagCapacity => 120 + LvBagSize * 80;
-        public bool IsHandBagFull => !HasVacuumUnlocked && HandBagCount >= HandBagCapacity;
+        public int HandBagPendingValue { get; private set; } = 0;
+        public int HandBagCapacity => BagCapByLv[Mathf.Clamp(LvBagSize, 0, BagCapByLv.Length - 1)] * (HasVacuumUnlocked ? 3 : 1);
+        public bool IsHandBagFull => HandBagCount >= HandBagCapacity;
 
         // ===== 아이콘형 마인드맵 12개 노드 =====
-        // 주먹·흡입 갈래
-        public int LvSweepRadius { get; private set; }   // 0~5 (초반부터 넓은 1.05m → 2.3m)
+        // 주먹·줍기 갈래
+        public int LvSweepRadius { get; private set; }   // 0~5 (한 번 클릭 줍기 갯수: 1→2→4→7→12→20개!)
         public int LvFistPower { get; private set; }     // 0~4 (큰 봉투 4방→1방 컷)
-        public bool HasVacuumUnlocked { get; private set; } // 진공청소기 (광역 폭풍 흡입 + 봉투 제한 해제!)
+        public bool HasVacuumUnlocked { get; private set; } // 진공청소기 (꾹 눌러 연속 흡입 + 봉투 용량 3배!)
         public bool HasBeaconDetect { get; private set; }// 10% 이하 빛기둥 탐지
         // 봉투·트럭 갈래
-        public int LvBagSize { get; private set; }       // 0~4 (봉투 용량 120 → 440)
-        public int LvTruckSize { get; private set; }     // 0~3 (트럭 짐칸 확대 + 슛 보너스)
+        public int LvBagSize { get; private set; }       // 0~4 (봉투 용량 15 → 180)
+        public int LvTruckSize { get; private set; }     // 0~3 (트럭 짐칸 확대 + 투하 보너스)
         public bool HasTruckMagnet { get; private set; } // 대충 던져도 트럭으로 빨려 들어감
         // 마스크·걸레 갈래
         public int LvMask { get; private set; }          // 0~5 (악취 누적 속도 대폭 완화)
@@ -90,9 +94,9 @@ namespace TrashCleaner3D
         public int LvPokerFace { get; private set; }     // 0~4 (즉시 슈킹 해프닝·의심 확률 완화)
 
         // Derived Gameplay Stats
-        public float SweepRadius => (HasVacuumUnlocked ? 1.85f : 0.78f) + LvSweepRadius * 0.22f;
-        public int ScoopPerClick => 10 + LvSweepRadius * 5; // 맨손 1클릭당 하얗게 선택된 쓰레기 10개→35개 한 웅큼 줍기!
-        public int SweepPerTick => HasVacuumUnlocked ? 18 : ScoopPerClick;
+        public int PickCountPerClick => PickCountByLv[Mathf.Clamp(LvSweepRadius, 0, PickCountByLv.Length - 1)];
+        public float SweepRadius => (HasVacuumUnlocked ? 1.85f : 0.48f) + LvSweepRadius * 0.22f;
+        public int SweepPerTick => HasVacuumUnlocked ? Mathf.Max(8, PickCountPerClick) : PickCountPerClick;
         public float FistDamage => (HasVacuumUnlocked ? 3.5f : 1.0f) + LvFistPower * 0.75f;
         public float ScrubSpeedMult => (HasMopUnlocked ? 2.6f : 1.0f) * (1f + LvScrubPower * 0.45f);
 
@@ -281,18 +285,15 @@ namespace TrashCleaner3D
             foreach (var s in _phase2Stains) if (s != null) s.SetBeaconVisible(p2Beacon && !s.IsCleaned);
         }
 
-        public void OnInstancedTrashCollected(int reward)
+        public void OnInstancedTrashCollected(int itemValue)
         {
-            Money += reward;
-            if (!HasVacuumUnlocked)
-            {
-                HandBagCount = Mathf.Min(HandBagCapacity, HandBagCount + 1);
-            }
+            // 주울 때는 돈을 바로 주지 않고 봉투에 담음 → 문 밖 쓰레기 트럭(쓰레기통)에 버릴 때 일괄 정산!
+            HandBagCount = Mathf.Min(HandBagCapacity, HandBagCount + 1);
+            HandBagPendingValue += itemValue;
 
-            // 동전 줍기 음정 상승 피드백!
             _pitchResetTimer = 0.35f;
-            _pitchCombo = Mathf.Min(1.65f, _pitchCombo + 0.015f);
-            if (Time.frameCount % 2 == 0) sfx.PlayPop(0.85f + _pitchCombo * 0.45f);
+            _pitchCombo = Mathf.Min(1.65f, _pitchCombo + 0.04f);
+            sfx.PlayPop(0.88f + _pitchCombo * 0.38f);
 
             UpdateAtmosphere();
             CheckPhase1Complete();
@@ -300,16 +301,15 @@ namespace TrashCleaner3D
 
         public void OnBigPileBurst(CleanableTarget pile)
         {
-            Money += pile.rewardMoney;
+            // 큰 봉투를 터뜨려도 즉시 돈 지급 X → 쏟아진 쓰레기를 주워 트럭에 버릴 때 정산!
             sfx.PlayPop(0.68f);
 
-            // 큰 봉투가 퍽! 터지면 1,000+ GPU 스웜으로 28개 작은 쓰레기가 분수처럼 쏟아짐!
             if (trashSwarm != null)
             {
-                trashSwarm.SpawnBurstFountain(pile.transform.position, 28);
+                trashSwarm.SpawnBurstFountain(pile.transform.position, 20);
             }
 
-            // 보물 발견 (현장 팝업 없이 발견 보물함에 자동 저장 + 구석 배너!)
+            // 보물 발견 (현장 팝업 없이 발견 보물함에 자동 저장)
             float chance = 0.55f + LvTreasureLuck * 0.12f;
             if (Random.value < chance || _gachaIndex == 1)
             {
@@ -433,7 +433,9 @@ namespace TrashCleaner3D
             }
 
             int count = HandBagCount;
+            int pendingVal = HandBagPendingValue;
             HandBagCount = 0;
+            HandBagPendingValue = 0;
             sfx.PlayPop(0.65f);
 
             GameObject bagObj = thrownBagPrefab != null
@@ -447,17 +449,25 @@ namespace TrashCleaner3D
             rb.mass = 1.2f;
 
             var proj = bagObj.AddComponent<ThrownTrashBag>();
-            proj.Launch(forwardDir.normalized * 8.2f + Vector3.up * 3.4f, spawnPos, truckBedGoal, this, count, HasTruckMagnet);
+            proj.Launch(forwardDir.normalized * 8.2f + Vector3.up * 3.4f, spawnPos, truckBedGoal, this, count, pendingVal, HasTruckMagnet);
         }
 
-        public void OnBagScored(int count, float distance, bool directHit)
+        public void OnBagScored(int count, int bagValue, float distance, bool directHit)
         {
-            int bonus = Mathf.RoundToInt(count * 0.6f) + LvTruckSize * 15 + (directHit && distance >= 3.8f ? 30 : directHit ? 15 : 0);
-            Money += bonus;
+            // 쓰레기통(트럭)에 버릴 때 비로소 돈이 들어옴!
+            int shootBonus = directHit ? (LvTruckSize * 15 + (distance >= 3.8f ? 25 : 10)) : 0;
+            int totalPay = Mathf.Max(bagValue, count * 3) + shootBonus;
+            Money += totalPay;
+            sfx.PlayChime();
             if (directHit)
             {
-                sfx.PlayChime();
-                ShowToast(distance >= 3.8f ? $"★ 3점 롱 슛 골인! +${bonus}" : $"★ 나이스 슛! +${bonus}");
+                ShowToast(distance >= 3.8f
+                    ? $"★ 3점 롱 슛 정산! +${totalPay} (보너스 +${shootBonus})"
+                    : $"★ 쓰레기 투하 정산! +${totalPay}");
+            }
+            else
+            {
+                ShowToast($"쓰레기 수거 정산 +${totalPay} (트럭에 맞추면 보너스!)");
             }
             CheckPhase1Complete();
         }
@@ -465,11 +475,12 @@ namespace TrashCleaner3D
         private void CheckPhase1Complete()
         {
             if (Phase != GamePhase.Phase1_TrashRemoval) return;
-            if (Phase1Cleaned >= Phase1Total && Phase1Total > 0 && (HandBagCount == 0 || HasVacuumUnlocked))
+            // 봉투에 남은 게 있어도 즉시 2단계 걸레질로 전환! (남은 봉투는 2단계 중에도 우클릭으로 던져 정산 가능)
+            if (Phase1Cleaned >= Phase1Total && Phase1Total > 0)
             {
                 Phase = GamePhase.Phase2_FloorMopping;
                 sfx.PlayFanfare();
-                ShowToast("🎉 1단계 쓰레기 100% 철거 완료! 이제 2단계: 마우스를 흔들어 바닥 얼룩을 닦으세요!");
+                ShowToast("1단계 쓰레기 100% 완료! 이제 2단계: 좌클릭+마우스 흔들기로 바닥 얼룩을 닦으세요!");
             }
         }
 
@@ -501,18 +512,18 @@ namespace TrashCleaner3D
         }
 
         // ===== 마인드맵 12개 노드 가격 & 구매 =====
-        public int CostSweep => Mathf.RoundToInt(35 * Mathf.Pow(1.75f, LvSweepRadius));
-        public int CostFist => Mathf.RoundToInt(40 * Mathf.Pow(1.8f, LvFistPower));
+        public int CostSweep => Mathf.RoundToInt(25 * Mathf.Pow(1.85f, LvSweepRadius));
+        public int CostFist => Mathf.RoundToInt(35 * Mathf.Pow(1.8f, LvFistPower));
         public int CostVacuum => 280;
-        public int CostBeacon => 70;
-        public int CostBag => Mathf.RoundToInt(40 * Mathf.Pow(1.8f, LvBagSize));
-        public int CostTruck => Mathf.RoundToInt(80 * Mathf.Pow(1.9f, LvTruckSize));
-        public int CostMagnet => 180;
-        public int CostMask => Mathf.RoundToInt(35 * Mathf.Pow(1.75f, LvMask));
-        public int CostMop => 85;
-        public int CostScrub => Mathf.RoundToInt(110 * Mathf.Pow(1.85f, LvScrubPower));
-        public int CostLuck => Mathf.RoundToInt(65 * Mathf.Pow(1.85f, LvTreasureLuck));
-        public int CostPoker => Mathf.RoundToInt(75 * Mathf.Pow(1.85f, LvPokerFace));
+        public int CostBeacon => 60;
+        public int CostBag => Mathf.RoundToInt(25 * Mathf.Pow(1.85f, LvBagSize));
+        public int CostTruck => Mathf.RoundToInt(70 * Mathf.Pow(1.9f, LvTruckSize));
+        public int CostMagnet => 160;
+        public int CostMask => Mathf.RoundToInt(30 * Mathf.Pow(1.75f, LvMask));
+        public int CostMop => 75;
+        public int CostScrub => Mathf.RoundToInt(95 * Mathf.Pow(1.85f, LvScrubPower));
+        public int CostLuck => Mathf.RoundToInt(60 * Mathf.Pow(1.85f, LvTreasureLuck));
+        public int CostPoker => Mathf.RoundToInt(70 * Mathf.Pow(1.85f, LvPokerFace));
 
         public int CountAffordableUpgrades()
         {
@@ -544,7 +555,7 @@ namespace TrashCleaner3D
                     Money -= CostFist; LvFistPower++; break;
                 case "vacuum":
                     if (LvSweepRadius < 2 || HasVacuumUnlocked || Money < CostVacuum) return false;
-                    Money -= CostVacuum; HasVacuumUnlocked = true; HandBagCount = 0; break;
+                    Money -= CostVacuum; HasVacuumUnlocked = true; break;
                 case "beacon":
                     if (LvFistPower < 1 || HasBeaconDetect || Money < CostBeacon) return false;
                     Money -= CostBeacon; HasBeaconDetect = true; break;
@@ -634,6 +645,7 @@ namespace TrashCleaner3D
 
             DiscoveredTreasures.Clear();
             HandBagCount = 0;
+            HandBagPendingValue = 0;
             StenchPercent = 0f;
             StolenCount = 0;
             StolenValue = 0;

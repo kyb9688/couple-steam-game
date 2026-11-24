@@ -69,9 +69,10 @@ namespace TrashCleaner3D
             var mfs = GetComponentsInChildren<MeshFilter>(true);
             if (mfs.Length == 0) return;
 
-            Material outlineMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-            outlineMat.SetColor("_BaseColor", Color.white);
-            outlineMat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Front);
+            Shader sh = Shader.Find("TrashCleaner3D/WhiteOutlineInstanced") ?? Shader.Find("Universal Render Pipeline/Unlit");
+            Material outlineMat = new Material(sh);
+            outlineMat.SetColor("_OutlineColor", Color.white);
+            outlineMat.SetFloat("_OutlineWidth", 0.018f);
 
             _whiteOutlineRoot = new GameObject("_WhiteOutline");
             _whiteOutlineRoot.transform.SetParent(transform, false);
@@ -82,7 +83,7 @@ namespace TrashCleaner3D
                 copy.transform.SetParent(_whiteOutlineRoot.transform, false);
                 copy.transform.position = mf.transform.position;
                 copy.transform.rotation = mf.transform.rotation;
-                copy.transform.localScale = mf.transform.lossyScale * 1.07f;
+                copy.transform.localScale = mf.transform.lossyScale;
                 copy.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
                 var mr = copy.AddComponent<MeshRenderer>();
                 mr.sharedMaterial = outlineMat;
