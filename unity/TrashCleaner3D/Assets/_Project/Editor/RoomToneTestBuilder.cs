@@ -22,7 +22,7 @@ namespace TrashCleaner3D.Editor
         private const string ArtRoot = "Assets/_Project/Art";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 33;
+        private const int SceneBuildVersion = 34;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -147,49 +147,70 @@ namespace TrashCleaner3D.Editor
             CreateWorldBox("Microwave", new Vector3(0.35f, 1.59f, d / 2f - 0.35f), new Vector3(0.48f, 0.30f, 0.38f), matCeiling, roomRoot.transform, true);
             CreateWorldBox("Mattress", new Vector3(-1.45f, 0.15f, -0.95f), new Vector3(1.45f, 0.30f, 1.90f), matMattress, roomRoot.transform, true);
 
-            // 4. Outside Ventilation Porch (z: 2.0 ~ 3.55) + Trash Truck Bed (z: 4.35, STRICTLY OUTSIDE!)
+            // 4. Outside Yard Walkway (z: 2.0 ~ 8.3) + Trash Truck Farther Out (z: 9.20, 문에서 약 7.2m 거리!)
             GameObject outsideRoot = new GameObject("Outside_Truck_Area");
-            CreateWorldBox("Parking_Floor", new Vector3(1.5f, -0.30f, 4.3f), new Vector3(5.8f, 0.6f, 4.8f), matOutdoorFloor, outsideRoot.transform, true);
+            CreateWorldBox("Parking_Floor", new Vector3(1.5f, -0.30f, 6.9f), new Vector3(7.2f, 0.6f, 9.8f), matOutdoorFloor, outsideRoot.transform, true);
 
-            // 낮은 문턱(콜라이더 제거 → 문 밖 환기 구역으로 걸어 나갈 때 걸림 0%)
+            // 낮은 문턱(콜라이더 제거 → 문 밖으로 걸어 나갈 때 걸림 0%)
             GameObject stepCurb = CreateWorldBox("Door_StepCurb", new Vector3(1.5f, 0.015f, 2.02f), new Vector3(1.1f, 0.03f, 0.10f), matCeiling, outsideRoot.transform, true);
             Object.DestroyImmediate(stepCurb.GetComponent<Collider>());
 
-            // 바깥 환기 구역 안전 투명 펜스 (플레이어가 문 밖 z=2.0~3.45로 나가 숨 쉬고 트럭에 던질 수 있되, 맵 밖 추락 방지!)
-            CreateInvisibleFence("Fence_Outside_North", new Vector3(1.5f, 1.2f, 3.52f), new Vector3(4.2f, 2.4f, 0.15f), outsideRoot.transform);
-            CreateInvisibleFence("Fence_Outside_West", new Vector3(-0.35f, 1.2f, 2.85f), new Vector3(0.15f, 2.4f, 1.8f), outsideRoot.transform);
-            CreateInvisibleFence("Fence_Outside_East", new Vector3(3.35f, 1.2f, 2.85f), new Vector3(0.15f, 2.4f, 1.8f), outsideRoot.transform);
+            // 바깥 마당 안전 투명 펜스 (z=2.0~8.25까지 자유롭게 걸어 나가 숨 쉬고, 실패한 봉투도 주워 트럭에 던질 수 있음!)
+            CreateInvisibleFence("Fence_Outside_North", new Vector3(1.5f, 1.2f, 8.35f), new Vector3(7.2f, 2.4f, 0.15f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_West", new Vector3(-1.9f, 1.2f, 5.2f), new Vector3(0.15f, 2.4f, 6.6f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_East", new Vector3(4.9f, 1.2f, 5.2f), new Vector3(0.15f, 2.4f, 6.6f), outsideRoot.transform);
+
+            // 바깥 현관등 (문 앞을 따뜻하게 비춤)
+            GameObject porchLightObj = new GameObject("Porch_Light");
+            porchLightObj.transform.SetParent(outsideRoot.transform, false);
+            porchLightObj.transform.position = new Vector3(1.50f, 2.45f, 3.1f);
+            Light porchLight = porchLightObj.AddComponent<Light>();
+            porchLight.type = LightType.Point;
+            porchLight.color = new Color(1.0f, 0.94f, 0.80f);
+            porchLight.intensity = 10f;
+            porchLight.range = 8.0f;
+            porchLight.shadows = LightShadows.None;
 
             GameObject truckRoot = new GameObject("TrashTruck_Goal");
             truckRoot.transform.SetParent(outsideRoot.transform, false);
-            truckRoot.transform.position = new Vector3(1.50f, 0.0f, 4.40f);
+            truckRoot.transform.position = new Vector3(1.50f, 0.0f, 9.20f);
 
-            // Truck Cargo Bed (LOCAL coordinates fixed! Never spawns inside the room!)
+            // 초반에는 넣기 도전적인 좁은 짐칸(1.18 x 0.92 x 1.08) → 트럭 확장 강화할수록 넓어지는 쾌감!
             GameObject truckBedVisual = new GameObject("TruckBed_Scalable");
             truckBedVisual.transform.SetParent(truckRoot.transform, false);
-            truckBedVisual.transform.localPosition = new Vector3(0f, 0.45f, 0f);
-            truckBedVisual.transform.localScale = new Vector3(1.85f, 0.85f, 1.50f);
+            truckBedVisual.transform.localPosition = new Vector3(0f, 0.48f, 0f);
+            truckBedVisual.transform.localScale = new Vector3(1.18f, 0.92f, 1.08f);
 
-            CreateLocalBox("Bed_Bottom", new Vector3(0f, -0.42f, 0f), new Vector3(1f, 0.14f, 1f), matTruckBody, truckBedVisual.transform, false);
-            CreateLocalBox("Bed_BackWall", new Vector3(0f, 0f, 0.48f), new Vector3(1f, 1f, 0.08f), matTruckBody, truckBedVisual.transform, false);
-            CreateLocalBox("Bed_FrontLip", new Vector3(0f, -0.18f, -0.48f), new Vector3(1f, 0.55f, 0.08f), matTruckGlow, truckBedVisual.transform, false);
+            CreateLocalBox("Bed_Bottom", new Vector3(0f, -0.44f, 0f), new Vector3(1f, 0.12f, 1f), matTruckBody, truckBedVisual.transform, false);
+            CreateLocalBox("Bed_BackWall", new Vector3(0f, 0.12f, 0.48f), new Vector3(1f, 1.24f, 0.08f), matTruckBody, truckBedVisual.transform, false);
+            CreateLocalBox("Bed_FrontLip", new Vector3(0f, -0.10f, -0.48f), new Vector3(1f, 0.72f, 0.08f), matTruckGlow, truckBedVisual.transform, false);
             CreateLocalBox("Bed_LeftWall", new Vector3(-0.48f, 0f, 0f), new Vector3(0.08f, 1f, 1f), matTruckBody, truckBedVisual.transform, false);
             CreateLocalBox("Bed_RightWall", new Vector3(0.48f, 0f, 0f), new Vector3(0.08f, 1f, 1f), matTruckBody, truckBedVisual.transform, false);
 
-            // Bright spotlight illuminating truck bed & outside fresh air zone
+            // 슈킹 들켰을 때 트럭 투입구를 빨갛게 막는 집주인 단속 배리어!
+            Material matRedBarrier = CreateSimpleLitMaterial("Mat_Truck_RedBarrier", new Color(0.95f, 0.15f, 0.15f), 0.3f);
+            GameObject blockedBarrier = CreateLocalBox("TruckBlockedBarrier", new Vector3(0f, 0.56f, 0f), new Vector3(1.04f, 0.10f, 1.04f), matRedBarrier, truckBedVisual.transform, false);
+            blockedBarrier.SetActive(false);
+
+            // 투하한 쓰레기봉투가 실제로 차곡차곡 쌓이는 컨테이너!
+            GameObject stackedParent = new GameObject("TruckStackedBags");
+            stackedParent.transform.SetParent(truckRoot.transform, false);
+            stackedParent.transform.localPosition = new Vector3(0f, 0.18f, 0f);
+
+            // Bright spotlight illuminating truck bed
             GameObject truckLightObj = new GameObject("Truck_BeaconLight");
             truckLightObj.transform.SetParent(truckRoot.transform, false);
-            truckLightObj.transform.localPosition = new Vector3(0f, 2.5f, -0.35f);
+            truckLightObj.transform.localPosition = new Vector3(0f, 2.8f, -0.5f);
             Light truckLight = truckLightObj.AddComponent<Light>();
             truckLight.type = LightType.Point;
-            truckLight.color = new Color(0.88f, 0.96f, 1.0f);
-            truckLight.intensity = 12f;
-            truckLight.range = 7.5f;
+            truckLight.color = new Color(0.92f, 0.96f, 1.0f);
+            truckLight.intensity = 15f;
+            truckLight.range = 9.0f;
             truckLight.shadows = LightShadows.None;
 
             GameObject goalAnchor = new GameObject("GoalCenterAnchor");
             goalAnchor.transform.SetParent(truckRoot.transform, false);
-            goalAnchor.transform.localPosition = new Vector3(0f, 0.55f, 0f);
+            goalAnchor.transform.localPosition = new Vector3(0f, 0.62f, 0f);
 
             // 5. Ceiling Light (No real-time shadows -> zero URP shadow atlas warnings!)
             GameObject lightObj = new GameObject("Ceiling_Light_WarmFluorescent");
@@ -276,8 +297,8 @@ namespace TrashCleaner3D.Editor
                 );
                 if (pile != null)
                 {
-                    // 초반 주먹 4방(4.0 HP) → 퍽! 터지면서 소형 쓰레기 20개 분수 + 보물 발굴!
-                    var ct = AddCleanable(pile, CleanableKind.TrashPile, pileNames[k], 4.0f, 0, 0, 2.0f);
+                    // 단단한 큰 쓰레기봉투! 초반 맨주먹 10방(10.0 HP) → 주먹 강화 시 5방→3방→2방→1방!
+                    var ct = AddCleanable(pile, CleanableKind.TrashPile, pileNames[k], 10.0f, 0, 0, 2.0f);
                     ct.burstSpawnCount = 20;
                     ct.containsTreasureChance = true;
                 }
@@ -320,6 +341,8 @@ namespace TrashCleaner3D.Editor
             mgr.playerSpawnPoint = spawnObj.transform;
             mgr.truckBedGoal = goalAnchor.transform;
             mgr.truckVisualTransform = truckBedVisual.transform;
+            mgr.truckStackedParent = stackedParent.transform;
+            mgr.truckBlockedBarrier = blockedBarrier;
             mgr.ceilingLight = ceilingLight;
             mgr.thrownBagPrefab = thrownBagTmpl;
 
