@@ -7,10 +7,11 @@ using UnityEngine.InputSystem;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v0.6 1인칭 컨트롤러:
-    /// - 바닥 쓰레기 떼어내기(LMB 클릭 3→2→1클릭, 답답한 쿨타임 0%!)와 완성 봉지 줍기([F] 키 전용!) 완전 분리!
-    /// - 바닥 쓰레기를 1개라도 줍고 있는 중에도 손이 비어 있으면 언제든 [F]로 완성 봉지 1개 들기 & [RMB] 던지기 가능!
-    /// - 커서 밖 이탈 방지 + [ESC] 감도/볼륨 설정 + [Space] 점프 + 마우스 흔들기 전용 걸레질
+    /// v0.7 1인칭 컨트롤러:
+    /// - [RMB] 우클릭 통일: 손 비었으면 바닥 완성 봉지 들기 / 들고 있으면 던지기!
+    /// - 손에 이미 완성 봉지를 들고 있으면(HasCarriedBag) 바닥 쓰레기 줍기 차단!
+    /// - 크리티컬 즉사(×2) · 연쇄 도미노 폭발 · 충격파 펀치 · 운동화/피버 이속 반영!
+    /// - [F] 문 열기/닫기 · [Space] 점프 · [ESC] 감도/볼륨 설정
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
     public class FirstPersonCleanerController : MonoBehaviour
@@ -63,11 +64,7 @@ namespace TrashCleaner3D
             _cc = GetComponent<CharacterController>();
             if (cameraTransform == null && Camera.main != null) cameraTransform = Camera.main.transform;
             if (cameraTransform != null) _cam = cameraTransform.GetComponent<Camera>();
-            if (rightToolPivot != null)
-            {
-                _rightBasePos = rightToolPivot.localPosition;
-                _rightBaseRot = rightToolPivot.localRotation;
-            }
+            if (rightToolPivot != null) { _rightBasePos = rightToolPivot.localPosition; _rightBaseRot = rightToolPivot.localRotation; }
             if (leftBagPivot != null) _leftBasePos = leftBagPivot.localPosition;
         }
 
@@ -108,12 +105,7 @@ namespace TrashCleaner3D
         {
             if (manager == null) return;
 
-            if (WasEscPressed())
-            {
-                manager.ToggleSettingsMenu();
-                ClearHighlight();
-                return;
-            }
+            if (WasEscPressed()) { manager.ToggleSettingsMenu(); ClearHighlight(); return; }
 
             if (manager.Phase == GamePhase.TreasureDecision)
             {
@@ -122,12 +114,7 @@ namespace TrashCleaner3D
                 return;
             }
 
-            if (WasTabPressed())
-            {
-                manager.ToggleMindMap();
-                ClearHighlight();
-                return;
-            }
+            if (WasTabPressed()) { manager.ToggleMindMap(); ClearHighlight(); return; }
 
             if (manager.Phase != GamePhase.Phase1_TrashRemoval && manager.Phase != GamePhase.Phase2_FloorMopping)
             {
@@ -135,10 +122,7 @@ namespace TrashCleaner3D
                 return;
             }
 
-            if (Application.isFocused && Cursor.lockState != CursorLockMode.Locked)
-            {
-                LockCursorStrict();
-            }
+            if (Application.isFocused && Cursor.lockState != CursorLockMode.Locked) LockCursorStrict();
 
             _isVacuumingNow = false;
             UpdateToolVisuals();
@@ -189,18 +173,15 @@ namespace TrashCleaner3D
             if (tissueVisual != null) tissueVisual.SetActive(isP2 && !manager.HasMopUnlocked);
             if (mopVisual != null) mopVisual.SetActive(isP2 && manager.HasMopUnlocked);
 
-            // 완성 봉지(CarriedBag) 1개를 손에 쥐었을 때만 왼손 실제 3D 봉지 표시!
-            if (leftBagPivot != null)
-            {
-                leftBagPivot.gameObject.SetActive(manager.HasCarriedBag);
-            }
+            if (leftBagPivot != null) leftBagPivot.gameObject.SetActive(manager.HasCarriedBag);
         }
 
         private void UpdateStenchCameraEffects()
         {
             if (_cam == null) return;
             int st = manager.StenchStage;
-            float targetFov = st == 4 ? 60f : st == 3 ? 64f : st == 2 ? 67f : 70f;
+            float baseFov = manager.IsFeverActive ? 74f : 70f;
+            float targetFov = st == 4 ? 60f : st == 3 ? 64f : st == 2 ? 67f : baseFov;
             _cam.fieldOfView = Mathf.Lerp(_cam.fieldOfView, targetFov, 4f * Time.deltaTime);
         }
 
@@ -223,10 +204,7 @@ namespace TrashCleaner3D
                 if (kb.tKey.wasPressedThisFrame) toggleFlash = true;
                 if (kb.hKey.wasPressedThisFrame) ShowHelp = !ShowHelp;
             }
-            if (mouse != null && Cursor.lockState == CursorLockMode.Locked)
-            {
-                lookDelta = mouse.delta.ReadValue();
-            }
+            if (mouse != null && Cursor.lockState == CursorLockMode.Locked) lookDelta = mouse.delta.ReadValue();
 #else
             mx = Input.GetAxis("Horizontal");
             mz = Input.GetAxis("Vertical");
@@ -259,7 +237,7 @@ namespace TrashCleaner3D
                 _verticalVel += gravity * Time.deltaTime;
             }
 
-            float speed = baseMoveSpeed * manager.StenchMoveSpeedMult;
+            float speed = baseMoveSpeed * manager.MoveSpeedTotalMult;
             Vector3 horiz = (transform.right * mx + transform.forward * mz).normalized * speed;
             Vector3 move = new Vector3(horiz.x, _verticalVel, horiz.z);
             _cc.Move(move * Time.deltaTime);
@@ -308,22 +286,6 @@ namespace TrashCleaner3D
             fDown = Input.GetKeyDown(KeyCode.F);
 #endif
 
-            // 우클릭: 손에 쥔 완성 봉지(CarriedBag) 1개를 수거함에 투하!
-            if (rmbDown)
-            {
-                if (manager.HasCarriedBag)
-                {
-                    Vector3 origin = cameraTransform.position + cameraTransform.forward * 0.55f - cameraTransform.right * 0.14f;
-                    manager.ThrowCarriedBag(origin, cameraTransform.forward);
-                    _grabSwingTimer = 0.22f;
-                    return;
-                }
-                else if (manager.CollectingCount > 0)
-                {
-                    manager.ShowToast($"봉투 미달 ({manager.CollectingCount}/{manager.HandBagCapacity})");
-                }
-            }
-
             Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
             RaycastHit[] hits = Physics.RaycastAll(ray, 5.2f);
             Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
@@ -351,11 +313,7 @@ namespace TrashCleaner3D
                 if (door != null)
                 {
                     if (hitDoor == null && h.distance <= 3.0f) hitDoor = door;
-                    if (!door.IsOpen)
-                    {
-                        blockedByDoor = true;
-                        break;
-                    }
+                    if (!door.IsOpen) { blockedByDoor = true; break; }
                     continue;
                 }
 
@@ -369,48 +327,65 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 0) 요청 #2: 바닥에 떨어진 완성 쓰레기봉지 줍기는 오직 [F] 키! (CollectingCount와 완전 분리!)
+            // 0) 요청 d: 완성 봉지 들기 & 던지기 모두 [RMB] 우클릭 하나로 완전 통일!
             if (hitDroppedBag != null)
             {
                 _lastDroppedBag = hitDroppedBag;
                 hitDroppedBag.SetHighlighted(true);
                 AimDroppedBag = hitDroppedBag;
-                if (fDown)
+            }
+
+            if (rmbDown)
+            {
+                if (manager.HasCarriedBag)
                 {
+                    // 손에 들고 있으면 → 투하!
+                    Vector3 origin = cameraTransform.position + cameraTransform.forward * 0.55f - cameraTransform.right * 0.14f;
+                    manager.ThrowCarriedBag(origin, cameraTransform.forward);
+                    _grabSwingTimer = 0.22f;
+                    return;
+                }
+                else if (hitDroppedBag != null)
+                {
+                    // 손이 비었고 바닥 봉지를 조준 중이면 → 우클릭으로 바로 들기!
                     hitDroppedBag.RetrieveIntoHand();
                     _grabSwingTimer = 0.16f;
                     return;
                 }
+                else if (manager.CollectingCount > 0)
+                {
+                    manager.ShowToast($"봉투 미달 ({manager.CollectingCount}/{manager.HandBagCapacity})");
+                }
             }
 
-            // 1) [F] 현관문 열기/닫기
+            // 1) [F] 현관문 열기/닫기 전용
             if (hitDoor != null)
             {
                 _lastDoor = hitDoor;
                 hitDoor.SetHighlighted(true);
                 AimDoor = hitDoor;
-                if (fDown)
-                {
-                    hitDoor.ToggleDoor(manager.sfx);
-                    return;
-                }
+                if (fDown) { hitDoor.ToggleDoor(manager.sfx); return; }
             }
 
             if (blockedByDoor) return;
 
+            // 악취 100% 작업 불가
             if (manager.IsTooSuffocatedToWork)
             {
-                if (lmbDown)
-                {
-                    manager.sfx.PlayAlert();
-                    manager.ShowToast("☣ 작업 불가 · 문 밖 환기");
-                }
+                if (lmbDown) { manager.sfx.PlayAlert(); manager.ShowToast("☣ 작업 불가 · 문 밖 환기"); }
+                return;
+            }
+
+            // 요청 a: 손에 이미 완성 봉지를 들고 있으면(HasCarriedBag) 바닥 줍기·타격 차단!
+            if (manager.HasCarriedBag)
+            {
+                if (lmbDown) manager.ShowToast($"보유 봉지 [RMB] 투하");
                 return;
             }
 
             float workMult = Mathf.Max(0.25f, manager.StenchWorkSpeedMult);
 
-            // ===== PHASE 1: 눌어붙은 바닥 쓰레기 떼어내기(3→2→1클릭, 쿨타임 0!) & 단단한 큰 봉투 =====
+            // ===== PHASE 1: 크리티컬·연쇄 도미노 클릭 줍기 & 충격파 펀치 =====
             if (manager.Phase == GamePhase.Phase1_TrashRemoval)
             {
                 if (hitPile != null && Vector3.Distance(cameraTransform.position, hitPile.transform.position) <= 3.6f)
@@ -427,14 +402,10 @@ namespace TrashCleaner3D
                         if (manager.HasVacuumUnlocked) _isVacuumingNow = true;
                         else _punchTimer = 0.16f;
 
-                        if (hitPile.ApplyCleanDamage(manager.FistDamage * (manager.HasVacuumUnlocked ? 0.55f : 1f), null))
-                        {
-                            manager.OnBigPileBurst(hitPile);
-                        }
-                        else
-                        {
-                            manager.sfx.PlayScrub();
-                        }
+                        float dmg = manager.FistDamage * (manager.HasVacuumUnlocked ? 0.55f : 1f);
+                        manager.ApplyShockwaveToNearbyPiles(hitPile, dmg);
+                        if (hitPile.ApplyCleanDamage(dmg, null)) manager.OnBigPileBurst(hitPile);
+                        else manager.sfx.PlayScrub();
                         if (!manager.HasVacuumUnlocked) return;
                     }
                 }
@@ -446,16 +417,12 @@ namespace TrashCleaner3D
                     manager.trashSwarm.UpdateHoverSelection(true, worldAimPoint, r, pickLimit);
                     AimIsSwarmNear = manager.trashSwarm.HoveredCount > 0;
 
-                    if (AimIsSwarmNear && !AimIsPile)
-                    {
-                        AimProgress01 = manager.trashSwarm.SelectedPeelProgress01;
-                    }
+                    if (AimIsSwarmNear && !AimIsPile) AimProgress01 = manager.trashSwarm.SelectedPeelProgress01;
 
                     bool triggerPick = manager.HasVacuumUnlocked ? lmbHeld : lmbDown;
                     if (triggerPick && AimIsSwarmNear)
                     {
-                        // 악취 75%에서 35% 확률 구역질 헛손질
-                        if (!manager.HasVacuumUnlocked && manager.StenchNauseaFailChance > 0f && UnityEngine.Random.value < manager.StenchNauseaFailChance)
+                        if (!manager.HasVacuumUnlocked && !manager.IsFeverActive && manager.StenchNauseaFailChance > 0f && UnityEngine.Random.value < manager.StenchNauseaFailChance)
                         {
                             _grabSwingTimer = 0.16f;
                             manager.sfx.PlayScrub();
@@ -470,11 +437,16 @@ namespace TrashCleaner3D
                             if (manager.HasVacuumUnlocked) _sweepTickTimer = 0.055f / workMult;
 
                             Transform dest = manager.HasVacuumUnlocked ? rightToolPivot : (leftBagPivot != null ? leftBagPivot : rightToolPivot);
-                            manager.trashSwarm.HitOrPickSelectedUnits(dest, pickLimit, manager.EffectivePeelDamage, out int peeled, out int picked);
+                            manager.trashSwarm.HitOrPickSelectedUnits(
+                                dest, pickLimit, manager.EffectivePeelDamage,
+                                manager.CritChance, manager.ChainChance, manager.ChainExtraCount,
+                                out int peeled, out int picked, out bool didCrit, out bool didChain, out Vector3 fxPos);
+
+                            if (didCrit) manager.SpawnFloatingText(fxPos + Vector3.up * 0.25f, "CRIT ×2!", new Color(1f, 0.88f, 0.22f), 0.9f);
+                            if (didChain) manager.SpawnFloatingText(fxPos + Vector3.up * 0.45f, "CHAIN!", new Color(1f, 0.56f, 0.22f), 0.9f);
 
                             if (peeled > 0 && picked == 0)
                             {
-                                // 떼어내는 중 톡! 소리 & 경쾌한 손 동작 (입력 씹힘 0%!)
                                 manager.sfx.PlayPop(0.58f);
                                 _grabSwingTimer = 0.12f;
                             }
@@ -497,24 +469,14 @@ namespace TrashCleaner3D
                 if (lmbHeld)
                 {
                     float shake = mouseDelta.magnitude;
-                    if (shake < 1.8f)
-                    {
-                        NeedMouseShakeHint = true;
-                    }
+                    if (shake < 1.8f) NeedMouseShakeHint = true;
                     else
                     {
                         float power = Mathf.Min(shake, 50f) * 0.14f * manager.ScrubSpeedMult * workMult;
                         _scrubMotionWeight = 1f;
                         _scrubPhase += (6f + Mathf.Min(shake, 32f) * 0.9f) * Time.deltaTime;
-                        if (_scrubSoundCooldown <= 0f)
-                        {
-                            _scrubSoundCooldown = 0.18f;
-                            manager.sfx.PlayScrub();
-                        }
-                        if (hitStain.ApplyCleanDamage(power * Time.deltaTime, null))
-                        {
-                            manager.OnStainCleaned(hitStain);
-                        }
+                        if (_scrubSoundCooldown <= 0f) { _scrubSoundCooldown = 0.18f; manager.sfx.PlayScrub(); }
+                        if (hitStain.ApplyCleanDamage(power * Time.deltaTime, null)) manager.OnStainCleaned(hitStain);
                     }
                 }
             }

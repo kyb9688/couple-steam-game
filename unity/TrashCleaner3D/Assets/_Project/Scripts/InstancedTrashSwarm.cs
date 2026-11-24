@@ -5,9 +5,9 @@ using UnityEngine.Rendering;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v0.6 2,250+ GPU Instancing 쓰레기 매니저 (+50% 확장 방 면적 2.25배에 맞춘 압도적 물량, 5드로우콜 렉 0%!):
-    /// - 답답한 클릭 쿨타임 대신 '바닥에 눌어붙은 쓰레기 떼어내기(초반 3클릭→2클릭→1클릭)' 방식 적용!
-    /// - 매 클릭마다 즉각 들썩임+소리 반응(입력 씹힘 0%) + 10% 이하 황금 투시 테두리 유지!
+    /// v0.7 2,250+ GPU Instancing 쓰레기 매니저:
+    /// - 가벼운(1클릭)/보통(2클릭)/끈적한(3클릭) 혼합 손맛 + 크리티컬 1방 즉사(×2 수익) + 연쇄 도미노 폭발 수거!
+    /// - 3D 로봇청소기(AutoRoombaCleaner) 자동 추적 & 흡입 지원 + 10% 이하 황금 투시 테두리 유지!
     /// </summary>
     public class InstancedTrashSwarm : MonoBehaviour
     {
@@ -20,13 +20,15 @@ namespace TrashCleaner3D
             public float baseScale;
             public float curScale;
             public int typeIdx;
-            public byte state;     // 0:Idle, 1:Popping, 2:Sucking, 3:Cleaned
-            public byte hp;        // 바닥에 눌어붙은 강도 (기본 3 → 떼어내기 힘 강화 시 3→2→1클릭 컷!)
-            public float hopTimer; // 떼어내기 클릭 시 톡! 들썩이는 피드백 애니메이션
+            public byte state;       // 0:Idle, 1:Popping, 2:SuckingToPlayer, 3:Cleaned, 4:SuckingToRobot
+            public byte hp;          // 1(가벼움), 2(보통), 3(끈적함)
+            public byte maxHp;
+            public float hopTimer;
             public float timer;
             public Vector3 startPos;
             public Vector3 endPos;
             public int value;
+            public bool isCritBonus; // 크리티컬 발동 시 2배 정산!
         }
 
         [System.Serializable]
@@ -46,6 +48,7 @@ namespace TrashCleaner3D
         private int _unitCount;
         private int _cleanedCount;
         private Transform _suckDestination;
+        private Transform _robotSuckDest;
 
         private Matrix4x4[][] _batchMatrices;
         private int[] _batchCounts;
@@ -76,8 +79,8 @@ namespace TrashCleaner3D
                 if (_selectedIndices.Count == 0) return -1f;
                 int idx = _selectedIndices[0];
                 if (idx < 0 || idx >= _unitCount || _units[idx].state != 0) return -1f;
-                if (_units[idx].hp >= 3) return -1f;
-                return Mathf.Clamp01((3 - _units[idx].hp) / 3f);
+                if (_units[idx].hp >= _units[idx].maxHp || _units[idx].maxHp <= 1) return -1f;
+                return Mathf.Clamp01((_units[idx].maxHp - _units[idx].hp) / (float)_units[idx].maxHp);
             }
         }
 
@@ -92,14 +95,8 @@ namespace TrashCleaner3D
         private void Start()
         {
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
-            if (_units == null || _units.Length == 0)
-            {
-                SpawnInitialSwarm(InitialSwarmCount);
-            }
-            else
-            {
-                EnsureRenderBuffers();
-            }
+            if (_units == null || _units.Length == 0) SpawnInitialSwarm(InitialSwarmCount);
+            else EnsureRenderBuffers();
         }
 
         public void InitializeCapacity(int capacity)
@@ -172,9 +169,6 @@ namespace TrashCleaner3D
             }
         }
 
-        /// <summary>
-        /// 확장된 7.2m x 6.0m 방 전체를 빈틈없이 뒤덮는 2,250개 입체 쓰레기 산 생성!
-        /// </summary>
         public void SpawnInitialSwarm(int count)
         {
             if (meshTypes.Count == 0) return;
@@ -245,6 +239,10 @@ namespace TrashCleaner3D
             float baseS = meshTypes[tIdx].normalizedScale * Random.Range(0.86f, 1.22f);
             Quaternion baseOffset = Quaternion.Euler(meshTypes[tIdx].baseEulerOffset);
 
+            // 가벼운 쓰레기(1클릭 35%), 보통(2클릭 40%), 끈적한 묵은 쓰레기(3클릭 25%) 혼합!
+            float roll = Random.value;
+            byte unitHp = roll < 0.35f ? (byte)1 : roll < 0.75f ? (byte)2 : (byte)3;
+
             _units[_unitCount++] = new TrashUnit
             {
                 pos = startPos,
@@ -253,12 +251,14 @@ namespace TrashCleaner3D
                 curScale = baseS,
                 typeIdx = tIdx,
                 state = popAnimation ? (byte)1 : (byte)0,
-                hp = 3, // 바닥에 눌어붙은 강도 3 (초반 3클릭 톡톡톡! → 강화 시 2클릭 → 1클릭 컷!)
+                hp = unitHp,
+                maxHp = unitHp,
                 hopTimer = 0f,
                 timer = 0f,
                 startPos = startPos,
                 endPos = endPos,
-                value = 3
+                value = unitHp == 3 ? 5 : unitHp == 2 ? 4 : 3,
+                isCritBonus = false
             };
         }
 
@@ -304,38 +304,107 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// 요청 #5: 답답한 쿨타임 대신 즉각 반응하는 '떼어내기 클릭'!
-        /// 매 클릭마다 hp가 깎이며 톡! 들썩이고, hp가 0이 되면 봉투로 쏙 흡입됨!
+        /// 크리티컬 즉사(×2 수익) + 연쇄 도미노 폭발 수거가 결합된 클릭 줍기!
         /// </summary>
-        public void HitOrPickSelectedUnits(Transform suckDest, int maxTargets, int pickDamage, out int peeledCount, out int pickedCount)
+        public void HitOrPickSelectedUnits(
+            Transform suckDest, int maxTargets, int pickDamage,
+            float critChance, float chainChance, int chainExtraCount,
+            out int peeledCount, out int pickedCount, out bool didCrit, out bool didChain, out Vector3 effectOrigin)
         {
             peeledCount = 0;
             pickedCount = 0;
+            didCrit = false;
+            didChain = false;
+            effectOrigin = Vector3.zero;
             if (maxTargets <= 0 || _selectedIndices.Count == 0) return;
             _suckDestination = suckDest;
 
+            bool rolledCrit = critChance > 0f && Random.value < critChance;
             int processed = 0;
+
             for (int k = 0; k < _selectedIndices.Count && processed < maxTargets; k++)
             {
                 int idx = _selectedIndices[k];
                 if (idx < 0 || idx >= _unitCount || _units[idx].state != 0) continue;
                 processed++;
+                if (processed == 1) effectOrigin = _units[idx].pos;
 
-                if (_units[idx].hp > pickDamage)
+                if (rolledCrit || _units[idx].hp <= pickDamage)
                 {
-                    _units[idx].hp = (byte)(_units[idx].hp - pickDamage);
-                    _units[idx].hopTimer = 0.14f; // 톡! 들썩이며 떼어지는 손맛!
-                    peeledCount++;
+                    _units[idx].hp = 0;
+                    _units[idx].state = 2;
+                    _units[idx].timer = 0f;
+                    _units[idx].isCritBonus = rolledCrit;
+                    pickedCount++;
+                    if (rolledCrit) didCrit = true;
                 }
                 else
                 {
-                    _units[idx].hp = 0;
-                    _units[idx].state = 2; // Sucking!
-                    _units[idx].timer = 0f;
-                    pickedCount++;
+                    _units[idx].hp = (byte)(_units[idx].hp - pickDamage);
+                    _units[idx].hopTimer = 0.14f;
+                    peeledCount++;
                 }
             }
+
+            // 연쇄 도미노 폭발! (1개 주울 때 확률적으로 주변 3~6개 동시 연쇄 수거!)
+            if (pickedCount > 0 && chainChance > 0f && chainExtraCount > 0 && Random.value < chainChance)
+            {
+                float chainRSq = 1.15f * 1.15f;
+                int chained = 0;
+                for (int i = 0; i < _unitCount && chained < chainExtraCount; i++)
+                {
+                    if (_units[i].state != 0) continue;
+                    if ((_units[i].pos - effectOrigin).sqrMagnitude <= chainRSq)
+                    {
+                        _units[i].hp = 0;
+                        _units[i].state = 2;
+                        _units[i].timer = 0f;
+                        _units[i].isCritBonus = false;
+                        chained++;
+                        pickedCount++;
+                    }
+                }
+                if (chained > 0) didChain = true;
+            }
+
             if (pickedCount > 0) _selectedIndices.Clear();
+        }
+
+        public bool TryFindNearestIdlePos(Vector3 fromPos, out Vector3 foundPos)
+        {
+            foundPos = Vector3.zero;
+            float best = float.MaxValue;
+            int bestIdx = -1;
+            // 빠르게 8개 간격 샘플링으로 O(1)급 탐색
+            int step = Mathf.Max(1, _unitCount / 220);
+            for (int i = 0; i < _unitCount; i += step)
+            {
+                if (_units[i].state != 0) continue;
+                float dSq = (_units[i].pos - fromPos).sqrMagnitude;
+                if (dSq < best) { best = dSq; bestIdx = i; }
+            }
+            if (bestIdx >= 0) { foundPos = _units[bestIdx].pos; return true; }
+            return false;
+        }
+
+        public int SuckNearestForRobot(Vector3 robotPos, float radius, Transform robotTrans, int maxEat)
+        {
+            _robotSuckDest = robotTrans;
+            float rSq = radius * radius;
+            int eaten = 0;
+            for (int i = 0; i < _unitCount && eaten < maxEat; i++)
+            {
+                if (_units[i].state != 0) continue;
+                Vector3 d = _units[i].pos - robotPos;
+                d.y *= 0.4f;
+                if (d.sqrMagnitude <= rSq)
+                {
+                    _units[i].state = 4; // SuckingToRobot!
+                    _units[i].timer = 0f;
+                    eaten++;
+                }
+            }
+            return eaten;
         }
 
         public void ResetSwarm(int initialCount)
@@ -348,7 +417,8 @@ namespace TrashCleaner3D
             if (_unitCount == 0 || meshTypes.Count == 0 || _batchMatrices == null) return;
 
             float dt = Time.deltaTime;
-            Vector3 destPos = _suckDestination != null ? _suckDestination.position : Vector3.zero;
+            Vector3 playerDest = _suckDestination != null ? _suckDestination.position : Vector3.zero;
+            Vector3 botDest = _robotSuckDest != null ? _robotSuckDest.position : Vector3.zero;
 
             for (int t = 0; t < _batchCounts.Length; t++)
             {
@@ -386,23 +456,24 @@ namespace TrashCleaner3D
                     Vector3 cur = Vector3.Lerp(_units[i].startPos, _units[i].endPos, p);
                     cur.y += Mathf.Sin(p * Mathf.PI) * 0.65f;
                     _units[i].pos = cur;
-                    if (p >= 1f)
-                    {
-                        _units[i].pos = _units[i].endPos;
-                        _units[i].state = 0;
-                    }
+                    if (p >= 1f) { _units[i].pos = _units[i].endPos; _units[i].state = 0; }
                 }
-                else if (st == 2)
+                else if (st == 2 || st == 4)
                 {
-                    _units[i].pos = Vector3.MoveTowards(_units[i].pos, destPos, 15.0f * dt);
+                    Vector3 dest = st == 4 ? botDest : playerDest;
+                    _units[i].pos = Vector3.MoveTowards(_units[i].pos, dest, 15.0f * dt);
                     _units[i].rot = _units[i].rot * Quaternion.Euler(0f, 540f * dt, 260f * dt);
-                    _units[i].curScale = Mathf.MoveTowards(_units[i].curScale, 0f, _units[i].baseScale * 4.2f * dt);
+                    _units[i].curScale = Mathf.MoveTowards(_units[i].curScale, 0f, _units[i].baseScale * 4.4f * dt);
 
-                    if ((_units[i].pos - destPos).sqrMagnitude < 0.04f || _units[i].curScale <= 0.002f)
+                    if ((_units[i].pos - dest).sqrMagnitude < 0.04f || _units[i].curScale <= 0.002f)
                     {
                         _units[i].state = 3;
                         _cleanedCount++;
-                        if (manager != null) manager.OnInstancedTrashCollected(_units[i].value);
+                        if (st == 2 && manager != null)
+                        {
+                            int val = _units[i].isCritBonus ? _units[i].value * 2 : _units[i].value;
+                            manager.OnInstancedTrashCollected(val);
+                        }
                         continue;
                     }
                 }
@@ -419,11 +490,7 @@ namespace TrashCleaner3D
                     if (showDetectOutline && st == 0)
                     {
                         int dc = _detectCounts[tIdx];
-                        if (dc < 1023)
-                        {
-                            _detectMatrices[tIdx][dc] = mtx;
-                            _detectCounts[tIdx] = dc + 1;
-                        }
+                        if (dc < 1023) { _detectMatrices[tIdx][dc] = mtx; _detectCounts[tIdx] = dc + 1; }
                     }
                 }
             }
@@ -446,9 +513,7 @@ namespace TrashCleaner3D
             {
                 int cnt = _batchCounts[t];
                 if (cnt > 0 && meshTypes[t].mesh != null && meshTypes[t].material != null)
-                {
                     Graphics.RenderMeshInstanced(_renderParams[t], meshTypes[t].mesh, 0, _batchMatrices[t], cnt);
-                }
             }
 
             if (showDetectOutline && _detectMat != null)
@@ -457,9 +522,7 @@ namespace TrashCleaner3D
                 {
                     int dcnt = _detectCounts[t];
                     if (dcnt > 0 && meshTypes[t].mesh != null)
-                    {
                         Graphics.RenderMeshInstanced(_detectRenderParams, meshTypes[t].mesh, 0, _detectMatrices[t], dcnt);
-                    }
                 }
             }
 
@@ -469,9 +532,7 @@ namespace TrashCleaner3D
                 {
                     int ocnt = _outlineCounts[t];
                     if (ocnt > 0 && meshTypes[t].mesh != null)
-                    {
                         Graphics.RenderMeshInstanced(_outlineRenderParams, meshTypes[t].mesh, 0, _outlineMatrices[t], ocnt);
-                    }
                 }
             }
         }
