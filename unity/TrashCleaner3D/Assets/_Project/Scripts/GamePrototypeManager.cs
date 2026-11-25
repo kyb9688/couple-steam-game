@@ -135,10 +135,15 @@ namespace TrashCleaner3D
         public int StreakCount { get; private set; } = 0;
         public int TotalCompressionsThisRoom { get; private set; } = 0;
 
-        // ===== 봉투 100% 정직 원복 (10단계 성장!) — v1.0: 초반부터 30개로 넉넉하게 =====
-        private static readonly int[] BagCapByLv = { 30, 40, 52, 66, 82, 100, 122, 148, 178, 215, 260 };
-        private static readonly int[] ToolStepCosts = { 14, 22, 34, 50, 74, 108, 158, 230, 330 };
-        private static readonly int[] TruckStepCosts = { 22, 34, 50, 74, 104, 146, 205, 285, 400 };
+        // ===== 봉투 100% 정직 원복 (10단계 성장!) =====
+        // v1.1 밸런스: 초반 30칸은 0.22초 홀드에서 6.6초마다 트럭으로 뛰어야 해 템포가 끊겼다.
+        // → 1Lv 78칸(맨손 0.22초 ≈ 4.5개/s → 약 17초 연속 수거)로 시작하고, 홀드가 빨라지는
+        //   2·3단계 구간에서는 용량도 함께 커져 각 단계마다 8~19초는 한 번에 쓸어 담게 맞췄다.
+        private static readonly int[] BagCapByLv = { 78, 100, 130, 170, 230, 310, 420, 560, 740, 980, 1300 };
+        // v1.1 밸런스: 1라운드에 트리 전체가 열리지 않도록 상위 단계(진공청소기 = 8번째 칸)를
+        // 2라운드로 미룬다. 1라운드 기대 수입($7,000~11,000)의 40~50%만 트리에 쓰이도록 조정.
+        private static readonly int[] ToolStepCosts = { 16, 26, 44, 76, 130, 220, 380, 660, 1100 };
+        private static readonly int[] TruckStepCosts = { 24, 40, 66, 110, 180, 300, 520, 900, 1500 };
         // v1.0: 1초 홀드 → 0.22초 경쾌한 템포 (도구를 올릴수록 0.07초까지)
         private static readonly float[] ToolHoldDurs = { 0.22f, 0.205f, 0.19f, 0.175f, 0.15f, 0.135f, 0.12f, 0.10f, 0.085f, 0.07f };
 
@@ -402,20 +407,7 @@ namespace TrashCleaner3D
             fieldStation = FindFirstObjectByType<FieldUpgradeStation>();
             if (fieldStation == null)
             {
-                Vector3 basePos = truckBedGoal != null ? truckBedGoal.position : new Vector3(2.1f, 0f, 10.6f);
-
-                // 플레이어가 문을 나와 트럭을 바라보는 방향을 기준으로 '트럭 옆 한 걸음' 지점
-                Vector3 toRoom = playerSpawnPoint != null ? playerSpawnPoint.position - basePos : Vector3.back;
-                toRoom.y = 0f;
-                if (toRoom.sqrMagnitude < 0.01f) toRoom = Vector3.back;
-                toRoom.Normalize();
-                Vector3 side = Vector3.Cross(Vector3.up, toRoom).normalized;
-
-                Vector3 pos = basePos + side * 3.0f + toRoom * 0.6f;
-                pos.x = Mathf.Clamp(pos.x, -2.9f, 6.9f);
-                pos.z = Mathf.Clamp(pos.z, 4.2f, 15.6f);
-                pos.y = 0f;
-
+                Vector3 pos = ComputeFieldStationPosition();
                 GameObject stationObj = new GameObject("FieldUpgradeStation");
                 stationObj.transform.position = pos;
                 fieldStation = stationObj.AddComponent<FieldUpgradeStation>();
@@ -431,6 +423,89 @@ namespace TrashCleaner3D
                     yaw = Mathf.Atan2(look.x, look.z) * Mathf.Rad2Deg;
             }
             fieldStation.Init(this, yaw);
+        }
+
+        // ===== 현장 강화 존 배치 =====
+        // FieldUpgradeStation의 실제 크기(로컬 X 폭 3.90m × 로컬 Z 깊이 1.45m)
+        private const float StationHalfWidth = 1.95f;
+        private const float StationHalfDepth = 0.725f;
+        private const float StationWalkGap = 0.55f;   // 트럭 벽 ↔ 발판 사이 보행 여유
+
+        /// <summary>
+        /// 트럭 옆에 '현장 강화' 존을 세울 좌표를 실측해서 고른다.
+        /// 예전에는 side * 3.0m 한 점을 고정으로 찍고 x/z만 잘라서, 다른 씬/차량 크기에서는
+        /// 3.90m 폭 슬래브가 울타리 밖으로 나가거나 트럭 몸체와 겹칠 수 있었다.
+        /// → 이제는 (1) 트럭 몸체를 뺀 좌/우 여유를 실제 콜라이더 레이캐스트로 재서 넓은 쪽을 고르고,
+        ///         (2) 트럭 반폭 + 보행 여유 + 슬래브 두께만큼만 띄우고,
+        ///         (3) 3.90m 폭이 벽·울타리에 닿지 않도록 수직 방향으로 밀어 넣는다.
+        /// </summary>
+        private Vector3 ComputeFieldStationPosition()
+        {
+            Vector3 basePos = truckBedGoal != null ? truckBedGoal.position : new Vector3(2.1f, 0f, 10.6f);
+            basePos.y = 0f;
+
+            Vector3 toRoom = playerSpawnPoint != null ? playerSpawnPoint.position - basePos : Vector3.back;
+            toRoom.y = 0f;
+            if (toRoom.sqrMagnitude < 0.01f) toRoom = Vector3.back;
+            toRoom.Normalize();
+            Vector3 side = Vector3.Cross(Vector3.up, toRoom).normalized;
+
+            // 1톤 트럭(최대 단계)의 투입구 반폭 1.40 이상 → 어떤 단계에서도 겹치지 않는다
+            float truckHalf = Mathf.Max(1.50f, GetGoalOpeningHalfExtents().x + 0.15f);
+
+            // 좌/우 중 실제 콜라이더(트럭 몸체 제외) 여유가 넓은 쪽
+            float freeA = MeasureFreeDistance(basePos, side, truckHalf);
+            float freeB = MeasureFreeDistance(basePos, -side, truckHalf);
+            Vector3 outDir = freeB > freeA + 0.05f ? -side : side;
+            float free = Mathf.Max(freeA, freeB);
+
+            // 표지판이 트럭을 마주 보게 서므로 접근축 방향 두께 = 로컬 Z(1.45)/2
+            float ideal = truckHalf + StationWalkGap + StationHalfDepth;
+            float maxDist = free - StationHalfDepth - 0.20f;
+            float dist = ideal;
+            if (maxDist < ideal)
+            {
+                // 마당이 좁아도 트럭 몸체와는 절대 겹치지 않게 (불가피하면 울타리 쪽이 조금 겹치는 쪽을 택함)
+                dist = Mathf.Max(truckHalf + 0.15f, maxDist);
+                Debug.LogWarning($"[현장 강화 존] 마당 여유 {free:0.00}m → 발판을 트럭에 붙여 배치합니다.");
+            }
+
+            Vector3 pos = basePos + outDir * dist;
+
+            // 3.90m 폭이 좌우 벽/울타리를 넘지 않도록 수직 방향으로 밀어 넣기
+            Vector3 perp = Vector3.Cross(Vector3.up, outDir).normalized;
+            float freeP = MeasureFreeDistance(pos, perp, 0.40f);
+            float freeN = MeasureFreeDistance(pos, -perp, 0.40f);
+            float need = StationHalfWidth + 0.15f;
+            float lo = need - freeN;   // -perp 쪽이 좁으면 +perp으로 밀기
+            float hi = freeP - need;   // +perp 쪽이 좁으면 -perp으로 밀기
+            if (lo <= hi)
+            {
+                pos += perp * Mathf.Clamp(0f, lo, hi);
+            }
+            else
+            {
+                Debug.LogWarning("[현장 강화 존] 마당 폭이 3.90m보다 좁아 슬래브 일부가 벽에 닿습니다.");
+            }
+
+            pos.y = 0f;
+            Debug.Log($"[현장 강화 존] 트럭({basePos.x:0.0}, {basePos.z:0.0}) → 발판({pos.x:0.0}, {pos.z:0.0}) " +
+                      $"| 좌우 여유 {freeA:0.0}m / {freeB:0.0}m · 트럭 반폭 {truckHalf:0.00}m");
+            return pos;
+        }
+
+        /// <summary>origin에서 dir 방향으로 (트리거 제외) 첫 장애물까지의 거리. 6m 안에 없으면 6m.</summary>
+        private static float MeasureFreeDistance(Vector3 origin, Vector3 dir, float ignoreWithin)
+        {
+            const float maxProbe = 6.0f;
+            float best = maxProbe;
+            RaycastHit[] hits = Physics.RaycastAll(origin + Vector3.up * 0.45f, dir, maxProbe, ~0, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < hits.Length; i++)
+            {
+                if (hits[i].distance <= ignoreWithin) continue;   // 트럭 자기 몸체·플레이어 무시
+                if (hits[i].distance < best) best = hits[i].distance;
+            }
+            return best;
         }
 
         public void SetMouseSensitivity(float val)
@@ -599,6 +674,21 @@ namespace TrashCleaner3D
                 _cashPayoutTotal = 0;
                 _cashPayoutElapsed = 0f;
             }
+        }
+
+        /// <summary>
+        /// 라운드가 끝나는 순간(클리어·조기 정산·강제 퇴거) 아직 드르르륵 카운트업 중인 현금을
+        /// 전부 즉시 지급한다. → 영수증에 적힌 금액과 보유 현금이 어긋나 '돈이 증발한 것처럼' 보이는 문제 방지.
+        /// </summary>
+        public void FlushPendingCash()
+        {
+            if (_cashPayoutRemaining > 0)
+            {
+                Money += _cashPayoutRemaining;
+                _cashPayoutRemaining = 0;
+            }
+            _cashPayoutTotal = 0;
+            _cashPayoutElapsed = 0f;
         }
 
         private void CheckSuspicionCleanMilestones()
@@ -913,6 +1003,7 @@ namespace TrashCleaner3D
 
         private void TriggerForcedEviction()
         {
+            FlushPendingCash();
             WasEvicted = true;
             WasEarlyCheckout = false;
             LastClearBonus = 0;
@@ -927,6 +1018,7 @@ namespace TrashCleaner3D
         public void TriggerEarlyCheckout()
         {
             if (!CanEarlyCheckout) return;
+            FlushPendingCash();
             WasEvicted = false;
             WasEarlyCheckout = true;
             LastConfiscatedValue = 0;
@@ -991,11 +1083,16 @@ namespace TrashCleaner3D
             ThrowComboTimer = MaxComboWindow;
 
             int rawBase = Mathf.Max(bagValue, count * 2);
-            float comboStep = 0.25f + LvComboTime * 0.10f;
-            float comboMult = 1f + (ThrowComboCount - 1) * comboStep;
-            int distBonus = distance >= 6.8f ? 35 : distance >= 4.5f ? 15 : 0;
-            int vehBonus = LvTruckSize * 20;
-            int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * comboMult + distBonus + vehBonus));
+            // v1.1 밸런스: 콤보 배율은 '스택당 25%' 고정. (이전에는 투하 콤보 레벨당 +10%씩 배율까지 올라가
+            // 최대 ×5.25가 됐고, UI는 '유지 시간'만 안내해 숨은 폭딜이 됐다. 레벨업은 이제 유지 시간만 늘린다.)
+            float comboMult = 1f + (ThrowComboCount - 1) * 0.25f;
+            // 거리·차량 보너스도 고정 금액 → 봉투 값 비례(%)로 변경.
+            // 고정 금액이면 봉투를 작게 나눠 여러 번 던질 때마다 보너스가 중복 지급돼
+            // (트럭 9Lv 기준 봉투당 +$180) 봉투 용량을 올리는 것이 손해가 되는 역설이 있었다.
+            bool longShot = distance >= 6.8f;
+            float distPct = longShot ? 0.12f : distance >= 4.5f ? 0.06f : 0f;
+            float vehPct = LvTruckSize * 0.03f;
+            int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * (comboMult + distPct + vehPct)));
 
             // 와르르: 짐칸으로 쏟아져 들어가는 다발 + 돈 드르르륵 카운트업
             AddCashCrunch(totalPay);
@@ -1007,7 +1104,7 @@ namespace TrashCleaner3D
 
             string popup = ThrowComboCount >= 2
                 ? $"{ThrowComboCount}연속! +${totalPay}"
-                : distBonus >= 35 ? $"롱슛! +${totalPay}" : $"와르르! +${totalPay}";
+                : longShot ? $"롱슛! +${totalPay}" : $"와르르! +${totalPay}";
             Color popCol = ThrowComboCount >= 2 ? new Color(1f, 0.85f, 0.22f) : new Color(0.45f, 1f, 0.55f);
             SpawnFloatingText(scoreWorldPos + Vector3.up * 0.45f, popup, popCol, 1.8f);
 
@@ -1083,27 +1180,27 @@ namespace TrashCleaner3D
 
         // ===== 인게임 스킬트리 가격 ($ 현금 전용 — 저렴한 가격 + 다단계 3~10Lv 클릭 손맛!) =====
         public int CostTool => ToolStepCosts[Mathf.Clamp(ToolStep, 0, ToolStepCosts.Length - 1)];
-        public int CostSweep => Mathf.RoundToInt(10 * Mathf.Pow(1.38f, LvSweepRadius));
-        public int CostFever => Mathf.RoundToInt(30 * Mathf.Pow(1.45f, LvFever));
-        public int CostCrit => Mathf.RoundToInt(16 * Mathf.Pow(1.38f, LvCrit));
-        public int CostChain => Mathf.RoundToInt(32 * Mathf.Pow(1.40f, LvChainPop));
-        public int CostRoomba => Mathf.RoundToInt(60 * Mathf.Pow(1.48f, LvRoomba));
+        public int CostSweep => Mathf.RoundToInt(10 * Mathf.Pow(1.45f, LvSweepRadius));
+        public int CostFever => Mathf.RoundToInt(40 * Mathf.Pow(1.50f, LvFever));
+        public int CostCrit => Mathf.RoundToInt(18 * Mathf.Pow(1.45f, LvCrit));
+        public int CostChain => Mathf.RoundToInt(40 * Mathf.Pow(1.50f, LvChainPop));
+        public int CostRoomba => Mathf.RoundToInt(90 * Mathf.Pow(1.55f, LvRoomba));
 
-        public int CostBag => Mathf.RoundToInt(10 * Mathf.Pow(1.38f, LvBagSize));
-        public int CostThrowPower => Mathf.RoundToInt(15 * Mathf.Pow(1.36f, LvThrowPower));
-        public int CostTrashPrice => Mathf.RoundToInt(18 * Mathf.Pow(1.38f, LvTrashPrice));
+        public int CostBag => Mathf.RoundToInt(12 * Mathf.Pow(1.42f, LvBagSize));
+        public int CostThrowPower => Mathf.RoundToInt(18 * Mathf.Pow(1.42f, LvThrowPower));
+        public int CostTrashPrice => Mathf.RoundToInt(24 * Mathf.Pow(1.62f, LvTrashPrice));
         public int CostTruck => TruckStepCosts[Mathf.Clamp(LvTruckSize, 0, TruckStepCosts.Length - 1)];
-        public int CostComboTime => Mathf.RoundToInt(28 * Mathf.Pow(1.40f, LvComboTime));
-        public int CostMagnet => Mathf.RoundToInt(85 * Mathf.Pow(1.55f, LvMagnet));
+        public int CostComboTime => Mathf.RoundToInt(40 * Mathf.Pow(1.50f, LvComboTime));
+        public int CostMagnet => Mathf.RoundToInt(120 * Mathf.Pow(1.60f, LvMagnet));
 
-        public int CostMask => Mathf.RoundToInt(12 * Mathf.Pow(1.35f, LvMask));
-        public int CostMoveSpeed => Mathf.RoundToInt(12 * Mathf.Pow(1.38f, LvMoveSpeed));
-        public int CostMop => Mathf.RoundToInt(32 * Mathf.Pow(1.50f, LvMop));
-        public int CostScrub => Mathf.RoundToInt(22 * Mathf.Pow(1.40f, LvScrubPower));
+        public int CostMask => Mathf.RoundToInt(14 * Mathf.Pow(1.40f, LvMask));
+        public int CostMoveSpeed => Mathf.RoundToInt(14 * Mathf.Pow(1.42f, LvMoveSpeed));
+        public int CostMop => Mathf.RoundToInt(40 * Mathf.Pow(1.50f, LvMop));
+        public int CostScrub => Mathf.RoundToInt(26 * Mathf.Pow(1.45f, LvScrubPower));
 
-        public int CostFist => Mathf.RoundToInt(12 * Mathf.Pow(1.38f, LvFistPower));
-        public int CostShockwave => Mathf.RoundToInt(32 * Mathf.Pow(1.42f, LvShockwave));
-        public int CostBeacon => 45;
+        public int CostFist => Mathf.RoundToInt(14 * Mathf.Pow(1.45f, LvFistPower));
+        public int CostShockwave => Mathf.RoundToInt(40 * Mathf.Pow(1.48f, LvShockwave));
+        public int CostBeacon => 60;
 
         // ===== 클리어 후 [★ 특전] & [♦ 암시장] 가격 =====
         public int CostVipTokens => 1;
@@ -1242,6 +1339,7 @@ namespace TrashCleaner3D
 
         private void FinishRoomComplete()
         {
+            FlushPendingCash();
             WasEvicted = false;
             WasEarlyCheckout = false;
             LastConfiscatedValue = 0;

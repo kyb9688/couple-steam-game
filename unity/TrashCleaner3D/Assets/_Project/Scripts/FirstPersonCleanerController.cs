@@ -58,6 +58,7 @@ namespace TrashCleaner3D
         private ThrownTrashBag _lastDroppedBag;
         private float _punchCooldown;
         private float _holdVibeSfxTimer;
+        private float _bagHintCooldown;
 
         private Vector3 _rightBasePos;
         private Quaternion _rightBaseRot;
@@ -320,6 +321,7 @@ namespace TrashCleaner3D
             if (_punchCooldown > 0f) _punchCooldown -= Time.deltaTime;
             if (_scrubSoundCooldown > 0f) _scrubSoundCooldown -= Time.deltaTime;
             if (_holdVibeSfxTimer > 0f) _holdVibeSfxTimer -= Time.deltaTime;
+            if (_bagHintCooldown > 0f) _bagHintCooldown -= Time.deltaTime;
 
             // 주의: 매 프레임 스웜 락온을 지우지 않음! (clearSwarmLock: false)
             ClearHighlight(false);
@@ -467,7 +469,12 @@ namespace TrashCleaner3D
             if (manager.HasCarriedBag)
             {
                 ClearSwarmSelection();
-                if (lmbDown) manager.ShowToast("보유 봉지 [RMB] 투하");
+                // v1.1 UX: 봉투가 차서 쓸기가 막힌 이유를 알 수 있게, 꾹 누르고 있는 동안에도 안내(1.4초 간격)
+                if (lmbHeld && _bagHintCooldown <= 0f)
+                {
+                    _bagHintCooldown = 1.4f;
+                    manager.ShowToast($"봉투 가득 (${manager.CarriedBagValue}) · [RMB] {manager.CurrentVehicleName}에 투하");
+                }
                 return;
             }
 

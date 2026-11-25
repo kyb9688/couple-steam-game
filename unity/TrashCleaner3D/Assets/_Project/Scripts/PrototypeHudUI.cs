@@ -505,7 +505,12 @@ namespace TrashCleaner3D
             }
 
             string prompt = null;
-            if (controller.AimDoor != null)
+            if (manager.HasCarriedBag)
+            {
+                // v1.1 UX: 봉투를 쥐고 있으면 바닥 작업이 막히므로 어디로 가야 하는지 크로스헤어에 고정 안내
+                prompt = $"[RMB] {manager.CurrentVehicleName}에 투하 · ${manager.CarriedBagValue}";
+            }
+            else if (controller.AimDoor != null)
             {
                 prompt = controller.AimDoor.IsOpen ? "[F] 문 닫기" : "[F] 현관문 열기";
             }
@@ -720,7 +725,7 @@ namespace TrashCleaner3D
                 Node("truck", "▶", "수거함 진화", truckNextHint, $"${manager.CostTruck}", "throw", new Vector2(330, -76), manager.LvTruckSize, 9, cBag),
                 Node("magnet", "Ω", "자석 압축기", $"근처 봉투 자동 흡입 Lv.{manager.LvMagnet}/3", $"${manager.CostMagnet}", "truck", new Vector2(435, -76), manager.LvMagnet, 3, cBag),
                 Node("price", "◆", "분리수거 단가", $"단가 +{manager.LvTrashPrice * 15}%", $"${manager.CostTrashPrice}", "bag", new Vector2(120, -162), manager.LvTrashPrice, 10, cBag),
-                Node("combo", "»", "투하 콤보", $"콤보 유지 {manager.MaxComboWindow:0.0}초", $"${manager.CostComboTime}", "price", new Vector2(225, -162), manager.LvComboTime, 6, cBag),
+                Node("combo", "»", "투하 콤보", $"연속 투하 ×1.25/스택 · 유지 {manager.MaxComboWindow:0.0}초", $"${manager.CostComboTime}", "price", new Vector2(225, -162), manager.LvComboTime, 6, cBag),
 
                 // 좌하: 생존 & 걸레질
                 Node("mask", "☣", "방독면", $"악취 -{Mathf.Min(82, manager.LvMask * 8)}%", $"${manager.CostMask}", "", new Vector2(-120, 76), manager.LvMask, 10, cSurv),
