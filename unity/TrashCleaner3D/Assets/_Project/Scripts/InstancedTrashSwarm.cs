@@ -70,10 +70,16 @@ namespace TrashCleaner3D
         // 커서 원형 오라 (쓰레기 위에 항상 선명히 보이는 오버레이 링!)
         private Mesh _auraRingMesh;
         private Material _auraRingMat;
+        private Material _cursorRingMat;
         private bool _auraVisible;
         private bool _isHoldingNow;
         private Vector3 _auraCenter;
         private float _auraRadius;
+
+        // 바닥 커서 흡입 반경 링 (쓰레기가 멀어도 항상 보이는 항해용 인디케이터)
+        private bool _cursorRingVisible;
+        private Vector3 _cursorRingCenter;
+        private float _cursorRingRadius = 1f;
 
         private readonly List<int> _selectedIndices = new List<int>(64);
         private readonly HashSet<int> _selectedSet = new HashSet<int>();
@@ -96,6 +102,7 @@ namespace TrashCleaner3D
 
         private void Start()
         {
+            if (meshTypes.Count == 0) BuildProceduralTypes();
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
             if (_units == null || _units.Length == 0) SpawnInitialSwarm(InitialSwarmCount);
             else EnsureRenderBuffers();
@@ -175,7 +182,7 @@ namespace TrashCleaner3D
 
             if (_auraRingMesh == null)
             {
-                _auraRingMesh = BuildRingMesh(48, 0.86f, 1.0f);
+                _auraRingMesh = BuildRingMesh(64, 0.93f, 1.0f);
                 Shader ringSh = Shader.Find("TrashCleaner3D/CursorRingOverlay") ?? Shader.Find("Universal Render Pipeline/Unlit");
                 _auraRingMat = new Material(ringSh);
                 if (ringSh.name.Contains("Unlit"))
@@ -186,6 +193,11 @@ namespace TrashCleaner3D
                     _auraRingMat.SetFloat("_ZWrite", 0f);
                     _auraRingMat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
                     _auraRingMat.renderQueue = (int)RenderQueue.Transparent + 10;
+                }
+                if (_cursorRingMat == null)
+                {
+                    _cursorRingMat = new Material(_auraRingMat);
+                    _cursorRingMat.name = "Mat_CursorRing";
                 }
             }
         }
@@ -210,6 +222,180 @@ namespace TrashCleaner3D
             m.vertices = verts;
             m.triangles = tris;
             m.RecalculateNormals();
+            return m;
+        }
+
+        // ===== v1.1.2 디자인: 아트 팩이 없어도 원룸에 어울리는 생활 쓰레기 5종을 코드로 만든다 =====
+        /// <summary>
+        /// 찌그러진 캔 · 눌린 택배 박스 · 페트병 · 구겨진 비닐봉투 · 구겨진 종이.
+        /// 색은 크라프트/무광 알루미늄/반투명 플라스틱/검은 비닐 톤으로 차분하게 맞춤.
+        /// </summary>
+        public void BuildProceduralTypes()
+        {
+            if (meshTypes.Count > 0) return;
+            Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            if (lit == null) return;
+
+            // 1) 찌그러진 알루미늄 캔 · 바닥에 누운 자세
+            Mesh can = BuildLatheMesh(
+                new[] { -0.058f, -0.026f, 0.020f, 0.058f },
+                new[] { 0.030f, 0.034f, 0.031f, 0.033f }, 14, 0.055f);
+            AddProceduralType(lit, "찌그러진 캔", can, new Color(0.655f, 0.66f, 0.655f), 0.52f, 0.72f, 0.16f, new Vector3(0f, 0f, 90f));
+
+            // 2) 눌린 택배/피자 박스 · 크라프트지
+            Mesh box = BuildWarpedBoxMesh(new Vector3(0.30f, 0.065f, 0.235f), 0.07f);
+            AddProceduralType(lit, "택배 박스", box, new Color(0.600f, 0.452f, 0.295f), 0.10f, 0.0f, 0.30f, Vector3.zero);
+
+            // 3) 페트병
+            Mesh bottle = BuildLatheMesh(
+                new[] { -0.085f, -0.055f, 0.030f, 0.062f, 0.098f },
+                new[] { 0.031f, 0.035f, 0.029f, 0.013f, 0.014f }, 14, 0.015f);
+            AddProceduralType(lit, "페트병", bottle, new Color(0.720f, 0.795f, 0.830f), 0.62f, 0.05f, 0.23f, new Vector3(90f, 0f, 0f));
+
+            // 4) 구겨진 검은 비닐봉투
+            Mesh bag = BuildCrumpledBlobMesh(0.105f, 12, 8, 0.17f, 11);
+            AddProceduralType(lit, "비닐봉투", bag, new Color(0.125f, 0.125f, 0.135f), 0.38f, 0.0f, 0.21f, Vector3.zero);
+
+            // 5) 구겨진 종이
+            Mesh paper = BuildCrumpledBlobMesh(0.075f, 10, 7, 0.30f, 23);
+            AddProceduralType(lit, "구겨진 종이", paper, new Color(0.815f, 0.790f, 0.740f), 0.08f, 0.0f, 0.15f, Vector3.zero);
+        }
+
+        private void AddProceduralType(Shader lit, string label, Mesh mesh, Color tint, float smoothness, float metallic, float targetDim, Vector3 euler)
+        {
+            Material mat = new Material(lit);
+            mat.name = $"Mat_Proc_{label}";
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", tint);
+            mat.color = tint;
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
+            if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", smoothness);
+            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", metallic);
+            mat.enableInstancing = true;
+
+            Vector3 sz = mesh.bounds.size;
+            float maxDim = Mathf.Max(sz.x, Mathf.Max(sz.y, sz.z));
+            meshTypes.Add(new TrashMeshType
+            {
+                label = label,
+                mesh = mesh,
+                material = mat,
+                normalizedScale = maxDim > 0.0001f ? targetDim / maxDim : 1f,
+                baseEulerOffset = euler
+            });
+        }
+
+        /// <summary>Y축 회전체(캔·병) 메쉬: 링별 반지름을 주면 살짝 찌그러진 원통이 된다.</summary>
+        private static Mesh BuildLatheMesh(float[] ringY, float[] ringR, int seg, float wobble)
+        {
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+            int rings = Mathf.Min(ringY.Length, ringR.Length);
+            for (int r = 0; r < rings; r++)
+            {
+                for (int i = 0; i < seg; i++)
+                {
+                    float a = i / (float)seg * Mathf.PI * 2f;
+                    float rr = ringR[r] * (1f + wobble * Mathf.Sin(a * 3f + r * 1.7f) + wobble * 0.45f * Mathf.Sin(a * 5f - r));
+                    verts.Add(new Vector3(Mathf.Cos(a) * rr, ringY[r], Mathf.Sin(a) * rr));
+                }
+            }
+            for (int r = 0; r < rings - 1; r++)
+            {
+                for (int i = 0; i < seg; i++)
+                {
+                    int i2 = (i + 1) % seg;
+                    int a0 = r * seg + i, a1 = r * seg + i2, b0 = (r + 1) * seg + i, b1 = (r + 1) * seg + i2;
+                    tris.Add(a0); tris.Add(b0); tris.Add(b1);
+                    tris.Add(a0); tris.Add(b1); tris.Add(a1);
+                }
+            }
+            int c0 = verts.Count; verts.Add(new Vector3(0f, ringY[0], 0f));
+            for (int i = 0; i < seg; i++) { tris.Add(c0); tris.Add(i); tris.Add((i + 1) % seg); }
+            int c1 = verts.Count; verts.Add(new Vector3(0f, ringY[rings - 1], 0f));
+            int baseIdx = (rings - 1) * seg;
+            for (int i = 0; i < seg; i++) { tris.Add(c1); tris.Add(baseIdx + (i + 1) % seg); tris.Add(baseIdx + i); }
+            return BuildOutwardMesh(verts, tris);
+        }
+
+        /// <summary>모서리가 살짝 눌린 상자 메쉬 (택배/피자 박스용).</summary>
+        private static Mesh BuildWarpedBoxMesh(Vector3 size, float warp)
+        {
+            Vector3 h = size * 0.5f;
+            var verts = new List<Vector3>(8);
+            for (int i = 0; i < 8; i++)
+            {
+                float sx = (i & 1) == 0 ? -1f : 1f;
+                float sy = (i & 2) == 0 ? -1f : 1f;
+                float sz = (i & 4) == 0 ? -1f : 1f;
+                verts.Add(new Vector3(
+                    sx * h.x * (1f + (sz > 0f ? warp : -warp * 0.5f)),
+                    sy * h.y * (1f + (sx > 0f ? warp * 0.6f : 0f)),
+                    sz * h.z));
+            }
+            var tris = new List<int>
+            {
+                0, 1, 3, 0, 3, 2,
+                4, 6, 7, 4, 7, 5,
+                0, 4, 5, 0, 5, 1,
+                2, 3, 7, 2, 7, 6,
+                0, 2, 6, 0, 6, 4,
+                1, 5, 7, 1, 7, 3
+            };
+            return BuildOutwardMesh(verts, tris);
+        }
+
+        /// <summary>구겨진 봉투/종이 메쉬: 납작하게 눌린 방울형에 잔주름을 준다.</summary>
+        private static Mesh BuildCrumpledBlobMesh(float radius, int seg, int rings, float crumple, int seed)
+        {
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+            float phase = (seed % 17) * 0.37f;
+            for (int y = 0; y <= rings; y++)
+            {
+                float v = y / (float)rings;
+                float phi = v * Mathf.PI;
+                for (int x = 0; x < seg; x++)
+                {
+                    float theta = x / (float)seg * Mathf.PI * 2f;
+                    float n = 1f + crumple * (0.55f * Mathf.Sin(theta * 3f + phi * 2f + phase) + 0.45f * Mathf.Sin(phi * 4f - theta * 2f));
+                    float r = radius * n;
+                    verts.Add(new Vector3(Mathf.Sin(phi) * Mathf.Cos(theta) * r, Mathf.Cos(phi) * r * 0.66f, Mathf.Sin(phi) * Mathf.Sin(theta) * r));
+                }
+            }
+            for (int y = 0; y < rings; y++)
+            {
+                for (int x = 0; x < seg; x++)
+                {
+                    int x2 = (x + 1) % seg;
+                    int a = y * seg + x, b = y * seg + x2, c = (y + 1) * seg + x, d = (y + 1) * seg + x2;
+                    tris.Add(a); tris.Add(c); tris.Add(d);
+                    tris.Add(a); tris.Add(d); tris.Add(b);
+                }
+            }
+            return BuildOutwardMesh(verts, tris);
+        }
+
+        /// <summary>중심에서 바깥을 향하도록 삼각형 감기 순서를 자동 보정해 노멀을 바로잡는다.</summary>
+        private static Mesh BuildOutwardMesh(List<Vector3> verts, List<int> tris)
+        {
+            for (int t = 0; t + 2 < tris.Count; t += 3)
+            {
+                Vector3 a = verts[tris[t]], b = verts[tris[t + 1]], c = verts[tris[t + 2]];
+                Vector3 n = Vector3.Cross(b - a, c - a);
+                if (n.sqrMagnitude < 1e-12f) continue;
+                Vector3 centroid = (a + b + c) / 3f;
+                if (Vector3.Dot(n, centroid) < 0f)
+                {
+                    int tmp = tris[t + 1];
+                    tris[t + 1] = tris[t + 2];
+                    tris[t + 2] = tmp;
+                }
+            }
+            Mesh m = new Mesh();
+            m.SetVertices(verts);
+            m.SetTriangles(tris, 0);
+            m.RecalculateNormals();
+            m.RecalculateBounds();
             return m;
         }
 
@@ -507,6 +693,17 @@ namespace TrashCleaner3D
             SpawnInitialSwarm(initialCount);
         }
 
+        /// <summary>
+        /// 바닥의 흡입 반경(SweepRadius)을 보여주는 커서 링. 쓰레기가 반경 밖에 있어도 항상 보여서
+        /// "어디까지 빨려오는지"를 눈으로 바로 알 수 있다. (Phase 1 바닥 조준 시 컨트롤러가 호출)
+        /// </summary>
+        public void SetCursorRing(bool visible, Vector3 center, float radius)
+        {
+            _cursorRingVisible = visible;
+            _cursorRingCenter = center;
+            _cursorRingRadius = Mathf.Max(0.1f, radius);
+        }
+
         private void Update()
         {
             if (_unitCount == 0 || meshTypes.Count == 0 || _batchMatrices == null) return;
@@ -665,12 +862,12 @@ namespace TrashCleaner3D
                 int tier = manager != null ? manager.ToolTier : 0;
                 float holdBoost = _isHoldingNow ? (0.22f + MaxSelectedCharge01 * 0.25f) : 0f;
                 Color auraCol = tier >= 2
-                    ? new Color(0.22f, 0.94f, 1.0f, 0.65f + holdBoost)
+                    ? new Color(0.52f, 0.90f, 0.82f, 0.62f + holdBoost)
                     : tier == 1
-                        ? new Color(0.42f, 0.98f, 0.54f, 0.58f + holdBoost)
+                        ? new Color(0.56f, 0.86f, 0.58f, 0.56f + holdBoost)
                         : _isHoldingNow
-                            ? new Color(1.0f, 0.90f, 0.32f, 0.72f + holdBoost * 0.5f)
-                            : new Color(1.0f, 1.0f, 1.0f, 0.55f);
+                            ? new Color(1.0f, 0.84f, 0.38f, 0.70f + holdBoost * 0.5f)
+                            : new Color(1.0f, 0.96f, 0.88f, 0.48f);
                 _auraRingMat.SetColor("_BaseColor", auraCol);
 
                 float spin = tier >= 2 ? now * 110f : (_isHoldingNow ? now * 55f : 0f);
@@ -678,6 +875,20 @@ namespace TrashCleaner3D
                 Vector3 ringPos = new Vector3(_auraCenter.x, Mathf.Max(0.04f, _auraCenter.y + 0.04f), _auraCenter.z);
                 Matrix4x4 ringMtx = Matrix4x4.TRS(ringPos, Quaternion.Euler(0f, spin, 0f), new Vector3(rScale, 1f, rScale));
                 Graphics.DrawMesh(_auraRingMesh, ringMtx, _auraRingMat, 0);
+            }
+            // 5) 바닥 커서 흡입 반경 링 — 쓰레기 호버 오라가 없을 때도 항상 반경을 보여준다.
+            if (_cursorRingVisible && !_auraVisible && _auraRingMesh != null && _cursorRingMat != null && _cursorRingRadius > 0.05f)
+            {
+                bool holding = _isHoldingNow;
+                float pulse = 0.5f + 0.5f * Mathf.Sin(now * 2.6f);
+                Color ringCol = holding
+                    ? new Color(1.0f, 0.84f, 0.38f, 0.72f + 0.18f * pulse)
+                    : new Color(1.0f, 0.965f, 0.88f, 0.34f + 0.12f * pulse);
+                _cursorRingMat.SetColor("_BaseColor", ringCol);
+
+                Vector3 ringPos = new Vector3(_cursorRingCenter.x, Mathf.Max(0.035f, _cursorRingCenter.y + 0.035f), _cursorRingCenter.z);
+                Matrix4x4 ringMtx = Matrix4x4.TRS(ringPos, Quaternion.identity, new Vector3(_cursorRingRadius, 1f, _cursorRingRadius));
+                Graphics.DrawMesh(_auraRingMesh, ringMtx, _cursorRingMat, 0);
             }
         }
     }

@@ -57,7 +57,7 @@ namespace TrashCleaner3D
         private void Awake()
         {
             _whiteTex = MakeTex(Color.white);
-            _dimTex = MakeTex(new Color(0.04f, 0.05f, 0.08f, 0.86f));
+            _dimTex = MakeTex(new Color(0.075f, 0.065f, 0.055f, 0.86f));
             try
             {
                 _krFont = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "맑은 고딕", "NanumGothic", "Arial" }, 14);
@@ -98,7 +98,7 @@ namespace TrashCleaner3D
             if (_stylesReady) return;
             _stylesReady = true;
 
-            Color ink = new Color(0.11f, 0.12f, 0.14f);
+            Color ink = new Color(0.185f, 0.150f, 0.115f);   // 종이 위 잉크(완전 검정 대신 따뜻한 먹색)
             Color white = Color.white;
 
             _inkLeft = MakeLabelStyle(13, FontStyle.Normal, TextAnchor.MiddleLeft, ink);
@@ -197,8 +197,12 @@ namespace TrashCleaner3D
                 float sx = Mathf.Round(sp.x), sy = Mathf.Round(h - sp.y);
                 float alpha = Mathf.Clamp01(1f - (ft.age / ft.duration) * (ft.age / ft.duration));
                 Color c = ft.color; c.a = alpha;
-                _worldPopStyle.normal.textColor = new Color(0, 0, 0, alpha * 0.85f);
-                GUI.Label(new Rect(sx - 149, sy - 13, 300, 28), ft.text, _worldPopStyle);
+                // 밝은 종이 톤 방에서도 읽히도록 먹색 4방향 외곽선 + 밝은 본문
+                _worldPopStyle.normal.textColor = new Color(0.09f, 0.075f, 0.055f, alpha * 0.92f);
+                GUI.Label(new Rect(sx - 151, sy - 14, 300, 28), ft.text, _worldPopStyle);
+                GUI.Label(new Rect(sx - 149, sy - 14, 300, 28), ft.text, _worldPopStyle);
+                GUI.Label(new Rect(sx - 150, sy - 15, 300, 28), ft.text, _worldPopStyle);
+                GUI.Label(new Rect(sx - 150, sy - 13, 300, 28), ft.text, _worldPopStyle);
                 _worldPopStyle.normal.textColor = c;
                 GUI.Label(new Rect(sx - 150, sy - 14, 300, 28), ft.text, _worldPopStyle);
             }
@@ -231,7 +235,7 @@ namespace TrashCleaner3D
             }
             else if (manager.PendingCash > 0)
             {
-                GUI.color = new Color(0.96f, 0.78f, 0.18f);
+                GUI.color = new Color(0.70f, 0.50f, 0.06f);
                 GUI.Label(new Rect(tl.x + 100, tl.y + 7, 100, 22), $"+${manager.PendingCash:N0}", _lightBold);
                 GUI.color = Color.white;
             }
@@ -286,7 +290,7 @@ namespace TrashCleaner3D
             float barW = Mathf.Round(Mathf.Min(380f, w * 0.40f));
             float barX = Mathf.Round((w - barW) * 0.5f);
             Rect tc = new Rect(barX, topY, barW, CoreLoopConfig.EnableSuspicionBranch ? 70f : 46f);
-            DrawBorderedBox(tc, new Color(0.11f, 0.12f, 0.15f, 0.92f), manager.IsAdrenalineZone ? new Color(1f, 0.55f, 0.15f) : new Color(0.32f, 0.35f, 0.42f), manager.IsAdrenalineZone ? 2 : 1);
+            DrawPaperCard(tc, manager.IsAdrenalineZone ? new Color(0.86f, 0.45f, 0.13f) : new Color(0.715f, 0.650f, 0.535f), manager.IsAdrenalineZone ? 2 : 1);
 
             int st = manager.StenchStage;
             Color stCol = manager.IsOutsideVentilating ? new Color(0.38f, 0.84f, 1f) :
@@ -295,7 +299,8 @@ namespace TrashCleaner3D
                 st == 2 ? new Color(0.98f, 0.56f, 0.18f) :
                 st == 3 ? new Color(0.95f, 0.24f, 0.22f) : new Color(0.82f, 0.28f, 0.96f);
 
-            GUI.color = stCol;
+            Color stInk = Color.Lerp(stCol, new Color(0.26f, 0.19f, 0.12f), 0.58f);
+            GUI.color = stInk;
             GUI.Label(new Rect(tc.x + 10, tc.y + 8, 54, 22), "☣ 악취", _lightSmall);
             GUI.color = Color.white;
 
@@ -305,13 +310,13 @@ namespace TrashCleaner3D
             for (int i = 0; i < 4; i++)
             {
                 Rect cell = new Rect(cellStartX + i * (cellW + 3f), tc.y + 12, cellW, 13);
-                DrawRect(cell, new Color(0.22f, 0.24f, 0.28f));
+                DrawRect(cell, new Color(0.855f, 0.820f, 0.745f));
                 float seg = Mathf.Clamp01((manager.StenchPercent - i * 25f) / 25f);
                 if (seg > 0.001f) DrawRect(new Rect(cell.x, cell.y, cell.width * seg, cell.height), stCol);
             }
             string stTag = manager.IsOutsideVentilating ? "환기 중" :
                 st == 4 ? "작업불가!" : st == 3 ? "이속↓↓" : st == 2 ? "이속↓" : st == 1 ? "답답함" : "쾌적";
-            GUI.color = stCol;
+            GUI.color = stInk;
             GUI.Label(new Rect(cellStartX + trackW + 8, tc.y + 8, 76, 22), stTag, _lightSmall);
             GUI.color = Color.white;
 
@@ -323,12 +328,13 @@ namespace TrashCleaner3D
                               : manager.SuspicionPercent >= 50f ? new Color(0.98f, 0.72f, 0.22f)
                               : new Color(0.52f, 0.84f, 0.96f);
 
-                GUI.color = suspCol;
+                Color suspInk = Color.Lerp(suspCol, new Color(0.26f, 0.19f, 0.12f), 0.5f);
+                GUI.color = suspInk;
                 GUI.Label(new Rect(tc.x + 10, sy, 54, 22), "◎ 의심", _lightSmall);
                 GUI.color = Color.white;
 
                 Rect suspTrack = new Rect(cellStartX, sy + 4, trackW, 14);
-                DrawRect(suspTrack, new Color(0.20f, 0.22f, 0.26f));
+                DrawRect(suspTrack, new Color(0.855f, 0.820f, 0.745f));
                 DrawRect(new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 1, trackW * 0.15f, suspTrack.height + 2), new Color(1.0f, 0.45f, 0.12f, manager.IsAdrenalineZone ? 0.68f : 0.34f));
                 DrawRect(new Rect(suspTrack.x + trackW * 0.95f, suspTrack.y, trackW * 0.05f, suspTrack.height), new Color(0.92f, 0.15f, 0.15f, 0.58f));
 
@@ -337,7 +343,7 @@ namespace TrashCleaner3D
                 DrawRect(new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 2, 2, suspTrack.height + 4), new Color(1f, 0.85f, 0.25f));
 
                 string suspTag = manager.IsAdrenalineZone ? $"스릴 ×{manager.AdrenalineMult:0.#}" : $"{manager.SuspicionPercent:0}%";
-                GUI.color = suspCol;
+                GUI.color = suspInk;
                 GUI.Label(new Rect(cellStartX + trackW + 8, sy, 76, 22), suspTag, _lightSmall);
                 GUI.color = Color.white;
             }
@@ -377,8 +383,8 @@ namespace TrashCleaner3D
             if (!string.IsNullOrEmpty(manager.ToastMessage))
             {
                 Rect toastR = new Rect(Mathf.Round(w * 0.5f - 185), h - botSafe - 118, 370, 30);
-                DrawBorderedBox(toastR, new Color(0.10f, 0.11f, 0.14f, 0.92f), new Color(0.95f, 0.80f, 0.26f), 1);
-                GUI.color = new Color(1f, 0.92f, 0.55f);
+                DrawPaperCard(toastR, new Color(0.82f, 0.66f, 0.22f), 1);
+                GUI.color = new Color(0.46f, 0.33f, 0.05f);
                 GUI.Label(toastR, manager.ToastMessage, _lightCenter);
                 GUI.color = Color.white;
             }
@@ -408,9 +414,9 @@ namespace TrashCleaner3D
             }
             else // 보통 감정
             {
-                bg = new Color(0.12f, 0.16f, 0.22f, 0.95f * alpha);
-                border = new Color(0.68f, 0.84f, 0.98f, alpha);
-                titleCol = new Color(0.88f, 0.95f, 1.0f, alpha);
+                bg = new Color(0.175f, 0.145f, 0.115f, 0.95f * alpha);
+                border = new Color(0.86f, 0.80f, 0.66f, alpha);
+                titleCol = new Color(0.98f, 0.94f, 0.86f, alpha);
             }
 
             DrawRect(new Rect(r.x - 5, r.y - 5, r.width + 10, r.height + 10), new Color(border.r, border.g, border.b, 0.25f * alpha));
@@ -435,8 +441,8 @@ namespace TrashCleaner3D
                 if (manager.CompressionBannerTimer > 0f)
                 {
                     Rect cBan = new Rect(Mathf.Round(w * 0.5f - 210), by - 34, 420, 28);
-                    DrawBorderedBox(cBan, new Color(0.06f, 0.30f, 0.20f, 0.96f), new Color(0.36f, 1f, 0.68f), 2);
-                    GUI.color = new Color(0.60f, 1f, 0.78f);
+                    DrawPaperCard(cBan, new Color(0.30f, 0.64f, 0.44f), 2);
+                    GUI.color = new Color(0.12f, 0.40f, 0.24f);
                     GUI.Label(cBan, manager.CompressionBannerText, _lightCenter);
                     GUI.color = Color.white;
                 }
@@ -446,8 +452,8 @@ namespace TrashCleaner3D
                     string dots = "";
                     for (int i = 0; i < target; i++) dots += (i < manager.StreakCount ? "●" : "○");
                     Rect sChip = new Rect(Mathf.Round(w * 0.5f - 190), by - 32, 380, 26);
-                    DrawBorderedBox(sChip, new Color(0.08f, 0.22f, 0.18f, 0.93f), new Color(0.34f, 0.94f, 0.64f), 1);
-                    GUI.color = new Color(0.55f, 1f, 0.76f);
+                    DrawPaperCard(sChip, new Color(0.32f, 0.66f, 0.46f), 1);
+                    GUI.color = new Color(0.12f, 0.40f, 0.24f);
                     GUI.Label(sChip, $"같은 쓰레기 [{manager.StreakTypeLabel}] {dots}  → 봉투 비움 + ×2", _lightCenter);
                     GUI.color = Color.white;
                 }
@@ -456,31 +462,31 @@ namespace TrashCleaner3D
             if (manager.HasCarriedBag)
             {
                 Rect card = new Rect(bx, by + 6, bw, 40);
-                DrawBorderedBox(card, new Color(0.14f, 0.13f, 0.08f, 0.95f), new Color(1f, 0.82f, 0.22f), 2);
-                GUI.color = new Color(1f, 0.90f, 0.36f);
+                DrawPaperCard(card, new Color(0.80f, 0.62f, 0.16f), 2);
+                GUI.color = new Color(0.52f, 0.36f, 0.03f);
                 GUI.Label(card, $"▣ 보유 봉지 (${manager.CarriedBagValue}) · [RMB] {manager.CurrentVehicleName}", _lightCenter);
                 GUI.color = Color.white;
             }
             else if (manager.Phase == GamePhase.Phase1_TrashRemoval)
             {
                 bool canTie = manager.CanTieBagEarly;
-                Color bd = canTie ? new Color(0.36f, 0.94f, 0.52f) : new Color(0.34f, 0.37f, 0.44f);
+                Color bd = canTie ? new Color(0.30f, 0.66f, 0.44f) : new Color(0.66f, 0.61f, 0.52f);
                 Rect card = new Rect(bx, by, bw, 46);
-                DrawBorderedBox(card, new Color(0.11f, 0.12f, 0.15f, 0.93f), bd, canTie ? 2 : 1);
+                DrawPaperCard(card, bd, canTie ? 2 : 1);
 
-                GUI.color = canTie ? new Color(0.52f, 1f, 0.66f) : Color.white;
+                GUI.color = canTie ? new Color(0.12f, 0.42f, 0.25f) : new Color(0.28f, 0.245f, 0.20f);
                 GUI.Label(new Rect(card.x + 12, card.y + 5, 130, 22), $"▣ 봉투 {manager.CollectingCount} / {manager.HandBagCapacity}", _lightSmall);
                 string rightStr = canTie ? $"[RMB] 봉지 묶기 · ${manager.CollectingPendingValue}" : $"${manager.CollectingPendingValue}";
                 GUI.Label(new Rect(card.x + bw - 180, card.y + 5, 168, 22), rightStr, _lightRight);
                 GUI.color = Color.white;
 
                 Rect track = new Rect(card.x + 12, card.y + 30, bw - 24, 9);
-                DrawRect(track, new Color(0.22f, 0.24f, 0.28f));
+                DrawRect(track, new Color(0.855f, 0.820f, 0.745f));
                 float ratio = Mathf.Clamp01(manager.CollectingCount / (float)Mathf.Max(1, manager.HandBagCapacity));
-                Color fillC = canTie ? new Color(0.34f, 0.92f, 0.52f) : new Color(0.38f, 0.84f, 0.98f);
+                Color fillC = canTie ? new Color(0.34f, 0.72f, 0.44f) : new Color(0.42f, 0.66f, 0.78f);
                 DrawRect(new Rect(track.x, track.y, track.width * ratio, track.height), fillC);
                 // 50% 봉지 묶기 가능 기준선 표시!
-                DrawRect(new Rect(Mathf.Round(track.x + track.width * 0.5f), track.y - 2, 2, track.height + 4), new Color(1f, 1f, 1f, 0.85f));
+                DrawRect(new Rect(Mathf.Round(track.x + track.width * 0.5f), track.y - 2, 2, track.height + 4), new Color(0.30f, 0.26f, 0.20f, 0.8f));
             }
         }
 
@@ -491,16 +497,19 @@ namespace TrashCleaner3D
 
             bool hasTarget = controller.AimDoor != null || controller.AimDroppedBag != null ||
                              controller.AimIsPile || controller.AimIsSwarmNear || controller.AimIsStain;
-            Color dotCol = hasTarget ? new Color(0.42f, 0.98f, 0.58f) : new Color(1f, 1f, 1f, 0.78f);
-            float sz = hasTarget ? 6f : 4f;
+            // 종이 톤 HUD에서도 항상 읽히도록: 밝은 할로우 + 어두운 먹색 점 (조준 시 세이지 그린)
+            Color dotCol = hasTarget ? new Color(0.24f, 0.58f, 0.36f) : new Color(0.20f, 0.17f, 0.13f, 0.92f);
+            float outer = hasTarget ? 9f : 7f;
+            DrawRect(new Rect(cx - outer * 0.5f, cy - outer * 0.5f, outer, outer), new Color(1f, 0.985f, 0.95f, 0.78f));
+            float sz = hasTarget ? 5f : 3f;
             DrawRect(new Rect(cx - sz * 0.5f, cy - sz * 0.5f, sz, sz), dotCol);
 
             // 1초 HOLD 진동 차징 바 / 큰 봉지 내구도 바
             if (controller.AimProgress01 > 0.01f && controller.AimProgress01 < 0.999f)
             {
                 Rect pb = new Rect(cx - 34, cy + 14, 68, 7);
-                DrawBorderedBox(pb, new Color(0.08f, 0.09f, 0.12f, 0.85f), new Color(0.85f, 0.85f, 0.85f, 0.6f), 1);
-                Color barC = controller.AimIsPile ? new Color(1f, 0.60f, 0.22f) : new Color(1f, 0.90f, 0.28f);
+                DrawPaperCard(pb, new Color(0.55f, 0.47f, 0.34f), 1);
+                Color barC = controller.AimIsPile ? new Color(0.92f, 0.52f, 0.16f) : new Color(0.92f, 0.74f, 0.18f);
                 DrawRect(new Rect(pb.x + 1, pb.y + 1, (pb.width - 2) * controller.AimProgress01, pb.height - 2), barC);
             }
 
@@ -520,7 +529,7 @@ namespace TrashCleaner3D
             }
             else if (controller.NeedMouseShakeHint)
             {
-                prompt = "←→ 마우스 흔들어 닦기";
+                prompt = "꾹 누르면 기본 닦기 · 흔들면 가속";
             }
             else if (controller.AimIsPile)
             {
@@ -530,8 +539,10 @@ namespace TrashCleaner3D
             if (!string.IsNullOrEmpty(prompt))
             {
                 Rect pr = new Rect(cx - 140, cy + 28, 280, 28);
-                DrawBorderedBox(pr, new Color(0.08f, 0.09f, 0.12f, 0.88f), dotCol, 1);
+                DrawPaperCard(pr, new Color(0.52f, 0.44f, 0.32f), 1);
+                GUI.color = new Color(0.26f, 0.21f, 0.15f);
                 GUI.Label(pr, prompt, _lightCenter);
+                GUI.color = Color.white;
             }
 
             // v1.0 트럭 옆 '현장 강화' 발판 안내
@@ -539,12 +550,15 @@ namespace TrashCleaner3D
             {
                 float fy = string.IsNullOrEmpty(prompt) ? cy + 32f : cy + 64f;
                 Rect fp = new Rect(cx - 210f, fy, 420f, 50f);
-                Color fpBord = controller.FieldPadCanBuy ? controller.FieldPadColor : new Color(0.42f, 0.45f, 0.52f);
-                DrawBorderedBox(fp, new Color(0.07f, 0.08f, 0.11f, 0.93f), fpBord, 2);
+                Color fpBord = controller.FieldPadCanBuy ? controller.FieldPadColor : new Color(0.62f, 0.57f, 0.48f);
+                DrawPaperCard(fp, fpBord, 2);
 
-                GUI.color = controller.FieldPadCanBuy ? controller.FieldPadColor : new Color(0.86f, 0.88f, 0.92f);
+                Color fpTitle = controller.FieldPadCanBuy
+                    ? Color.Lerp(controller.FieldPadColor, new Color(0.24f, 0.18f, 0.10f), 0.55f)
+                    : new Color(0.34f, 0.30f, 0.24f);
+                GUI.color = fpTitle;
                 GUI.Label(new Rect(fp.x + 10f, fp.y + 5f, fp.width - 20f, 22f), controller.FieldPadTitle, _lightBold);
-                GUI.color = new Color(0.84f, 0.87f, 0.93f);
+                GUI.color = new Color(0.32f, 0.28f, 0.22f);
                 GUI.Label(new Rect(fp.x + 10f, fp.y + 26f, fp.width - 20f, 20f), controller.FieldPadDetail, _lightSmall);
                 GUI.color = Color.white;
             }
@@ -587,8 +601,8 @@ namespace TrashCleaner3D
                 ? new Color(1.0f, 0.38f, 0.18f, glowPulse)
                 : new Color(1.0f, 0.82f, 0.22f, glowPulse);
             DrawRect(new Rect(card.x - 8, card.y - 8, card.width + 16, card.height + 16), new Color(outerGold.r, outerGold.g, outerGold.b, 0.28f));
-            DrawBorderedBox(card, new Color(0.10f, 0.11f, 0.15f, 0.97f), outerGold, 3);
-            DrawBorderedBox(new Rect(card.x + 6, card.y + 6, card.width - 12, card.height - 12), new Color(0.13f, 0.14f, 0.18f, 0.98f), new Color(1f, 0.92f, 0.52f, 0.45f), 1);
+            DrawBorderedBox(card, new Color(0.145f, 0.115f, 0.082f, 0.975f), outerGold, 3);
+            DrawBorderedBox(new Rect(card.x + 6, card.y + 6, card.width - 12, card.height - 12), new Color(0.185f, 0.145f, 0.100f, 0.985f), new Color(1f, 0.92f, 0.52f, 0.45f), 1);
 
             // 상단 화려한 배너 + 쉬머 스윕
             Rect banner = new Rect(card.x + 16, card.y + 16, cw - 32, 42);
@@ -624,7 +638,7 @@ namespace TrashCleaner3D
             string subBadge = manager.IsAdrenalineZone
                 ? $"★ 아드레날린 적용 중! (슈킹 단가 ×{manager.AdrenalineMult:0.#})"
                 : $"현재 의심도 {manager.SuspicionPercent:0}% · 100% 도달 시 강제 퇴거 정산";
-            GUI.color = new Color(0.84f, 0.86f, 0.90f);
+            GUI.color = new Color(0.84f, 0.845f, 0.82f);
             GUI.Label(new Rect(card.x + 20, card.y + 114, cw - 40, 24), subBadge, _lightCenter);
             GUI.color = Color.white;
 
@@ -635,7 +649,7 @@ namespace TrashCleaner3D
 
             // 좌측: [Q] 성실 전달
             Rect qBox = new Rect(card.x + 20, boxY, boxW, boxH);
-            DrawBorderedBox(qBox, new Color(0.08f, 0.22f, 0.16f, 0.96f), new Color(0.32f, 0.94f, 0.56f), 2);
+            DrawBorderedBox(qBox, new Color(0.105f, 0.215f, 0.160f, 0.97f), new Color(0.36f, 0.90f, 0.58f), 2);
             GUI.color = new Color(0.46f, 1.0f, 0.66f);
             GUI.Label(new Rect(qBox.x + 12, qBox.y + 12, qBox.width - 24, 28), "[Q] 의뢰인에게 전달", _lightBigCenter);
             GUI.color = Color.white;
@@ -747,11 +761,11 @@ namespace TrashCleaner3D
                     foreach (var p in nodes) if (p.id == n.parentId) { pPos = center + p.offset * scale; break; }
                 }
                 Vector2 nPos = center + n.offset * scale;
-                DrawLine(pPos, nPos, n.unlocked ? new Color(n.accent.r, n.accent.g, n.accent.b, 0.58f) : new Color(0.28f, 0.30f, 0.34f, 0.35f), 2f);
+                DrawLine(pPos, nPos, n.unlocked ? new Color(n.accent.r, n.accent.g, n.accent.b, 0.58f) : new Color(0.36f, 0.33f, 0.28f, 0.42f), 2f);
             }
 
             float coreSz = Mathf.Round(52f * scale);
-            DrawBorderedBox(new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz), new Color(0.18f, 0.16f, 0.11f), cTool, 2);
+            DrawBorderedBox(new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz), new Color(0.225f, 0.190f, 0.140f), cTool, 2);
             GUI.color = cTool;
             GUI.Label(new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz), "$ 강화", _lightCenter);
             GUI.color = Color.white;
@@ -765,10 +779,10 @@ namespace TrashCleaner3D
                 Vector2 p = center + n.offset * scale;
                 Rect r = new Rect(Mathf.Round(p.x - nW * 0.5f), Mathf.Round(p.y - nH * 0.5f), nW, nH);
                 bool isMax = n.level >= n.maxLevel;
-                Color bg = !n.unlocked ? new Color(0.10f, 0.11f, 0.13f, 0.92f)
-                         : isMax ? new Color(0.14f, 0.28f, 0.18f, 0.96f)
-                         : n.affordable ? new Color(0.24f, 0.21f, 0.13f, 0.97f)
-                         : new Color(0.14f, 0.15f, 0.19f, 0.95f);
+                Color bg = !n.unlocked ? new Color(0.155f, 0.140f, 0.120f, 0.94f)
+                         : isMax ? new Color(0.16f, 0.27f, 0.19f, 0.97f)
+                         : n.affordable ? new Color(0.30f, 0.245f, 0.145f, 0.97f)
+                         : new Color(0.19f, 0.175f, 0.155f, 0.96f);
                 Color bd = !n.unlocked ? new Color(0.25f, 0.27f, 0.30f)
                          : isMax ? new Color(0.38f, 0.94f, 0.52f)
                          : n.affordable ? n.accent
@@ -890,9 +904,19 @@ namespace TrashCleaner3D
 
         private void DrawHubButton(Rect r, string label, bool active, Color accent, System.Action onClick)
         {
-            Color bg = active ? accent : new Color(0.16f, 0.17f, 0.21f, 0.96f);
-            DrawBorderedBox(r, bg, accent, active ? 3 : 2);
-            GUI.Label(r, label, _lightCenter);
+            if (active)
+            {
+                DrawBorderedBox(r, accent, new Color(0.24f, 0.19f, 0.13f), 3);
+                GUI.color = Color.white;
+                GUI.Label(r, label, _lightCenter);
+            }
+            else
+            {
+                DrawPaperCard(r, new Color(0.68f, 0.61f, 0.50f), 2);
+                GUI.color = new Color(0.28f, 0.23f, 0.17f);
+                GUI.Label(r, label, _lightCenter);
+                GUI.color = Color.white;
+            }
             if (GUI.Button(r, GUIContent.none, GUIStyle.none)) onClick?.Invoke();
         }
 
@@ -945,10 +969,10 @@ namespace TrashCleaner3D
         {
             float pw = 640f, ph = 370f;
             Rect p = new Rect(Mathf.Round((w - pw) * 0.5f), Mathf.Round((h - ph) * 0.5f - 4f), pw, ph);
-            Color accent = new Color(0.92f, 0.24f, 0.44f);
-            DrawBorderedBox(p, new Color(0.12f, 0.08f, 0.11f, 0.96f), accent, 2);
+            Color accent = new Color(0.86f, 0.22f, 0.40f);
+            DrawPaperCard(p, accent, 2);
 
-            GUI.color = new Color(1f, 0.48f, 0.62f);
+            GUI.color = new Color(0.62f, 0.12f, 0.28f);
             GUI.Label(new Rect(p.x + 20, p.y + 14, pw - 40, 28), $"♦ 암시장 상점 · 보유 ♦{manager.BlackMarketPts}", _lightBigCenter);
             GUI.color = Color.white;
 
@@ -977,10 +1001,10 @@ namespace TrashCleaner3D
         {
             float pw = 640f, ph = 330f;
             Rect p = new Rect(Mathf.Round((w - pw) * 0.5f), Mathf.Round((h - ph) * 0.5f - 4f), pw, ph);
-            Color accent = new Color(0.32f, 0.68f, 1.0f);
-            DrawBorderedBox(p, new Color(0.08f, 0.11f, 0.17f, 0.96f), accent, 2);
+            Color accent = new Color(0.24f, 0.56f, 0.92f);
+            DrawPaperCard(p, accent, 2);
 
-            GUI.color = new Color(0.55f, 0.82f, 1.0f);
+            GUI.color = new Color(0.12f, 0.36f, 0.68f);
             GUI.Label(new Rect(p.x + 20, p.y + 14, pw - 40, 28), $"★ 성실 특전 상점 · 보유 ★{manager.TrustTokens}", _lightBigCenter);
             GUI.color = Color.white;
 
@@ -1002,16 +1026,25 @@ namespace TrashCleaner3D
 
         private void DrawShopItemCard(Rect r, string title, string desc, string btnText, bool canBuy, Color accent, System.Action onBuy)
         {
-            DrawBorderedBox(r, new Color(0.14f, 0.15f, 0.20f, 0.96f), canBuy ? accent : new Color(0.30f, 0.32f, 0.38f), canBuy ? 2 : 1);
-            GUI.color = canBuy ? Color.white : new Color(0.75f, 0.78f, 0.82f);
+            DrawPaperCard(r, canBuy ? accent : new Color(0.72f, 0.68f, 0.60f), canBuy ? 2 : 1);
+            GUI.color = canBuy ? new Color(0.22f, 0.18f, 0.13f) : new Color(0.44f, 0.41f, 0.36f);
             GUI.Label(new Rect(r.x + 16, r.y + 10, r.width - 180, 24), title, _lightBold);
-            GUI.color = new Color(0.80f, 0.84f, 0.90f);
+            GUI.color = new Color(0.35f, 0.31f, 0.25f);
             GUI.Label(new Rect(r.x + 16, r.y + 36, r.width - 180, 22), $"• {desc}", _lightSmall);
             GUI.color = Color.white;
 
             Rect br = new Rect(r.xMax - 148, r.y + (r.height - 36f) * 0.5f, 134, 36);
-            DrawBorderedBox(br, canBuy ? accent : new Color(0.22f, 0.24f, 0.28f), canBuy ? Color.white : new Color(0.36f, 0.38f, 0.42f), 1);
-            GUI.Label(br, btnText, _lightCenter);
+            DrawBorderedBox(br, canBuy ? accent : new Color(0.82f, 0.79f, 0.72f), canBuy ? new Color(0.26f, 0.20f, 0.14f) : new Color(0.62f, 0.58f, 0.52f), 1);
+            if (canBuy)
+            {
+                GUI.Label(br, btnText, _lightCenter);
+            }
+            else
+            {
+                GUI.color = new Color(0.48f, 0.44f, 0.38f);
+                GUI.Label(br, btnText, _lightCenter);
+                GUI.color = Color.white;
+            }
             if (canBuy && GUI.Button(br, GUIContent.none, GUIStyle.none)) onBuy?.Invoke();
         }
 
@@ -1043,15 +1076,23 @@ namespace TrashCleaner3D
 
         private void DrawReceiptBox(Rect r)
         {
-            DrawBorderedBox(r, new Color(0.96f, 0.93f, 0.86f, 0.96f), new Color(0.22f, 0.22f, 0.24f), 2);
-            DrawRect(new Rect(r.x + 2, r.y + 2, r.width - 4, 2), new Color(0.84f, 0.80f, 0.72f));
+            DrawRect(new Rect(r.x + 2, r.y + 4, r.width, r.height), new Color(0, 0, 0, 0.16f));
+            DrawBorderedBox(r, new Color(0.972f, 0.952f, 0.905f, 0.97f), new Color(0.335f, 0.285f, 0.220f), 2);
+            DrawRect(new Rect(r.x + 2, r.y + 2, r.width - 4, 2), new Color(0.855f, 0.815f, 0.735f));
+        }
+
+        /// <summary>밝은 크림색 종이 카드 + 얇은 테두리 + 부드러운 그림자 (인게임 HUD 공통 톤)</summary>
+        private void DrawPaperCard(Rect r, Color border, int bw = 1)
+        {
+            DrawRect(new Rect(r.x + 2, r.y + 3, r.width, r.height), new Color(0, 0, 0, 0.18f));
+            DrawBorderedBox(r, new Color(0.966f, 0.947f, 0.902f, 0.955f), border, bw);
         }
 
         private void DrawPostItBox(Rect r)
         {
-            DrawRect(new Rect(r.x + 3, r.y + 3, r.width, r.height), new Color(0, 0, 0, 0.26f));
-            DrawBorderedBox(r, new Color(0.99f, 0.90f, 0.50f, 0.97f), new Color(0.76f, 0.64f, 0.20f), 1);
-            DrawRect(new Rect(r.x + r.width * 0.36f, r.y - 3, r.width * 0.28f, 7), new Color(0.92f, 0.86f, 0.62f, 0.85f));
+            DrawRect(new Rect(r.x + 3, r.y + 3, r.width, r.height), new Color(0, 0, 0, 0.22f));
+            DrawBorderedBox(r, new Color(0.995f, 0.912f, 0.545f, 0.98f), new Color(0.775f, 0.635f, 0.215f), 1);
+            DrawRect(new Rect(r.x + r.width * 0.36f, r.y - 3, r.width * 0.28f, 7), new Color(0.93f, 0.875f, 0.655f, 0.85f));
         }
 
         private void DrawBorderedBox(Rect r, Color fill, Color border, int bw)

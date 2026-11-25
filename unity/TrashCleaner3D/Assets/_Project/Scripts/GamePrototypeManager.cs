@@ -52,6 +52,7 @@ namespace TrashCleaner3D
         public GameObject[] vehicleStageObjects; // 0:쓰레기통, 1:리어카, 2:다마스, 3:1톤 트럭
         public Transform truckStackedParent;
         public Light ceilingLight;
+        public Light sunLight;   // 씬에 창가 햇살(Directional)이 있으면 여기에 자동 연결 — 없으면 생략
         public ProceduralSfx sfx;
         public GameObject thrownBagPrefab;
 
@@ -364,6 +365,19 @@ namespace TrashCleaner3D
         private int _melodyStep;            // 도레미파솔 연속 수거음 계단
         private float _pitchResetTimer;
 
+        // ===== v1.1.2 분위기(더러움 → 깨끗함) 보간 목표값 =====
+        private bool _atmoTargetsReady;
+        private float _tgtFogDensity = 0.045f;
+        private Color _tgtFogColor = new Color(0.17f, 0.15f, 0.12f);
+        private Color _tgtAmbientSky = new Color(0.21f, 0.19f, 0.15f);
+        private Color _tgtAmbientEquator = new Color(0.15f, 0.14f, 0.12f);
+        private Color _tgtAmbientGround = new Color(0.06f, 0.05f, 0.05f);
+        private float _tgtAmbientIntensity = 0.9f;
+        private Color _tgtCeilingColor = new Color(1f, 0.85f, 0.67f);
+        private float _tgtCeilingIntensity = 14f;
+        private Color _tgtSunColor = new Color(1f, 0.86f, 0.68f);
+        private float _tgtSunIntensity = 0.6f;
+
         // 트럭에 쏟은 돈이 드르르륵 올라가는 카운트업 상태
         private int _cashPayoutRemaining;
         private int _cashPayoutTotal;
@@ -387,6 +401,14 @@ namespace TrashCleaner3D
             if (trashSwarm == null) trashSwarm = FindFirstObjectByType<InstancedTrashSwarm>();
             if (player != null) player.mouseSensitivity = MouseSensitivity;
             CollectTargets();
+            if (sunLight == null)
+            {
+                var lights = FindObjectsByType<Light>(FindObjectsSortMode.None);
+                for (int i = 0; i < lights.Length; i++)
+                {
+                    if (lights[i] != null && lights[i].type == LightType.Directional) { sunLight = lights[i]; break; }
+                }
+            }
             UpdateAtmosphere();
             UpdateVehicleStageVisuals();
             if (spawnFieldUpgradeStation) EnsureFieldUpgradeStation();
@@ -555,6 +577,7 @@ namespace TrashCleaner3D
             if (CompressionBannerTimer > 0f) { CompressionBannerTimer -= dt; }
             if (_pitchResetTimer > 0f) { _pitchResetTimer -= dt; if (_pitchResetTimer <= 0f) _melodyStep = 0; }
             TickCashCrunch(dt);
+            TickAtmosphere(dt);
             if (_treasureCooldown > 0f) _treasureCooldown -= dt;
             if (TreasureFlash01 > 0f) TreasureFlash01 = Mathf.MoveTowards(TreasureFlash01, 0f, dt * 1.1f);
             if (StealAlertFlash01 > 0f) StealAlertFlash01 = Mathf.MoveTowards(StealAlertFlash01, 0f, dt * 1.0f);
@@ -1156,6 +1179,8 @@ namespace TrashCleaner3D
             Money += pay;
             sfx.PlayChime();
             SpawnFloatingText(stain.transform.position + Vector3.up * 0.42f, $"✦ 반짝! +${pay}", new Color(0.55f, 0.96f, 1f), 1.5f);
+            // v1.1.2 디자인: 얼룩이 사라진 자리에 반짝이 파티클 ("광 냈다"는 시각 보상)
+            SparkleBurst.Spawn(stain.transform.position + Vector3.up * 0.05f, 16, 0.62f, new Color(1f, 0.96f, 0.78f));
             UpdateAtmosphere();
             CheckSuspicionCleanMilestones();
             if (Phase == GamePhase.Phase2_FloorMopping && Phase2Cleaned >= Phase2Total && Phase2Total > 0)
@@ -1429,14 +1454,49 @@ namespace TrashCleaner3D
 
         private void UpdateAtmosphere()
         {
-            float t = Mathf.Clamp01(OverallCleanPercent / 100f);
-            RenderSettings.fogDensity = Mathf.Lerp(0.032f, 0.002f, t);
-            RenderSettings.fogColor = Color.Lerp(new Color(0.18f, 0.16f, 0.12f), new Color(0.84f, 0.87f, 0.89f), t);
-            RenderSettings.ambientLight = Color.Lerp(new Color(0.28f, 0.26f, 0.22f), new Color(0.68f, 0.70f, 0.72f), t);
+            // v1.1.2 디자인: 시작은 탁하고 축축한 공기, 청소율이 오를수록 안개가 걷히며 따뜻한 오후 햇살 톤으로.
+            // smoothstep이라 초반엔 더러운 톤이 유지되고 후반(50~100%)에 확 밝아진다.
+            float raw = Mathf.Clamp01(OverallCleanPercent / 100f);
+            float t = raw * raw * (3f - 2f * raw);
+
+            RenderSettings.fog = true;
+            _tgtFogDensity = Mathf.Lerp(0.048f, 0.0024f, t);
+            _tgtFogColor = Color.Lerp(new Color(0.170f, 0.152f, 0.118f), new Color(0.930f, 0.905f, 0.855f), t);
+            _tgtAmbientSky = Color.Lerp(new Color(0.205f, 0.188f, 0.152f), new Color(0.740f, 0.722f, 0.680f), t);
+            _tgtAmbientEquator = Color.Lerp(new Color(0.150f, 0.140f, 0.116f), new Color(0.600f, 0.560f, 0.500f), t);
+            _tgtAmbientGround = Color.Lerp(new Color(0.058f, 0.054f, 0.045f), new Color(0.330f, 0.292f, 0.242f), t);
+            _tgtAmbientIntensity = Mathf.Lerp(0.85f, 1.18f, t);
+            _tgtCeilingColor = Color.Lerp(new Color(1.0f, 0.845f, 0.665f), new Color(1.0f, 0.980f, 0.930f), t);
+            _tgtCeilingIntensity = Mathf.Lerp(13.5f, 23f, t);
+            _tgtSunColor = Color.Lerp(new Color(1.0f, 0.86f, 0.68f), new Color(1.0f, 0.945f, 0.855f), t);
+            _tgtSunIntensity = Mathf.Lerp(0.55f, 1.35f, t);
+            _atmoTargetsReady = true;
+        }
+
+        // 목표 톤으로 매 프레임 부드럽게 끌어당겨, 청소 중에 방 색이 뚝뚝 끊기지 않고 서서히 환해진다.
+        private void TickAtmosphere(float dt)
+        {
+            if (!_atmoTargetsReady) return;
+            float k = 1f - Mathf.Exp(-1.7f * dt);
+
+            RenderSettings.fog = true;
+            RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, _tgtFogDensity, k);
+            RenderSettings.fogColor = Color.Lerp(RenderSettings.fogColor, _tgtFogColor, k);
+            RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, _tgtAmbientSky, k);
+            RenderSettings.ambientSkyColor = Color.Lerp(RenderSettings.ambientSkyColor, _tgtAmbientSky, k);
+            RenderSettings.ambientEquatorColor = Color.Lerp(RenderSettings.ambientEquatorColor, _tgtAmbientEquator, k);
+            RenderSettings.ambientGroundColor = Color.Lerp(RenderSettings.ambientGroundColor, _tgtAmbientGround, k);
+            RenderSettings.ambientIntensity = Mathf.Lerp(RenderSettings.ambientIntensity, _tgtAmbientIntensity, k);
+
             if (ceilingLight != null)
             {
-                ceilingLight.color = Color.Lerp(new Color(1.0f, 0.91f, 0.74f), new Color(1.0f, 0.99f, 0.96f), t);
-                ceilingLight.intensity = Mathf.Lerp(15f, 24f, t);
+                ceilingLight.color = Color.Lerp(ceilingLight.color, _tgtCeilingColor, k);
+                ceilingLight.intensity = Mathf.Lerp(ceilingLight.intensity, _tgtCeilingIntensity, k);
+            }
+            if (sunLight != null && sunLight.type == LightType.Directional)
+            {
+                sunLight.color = Color.Lerp(sunLight.color, _tgtSunColor, k);
+                sunLight.intensity = Mathf.Lerp(sunLight.intensity, _tgtSunIntensity, k);
             }
         }
 

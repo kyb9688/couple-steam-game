@@ -57,7 +57,6 @@ namespace TrashCleaner3D
         private InteractiveDoor _lastDoor;
         private ThrownTrashBag _lastDroppedBag;
         private float _punchCooldown;
-        private float _holdVibeSfxTimer;
         private float _bagHintCooldown;
 
         private Vector3 _rightBasePos;
@@ -68,6 +67,10 @@ namespace TrashCleaner3D
         private float _scrubMotionWeight;
         private float _scrubPhase;
         private float _scrubSoundCooldown;
+        private Vector2 _scrubSway;
+
+        // v1.1.2: LMB 꾹 누르기만 해도 들어가는 기본 닦기 속도(마우스 흔들기는 가속 보너스)
+        private const float BaseScrubPower = 0.55f;
         private bool _isHoldingTrashNow;
         private bool _isVacuumingNow;
 
@@ -256,6 +259,7 @@ namespace TrashCleaner3D
             float mx = 0f, mz = 0f;
             Vector2 lookDelta = Vector2.zero;
             bool toggleFlash = false, jumpDown = false;
+            bool lmbHeldNow = false;
 
 #if ENABLE_INPUT_SYSTEM
             var kb = Keyboard.current;
@@ -270,12 +274,19 @@ namespace TrashCleaner3D
                 if (kb.tKey.wasPressedThisFrame) toggleFlash = true;
                 if (kb.hKey.wasPressedThisFrame) ShowHelp = !ShowHelp;
             }
-            if (mouse != null && Cursor.lockState == CursorLockMode.Locked) lookDelta = mouse.delta.ReadValue();
+            if (mouse != null && Cursor.lockState == CursorLockMode.Locked)
+            {
+                lookDelta = mouse.delta.ReadValue();
+                lmbHeldNow = mouse.leftButton.isPressed;
+            }
 #else
             mx = Input.GetAxis("Horizontal");
             mz = Input.GetAxis("Vertical");
             if (Cursor.lockState == CursorLockMode.Locked)
+            {
                 lookDelta = new Vector2(Input.GetAxis("Mouse X") * 12f, Input.GetAxis("Mouse Y") * 12f);
+                lmbHeldNow = Input.GetMouseButton(0);
+            }
             if (Input.GetKeyDown(KeyCode.Space)) jumpDown = true;
             if (Input.GetKeyDown(KeyCode.T)) toggleFlash = true;
             if (Input.GetKeyDown(KeyCode.H)) ShowHelp = !ShowHelp;
@@ -283,12 +294,17 @@ namespace TrashCleaner3D
 
             if (toggleFlash && flashlight != null) flashlight.enabled = !flashlight.enabled;
 
+            // v1.1.2: Phase 2 걸레질 중 LMB를 쥐고 있으면 시점은 고정(!) — 멀미 방지.
+            // 마우스 이동은 카메라가 아니라 걸레 닦기 파워/모션에만 쓰인다 (LMB를 떼면 즉시 정상 회전).
+            bool mopCameraLock = lmbHeldNow && manager.Phase == GamePhase.Phase2_FloorMopping;
+            Vector2 cameraLook = mopCameraLock ? Vector2.zero : lookDelta;
+
             float activeSens = manager.MouseSensitivity;
             float sens = (_scrubMotionWeight > 0.2f) ? activeSens * 0.55f : activeSens;
-            transform.Rotate(Vector3.up * (lookDelta.x * sens));
+            transform.Rotate(Vector3.up * (cameraLook.x * sens));
             if (cameraTransform != null)
             {
-                _pitch = Mathf.Clamp(_pitch - lookDelta.y * sens, -82f, 82f);
+                _pitch = Mathf.Clamp(_pitch - cameraLook.y * sens, -82f, 82f);
                 float coughOffset = manager.CoughKick01 * 2.6f;
                 cameraTransform.localRotation = Quaternion.Euler(Mathf.Clamp(_pitch + coughOffset, -84f, 84f), 0f, 0f);
             }
@@ -320,7 +336,6 @@ namespace TrashCleaner3D
         {
             if (_punchCooldown > 0f) _punchCooldown -= Time.deltaTime;
             if (_scrubSoundCooldown > 0f) _scrubSoundCooldown -= Time.deltaTime;
-            if (_holdVibeSfxTimer > 0f) _holdVibeSfxTimer -= Time.deltaTime;
             if (_bagHintCooldown > 0f) _bagHintCooldown -= Time.deltaTime;
 
             // 주의: 매 프레임 스웜 락온을 지우지 않음! (clearSwarmLock: false)
@@ -333,6 +348,7 @@ namespace TrashCleaner3D
             NeedMouseShakeHint = false;
             AimProgress01 = -1f;
             _scrubMotionWeight = Mathf.MoveTowards(_scrubMotionWeight, 0f, 6f * Time.deltaTime);
+            _scrubSway = Vector2.Lerp(_scrubSway, Vector2.zero, 8f * Time.deltaTime);
 
             if (cameraTransform == null || Cursor.lockState != CursorLockMode.Locked)
             {
@@ -409,6 +425,18 @@ namespace TrashCleaner3D
             {
                 worldAimPoint = hitPile.transform.position;
                 hasWorldPoint = true;
+            }
+
+            // v1.1.2 디자인: 바닥을 조준하면 흡입 반경(SweepRadius)을 원형 링으로 항상 보여준다.
+            // (쓰레기가 반경 밖에 있어도 보여서 "어디까지 빨려오는지"가 한눈에 읽힌다)
+            if (manager.trashSwarm != null)
+            {
+                bool showRing = hasWorldPoint &&
+                                manager.Phase == GamePhase.Phase1_TrashRemoval &&
+                                worldAimPoint.y <= 0.95f &&
+                                Vector3.Distance(cameraTransform.position, worldAimPoint) <= 5.4f &&
+                                !manager.HasCarriedBag;
+                manager.trashSwarm.SetCursorRing(showRing, worldAimPoint, manager.SweepRadius);
             }
 
             // 0) [RMB] 통일: 손에 쥔 봉지 투하 / 바닥 봉지 회수
@@ -532,15 +560,8 @@ namespace TrashCleaner3D
                         if (manager.ToolTier >= 2) _isVacuumingNow = true;
 
                         float charge01 = manager.trashSwarm.MaxSelectedCharge01;
-                        if (charge01 > 0.01f)
-                        {
-                            AimProgress01 = charge01;
-                            if (_holdVibeSfxTimer <= 0f)
-                            {
-                                _holdVibeSfxTimer = manager.ToolTier == 0 ? 0.22f : 0.14f;
-                                manager.sfx.PlayPop(0.55f + charge01 * 0.45f);
-                            }
-                        }
+                        if (charge01 > 0.01f) AimProgress01 = charge01;
+                        // v1.1.2: 차지 중 반복 PlayPop 제거 — 실제 쓰레기가 뽑혀 들어갈 때의 PlayNote(도레미파솔)만 남긴다.
                     }
 
                     if (didCrit) manager.SpawnFloatingText(fxPos + Vector3.up * 0.25f, "CRIT ×2!", new Color(1f, 0.88f, 0.22f), 0.9f);
@@ -571,14 +592,14 @@ namespace TrashCleaner3D
                     {
                         float shake = mouseDelta.magnitude;
                         if (shake < 1.8f) NeedMouseShakeHint = true;
-                        else
-                        {
-                            float power = Mathf.Min(shake, 50f) * 0.145f * manager.ScrubSpeedMult * workMult;
-                            _scrubMotionWeight = 1f;
-                            _scrubPhase += (6f + Mathf.Min(shake, 32f) * 0.9f) * Time.deltaTime;
-                            if (_scrubSoundCooldown <= 0f) { _scrubSoundCooldown = 0.18f; manager.sfx.PlayScrub(); }
-                            if (hitStain.ApplyCleanDamage(power * Time.deltaTime, null)) manager.OnStainCleaned(hitStain);
-                        }
+
+                        // v1.1.2: 꾹 누르고만 있어도 기본 속도로 닦이고, 마우스를 흔들면 가속(보너스).
+                        float power = (BaseScrubPower + Mathf.Min(shake, 50f) * 0.145f) * manager.ScrubSpeedMult * workMult;
+                        _scrubMotionWeight = 1f;
+                        _scrubPhase += (6f + Mathf.Min(shake, 32f) * 0.9f) * Time.deltaTime;
+                        _scrubSway = Vector2.Lerp(_scrubSway, Vector2.ClampMagnitude(mouseDelta, 40f), 12f * Time.deltaTime);
+                        if (_scrubSoundCooldown <= 0f) { _scrubSoundCooldown = 0.18f; manager.sfx.PlayScrub(); }
+                        if (hitStain.ApplyCleanDamage(power * Time.deltaTime, null)) manager.OnStainCleaned(hitStain);
                     }
                 }
             }
@@ -592,18 +613,21 @@ namespace TrashCleaner3D
 
             if (_scrubMotionWeight > 0.05f && manager.Phase == GamePhase.Phase2_FloorMopping)
             {
+                // v1.1.2: 마우스로 문지르는 방향(좌우/앞뒤)이 손에 든 걸레에 그대로 실리게 한다 (카메라는 고정)
+                float swayX = Mathf.Clamp(_scrubSway.x * 0.010f, -0.10f, 0.10f);
+                float swayZ = Mathf.Clamp(-_scrubSway.y * 0.006f, -0.06f, 0.06f);
                 if (manager.HasMopUnlocked)
                 {
                     float s = Mathf.Sin(_scrubPhase * 1.4f);
-                    targetPos += new Vector3(s * 0.20f - 0.12f, -0.05f, 0.16f + Mathf.Cos(_scrubPhase * 1.4f) * 0.05f);
-                    targetRot = Quaternion.Euler(18f, s * 22f, -s * 16f);
+                    targetPos += new Vector3(s * 0.20f - 0.12f + swayX, -0.05f, 0.16f + Mathf.Cos(_scrubPhase * 1.4f) * 0.05f + swayZ);
+                    targetRot = Quaternion.Euler(18f, s * 22f + swayX * 130f, -s * 16f + swayZ * 70f);
                 }
                 else
                 {
                     float cx = Mathf.Cos(_scrubPhase * 2.4f) * 0.09f;
                     float cz = Mathf.Sin(_scrubPhase * 2.4f) * 0.07f;
-                    targetPos += new Vector3(cx - 0.10f, -0.11f, 0.18f + cz);
-                    targetRot = Quaternion.Euler(42f, cx * 80f, -cx * 90f);
+                    targetPos += new Vector3(cx - 0.10f + swayX, -0.11f, 0.18f + cz + swayZ);
+                    targetRot = Quaternion.Euler(42f, cx * 80f + swayX * 130f, -cx * 90f + swayZ * 70f);
                 }
             }
             else if (_isVacuumingNow)

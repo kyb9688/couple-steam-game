@@ -573,10 +573,11 @@ namespace TrashCleaner3D.Editor
         /// </summary>
         private static void PopulateSwarmMeshTypes(InstancedTrashSwarm swarm)
         {
-            TryAddFallbackFolderType(swarm, "녹슨 캔", $"{ArtRoot}/Models/Trash/can_rusted", 0.16f, new Color(0.80f, 0.42f, 0.25f));
-            TryAddFallbackFolderType(swarm, "담뱃갑", $"{ArtRoot}/Models/Trash/cigarette_pack", 0.14f, new Color(0.88f, 0.85f, 0.78f));
-            TryAddFallbackFolderType(swarm, "통조림 캔", $"{ArtRoot}/Models/Trash/russian_food_cans_01", 0.20f, new Color(0.82f, 0.75f, 0.56f));
-            TryAddFallbackFolderType(swarm, "플라스틱 물통", $"{ArtRoot}/Models/Trash/plastic_bottle_gallon", 0.26f, new Color(0.88f, 0.92f, 0.96f));
+            // v1.1.2 디자인: 원색 대신 크라프트/무광 알루미늄/반투명 플라스틱/검은 비닐 톤으로 차분하게
+            TryAddFallbackFolderType(swarm, "녹슨 캔", $"{ArtRoot}/Models/Trash/can_rusted", 0.16f, new Color(0.62f, 0.44f, 0.32f));
+            TryAddFallbackFolderType(swarm, "담뱃갑", $"{ArtRoot}/Models/Trash/cigarette_pack", 0.14f, new Color(0.78f, 0.745f, 0.685f));
+            TryAddFallbackFolderType(swarm, "통조림 캔", $"{ArtRoot}/Models/Trash/russian_food_cans_01", 0.20f, new Color(0.720f, 0.700f, 0.620f));
+            TryAddFallbackFolderType(swarm, "플라스틱 물통", $"{ArtRoot}/Models/Trash/plastic_bottle_gallon", 0.26f, new Color(0.780f, 0.830f, 0.850f));
 
             string litterFbxDir = $"{ArtRoot}/Models/Trash/street_litter_sampler/fbx";
             string litterTexDir = $"{ArtRoot}/Models/Trash/street_litter_sampler/textures";
@@ -584,7 +585,13 @@ namespace TrashCleaner3D.Editor
                 $"{litterFbxDir}/SM_PL_Paper_BallMedium_crushed.fbx",
                 $"{litterTexDir}/T_SM_PL_Paper_BallMedium_crushed_BaseColor.jpg",
                 $"{litterTexDir}/T_SM_PL_Paper_BallMedium_crushed_Normal.png",
-                new Color(0.92f, 0.90f, 0.84f), 0.15f, 0.10f);
+                new Color(0.82f, 0.795f, 0.745f), 0.15f, 0.10f);
+
+            // 아트 팩이 없으면 단일 큐브 대신, 생활감 있는 로우폴리 쓰레기 5종(캔·택배박스·페트병·비닐봉투·종이)을 코드로 생성
+            if (swarm.meshTypes.Count == 0)
+            {
+                swarm.BuildProceduralTypes();
+            }
 
             // 최후 안전망
             if (swarm.meshTypes.Count == 0)
