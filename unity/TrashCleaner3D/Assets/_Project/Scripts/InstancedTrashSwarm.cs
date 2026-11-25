@@ -5,15 +5,16 @@ using UnityEngine.Rendering;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v0.9 GPU-Instanced 2,250+ 쓰레기 매니저:
-    /// - 1초 HOLD 진동 줍기(맨손 1.0s → 집게/빗자루 0.40s → 진공청소기 0.10s):
-    ///   [LMB] 꾹 누르는 동안 원 안의 쓰레기가 부르르 진동하며 떠오르다가, 차징 완료 시 쏙 빨려 들어옴!
+    /// v1.0 GPU-Instanced 쓰레기 매니저:
+    /// - 0.22초 HOLD 진동 줍기(맨손 0.22s → 집게/빗자루 0.15s → 진공청소기 0.07s):
+    ///   [LMB] 꾹 누르는 동안 원 안의 쓰레기가 부르르 진동하며 떠오르다가, 차징 완료 시 포물선을 그리며 빨려 들어옴!
+    /// - 방 전체 균등 분산 대신 5개 구역의 큰 무더기로 배치 → 한 덩어리 밀면 바닥이 드러남
     /// - 바닥 커서 원형 오라(ZTest Always)가 쓰레기 더미 위에 항상 선명하게 표시!
     /// - 동종 연속 압축(typeIdx 전달) + 로봇청소기 자동 수거 지원.
     /// </summary>
     public class InstancedTrashSwarm : MonoBehaviour
     {
-        public const int InitialSwarmCount = 2250;
+        public const int InitialSwarmCount = 1200;
 
         public struct TrashUnit
         {
@@ -29,6 +30,8 @@ namespace TrashCleaner3D
             public int value;
             public bool isCritBonus;
             public float holdCharge; // 0~1: 꾹 누르는 동안 진동 차징!
+            public float suckDur;    // 흡입 연출 1회 재생 시간(초) — 거리 기반으로 짧게
+            public float arcHeight;   // 흡입 궤적이 위로 솟는 높이
         }
 
         [System.Serializable]
@@ -210,38 +213,37 @@ namespace TrashCleaner3D
             return m;
         }
 
+        /// <summary>쓸어담으면 바닥이 드러나는 5개 무더기 중심 좌표.</summary>
+        private static readonly Vector3[] ClusterCenters =
+        {
+            new Vector3(2.05f, 0f, 0.85f),
+            new Vector3(-1.95f, 0f, 1.25f),
+            new Vector3(2.35f, 0f, -1.45f),
+            new Vector3(-0.85f, 0f, -0.75f),
+            new Vector3(0.55f, 0f, 1.45f)
+        };
+
         public void SpawnInitialSwarm(int count)
         {
             if (meshTypes.Count == 0) return;
             InitializeCapacity(count + 900);
 
-            Vector3[] hubs =
-            {
-                new Vector3(1.95f, 0f, 0.95f),
-                new Vector3(0.65f, 0f, 0.65f),
-                new Vector3(2.60f, 0f, -0.65f),
-                new Vector3(1.65f, 0f, -1.95f),
-                new Vector3(-0.55f, 0f, 1.55f),
-                new Vector3(-0.55f, 0f, -0.65f),
-                new Vector3(-2.35f, 0f, 1.55f),
-                new Vector3(-2.30f, 0f, -1.55f),
-                new Vector3(0.20f, 0f, -2.15f),
-                new Vector3(-2.65f, 0f, 0.25f)
-            };
-
+            // v1.0 '구역이 뚫리는' 무더기: 방 전체 균등 분산 대신 4~5개 주요 구역에 큰 클러스터로 몰아둔다.
+            // 한 무더기를 밀어내면 그 자리 바닥이 시원하게 드러난다.
             for (int i = 0; i < count; i++)
             {
                 Vector3 pos;
-                if (i < count * 0.78f)
+                if (i < count * 0.86f)
                 {
-                    Vector3 h = hubs[i % hubs.Length];
-                    Vector2 off = Random.insideUnitCircle * Random.Range(0.08f, 1.38f);
-                    float dist01 = Mathf.Clamp01(off.magnitude / 1.38f);
-                    float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.06f, 0.72f);
+                    Vector3 h = ClusterCenters[i % ClusterCenters.Length];
+                    float ang = Random.Range(0f, Mathf.PI * 2f);
+                    float dist = Mathf.Sqrt(Random.value) * 1.02f;
+                    float dist01 = dist / 1.02f;
+                    float yStack = Mathf.Pow(1f - dist01, 1.6f) * Random.Range(0.08f, 0.62f);
                     pos = new Vector3(
-                        Mathf.Clamp(h.x + off.x, -3.28f, 3.28f),
+                        Mathf.Clamp(h.x + Mathf.Cos(ang) * dist, -3.24f, 3.24f),
                         0.06f + yStack,
-                        Mathf.Clamp(h.z + off.y, -2.70f, 2.60f)
+                        Mathf.Clamp(h.z + Mathf.Sin(ang) * dist, -2.62f, 2.55f)
                     );
                 }
                 else
@@ -295,7 +297,7 @@ namespace TrashCleaner3D
                 timer = 0f,
                 startPos = startPos,
                 endPos = endPos,
-                value = 2,
+                value = 4,
                 isCritBonus = false,
                 holdCharge = 0f
             };
@@ -384,9 +386,9 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// v0.9 1초 HOLD 진동 줍기:
+        /// v1.0 경쾌한 HOLD 진동 줍기:
         /// - holdActive=true 동안 원 안의 선택된 쓰레기의 holdCharge가 0 → 1로 올라가며 격렬히 진동!
-        /// - 1.0(맨손 1.0초 → 집게 0.40초 → 진공 0.10초)에 도달하면 쏙 빨려 들어감!
+        /// - 1.0 도달 즉시(맨손 0.22초 → 집게 0.15초 → 진공 0.07초) 빨려 들어가기 시작!
         /// </summary>
         public int TickHoldChargeAndPull(
             bool holdActive, float dt, float holdDurationSeconds,
@@ -418,10 +420,8 @@ namespace TrashCleaner3D
                 if (_units[idx].holdCharge >= 1f)
                 {
                     if (picked == 0) fxOrigin = _units[idx].pos;
-                    _units[idx].state = 2;
-                    _units[idx].timer = 0f;
-                    _units[idx].holdCharge = 0f;
-                    _units[idx].isCritBonus = rolledCrit;
+                    Vector3 suckDestPos = _suckDestination != null ? _suckDestination.position : _units[idx].pos;
+                    BeginSuck(ref _units[idx], suckDestPos, rolledCrit);
                     picked++;
                     if (rolledCrit) didCrit = true;
                 }
@@ -438,10 +438,8 @@ namespace TrashCleaner3D
                     if (_units[i].state != 0) continue;
                     if ((_units[i].pos - fxOrigin).sqrMagnitude <= chainRSq)
                     {
-                        _units[i].state = 2;
-                        _units[i].timer = 0f;
-                        _units[i].holdCharge = 0f;
-                        _units[i].isCritBonus = false;
+                        Vector3 chainDest = _suckDestination != null ? _suckDestination.position : _units[i].pos;
+                        BeginSuck(ref _units[i], chainDest, false);
                         chained++;
                         picked++;
                     }
@@ -450,6 +448,18 @@ namespace TrashCleaner3D
             }
 
             return picked;
+        }
+
+        /// <summary>선택된 쓰레기를 '빨려 들어오는' 상태로 전환한다(거리 기반 짧은 연출 시간).</summary>
+        private void BeginSuck(ref TrashUnit unit, Vector3 dest, bool crit)
+        {
+            unit.startPos = unit.pos;
+            unit.state = 2;
+            unit.timer = 0f;
+            unit.holdCharge = 0f;
+            unit.isCritBonus = crit;
+            unit.suckDur = Mathf.Clamp(Vector3.Distance(unit.pos, dest) / 7.5f, 0.16f, 0.34f);
+            unit.arcHeight = Random.Range(0.30f, 0.75f);
         }
 
         public bool TryFindNearestIdlePos(Vector3 fromPos, out Vector3 foundPos)
@@ -483,6 +493,9 @@ namespace TrashCleaner3D
                     _units[i].state = 4;
                     _units[i].timer = 0f;
                     _units[i].holdCharge = 0f;
+                    _units[i].startPos = _units[i].pos;
+                    _units[i].suckDur = 0.30f;
+                    _units[i].arcHeight = 0.22f;
                     eaten++;
                 }
             }
@@ -542,13 +555,22 @@ namespace TrashCleaner3D
                 }
                 else if (st == 2 || st == 4)
                 {
+                    // v1.0 빨려 들어오는 연출: 직선 이동 대신 위로 솟았다가 커서/손으로 꽂히는 포물선 + 회전 + 축소
                     Vector3 dest = st == 4 ? botDest : playerDest;
-                    float suckSpd = (manager != null && manager.ToolTier >= 2) ? 18.5f : 15.5f;
-                    _units[i].pos = Vector3.MoveTowards(_units[i].pos, dest, suckSpd * dt);
-                    _units[i].rot = _units[i].rot * Quaternion.Euler(0f, 680f * dt, 300f * dt);
-                    _units[i].curScale = Mathf.MoveTowards(_units[i].curScale, 0f, _units[i].baseScale * 4.8f * dt);
+                    _units[i].timer += dt;
+                    float suckDur = Mathf.Max(0.05f, _units[i].suckDur);
+                    float sp = Mathf.Clamp01(_units[i].timer / suckDur);
+                    float spe = sp * sp * (3f - 2f * sp);
 
-                    if ((_units[i].pos - dest).sqrMagnitude < 0.04f || _units[i].curScale <= 0.002f)
+                    Vector3 from = _units[i].startPos;
+                    Vector3 ctrl = Vector3.Lerp(from, dest, 0.5f) + Vector3.up * _units[i].arcHeight;
+                    Vector3 pa = Vector3.Lerp(from, ctrl, spe);
+                    Vector3 pb = Vector3.Lerp(ctrl, dest, spe);
+                    _units[i].pos = Vector3.Lerp(pa, pb, spe);
+                    _units[i].rot = _units[i].rot * Quaternion.Euler(0f, 560f * dt, 280f * dt);
+                    _units[i].curScale = Mathf.Lerp(_units[i].baseScale, 0f, Mathf.Clamp01(spe * 1.18f));
+
+                    if (sp >= 1f)
                     {
                         _units[i].state = 3;
                         _cleanedCount++;

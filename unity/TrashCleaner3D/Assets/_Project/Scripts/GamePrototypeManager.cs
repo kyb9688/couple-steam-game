@@ -35,11 +35,12 @@ namespace TrashCleaner3D
     }
 
     /// <summary>
-    /// TrashCleaner3D v0.9 중앙 매니저:
-    /// - 1초 HOLD 진동 줍기(맨손 1.0s → 집게/빗자루 0.40s → 진공청소기 0.10s)
+    /// TrashCleaner3D v1.0 중앙 매니저 — '무더기 밀기 → 트럭에 와르르 환전 → 트럭 옆 현장 강화' 코어 루프:
+    /// - 0.22초 HOLD 진동 줍기(맨손 0.22s → 집게/빗자루 0.15s → 진공청소기 0.07s) + 도레미파솔 수거음
     /// - 쓰레기 봉투 100% 정직한 원복 (150% 과적/벽 충돌 폭발 완전 제거!)
-    /// - 큰 봉투 터뜨리기 / 바닥 쓰레기 줍기 시 일정 확률로 보물 자동 발견 팝업!
-    /// - 한 판 종료 후 5버튼 허브(다시 시작 · 다음 단계 · ♦암시장 · ★특전 · $강화) + 스테이지 진행!
+    /// - 트럭에 봉투를 넣으면 다발 연출 + 돈 드르르륵 카운트업(와르르 환전)
+    /// - 트럭 옆 '현장 강화' 발판 3개(범위·흡입·용량)에서 바로 강화 → 방으로 복귀하는 3D 공간 루프
+    /// - 부가 기믹(동종 압축 · 의심 스릴 · 막판 잭팟 · 보물 슈킹 분기)은 CoreLoopConfig로 OFF
     /// </summary>
     public class GamePrototypeManager : MonoBehaviour
     {
@@ -53,6 +54,11 @@ namespace TrashCleaner3D
         public Light ceilingLight;
         public ProceduralSfx sfx;
         public GameObject thrownBagPrefab;
+
+        [Header("v1.0 Core Loop (무더기 밀기 → 트럭 와르르 환전 → 현장 강화)")]
+        [Tooltip("트럭 반납 지점 바로 옆에 '현장 강화' 자판기 존을 런타임에 코드로 스폰한다.")]
+        public bool spawnFieldUpgradeStation = true;
+        public FieldUpgradeStation fieldStation;
 
         [Header("Room Config")]
         public int baseCleanReward = 260;
@@ -95,11 +101,11 @@ namespace TrashCleaner3D
         public bool IsTooSuffocatedToWork => StenchStage >= 4 && !IsOutsideVentilating;
         public float StenchMoveSpeedMult => StenchStage == 4 ? 0.44f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.72f : StenchStage == 1 ? 0.84f : 1.0f;
         public float StenchWorkSpeedMult => StenchStage == 4 ? 0.0f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.78f : 1.0f;
-        public float StenchGainPerSec => 3.4f * Mathf.Max(0.18f, 1f - LvMask * 0.082f);
+        public float StenchGainPerSec => CoreLoopConfig.EnableStenchGimmick ? 3.4f * Mathf.Max(0.18f, 1f - LvMask * 0.082f) : 0f;
 
         // ===== 의심 게이지 (0~100% 확정 발각 · 80~95% 아드레날린 구간!) =====
         public float SuspicionPercent { get; private set; } = 0f;
-        public bool IsAdrenalineZone => SuspicionPercent >= 80f && SuspicionPercent < 100f;
+        public bool IsAdrenalineZone => CoreLoopConfig.EnableSuspicionBranch && SuspicionPercent >= 80f && SuspicionPercent < 100f;
         public float AdrenalineMult => IsAdrenalineZone ? (HasAdrenalineAmp ? 2.5f : 2.0f) : 1.0f;
         public float AdrenalineSpeedMult => IsAdrenalineZone ? 1.85f : 1.0f;
         private bool _washed30, _washed60, _washed90;
@@ -129,11 +135,12 @@ namespace TrashCleaner3D
         public int StreakCount { get; private set; } = 0;
         public int TotalCompressionsThisRoom { get; private set; } = 0;
 
-        // ===== 봉투 100% 정직 원복 (10단계 성장!) =====
-        private static readonly int[] BagCapByLv = { 15, 22, 30, 40, 52, 66, 84, 106, 132, 165, 200 };
-        private static readonly int[] ToolStepCosts = { 20, 30, 45, 75, 110, 160, 240, 350, 500 };
-        private static readonly int[] TruckStepCosts = { 30, 45, 65, 95, 135, 195, 280, 390, 550 };
-        private static readonly float[] ToolHoldDurs = { 1.00f, 0.90f, 0.80f, 0.70f, 0.50f, 0.42f, 0.34f, 0.18f, 0.13f, 0.08f };
+        // ===== 봉투 100% 정직 원복 (10단계 성장!) — v1.0: 초반부터 30개로 넉넉하게 =====
+        private static readonly int[] BagCapByLv = { 30, 40, 52, 66, 82, 100, 122, 148, 178, 215, 260 };
+        private static readonly int[] ToolStepCosts = { 14, 22, 34, 50, 74, 108, 158, 230, 330 };
+        private static readonly int[] TruckStepCosts = { 22, 34, 50, 74, 104, 146, 205, 285, 400 };
+        // v1.0: 1초 홀드 → 0.22초 경쾌한 템포 (도구를 올릴수록 0.07초까지)
+        private static readonly float[] ToolHoldDurs = { 0.22f, 0.205f, 0.19f, 0.175f, 0.15f, 0.135f, 0.12f, 0.10f, 0.085f, 0.07f };
 
         public int CollectingCount { get; private set; } = 0;
         public int CollectingPendingValue { get; private set; } = 0;
@@ -222,9 +229,10 @@ namespace TrashCleaner3D
         {
             get
             {
-                int baseGrab = ToolStep <= 3 ? (1 + LvSweepRadius / 5)
-                             : ToolStep <= 6 ? ((ToolStep - 2) + LvSweepRadius / 3)
-                             : (5 + (ToolStep - 6) * 3 + LvSweepRadius);
+                // v1.0: 0.22초 홀드에서도 '쓸어 담는' 손맛이 나도록 동시 수거량을 끌어올림
+                int baseGrab = ToolStep <= 3 ? (1 + LvSweepRadius / 3)
+                             : ToolStep <= 6 ? (3 + (ToolStep - 3) + LvSweepRadius / 2)
+                             : (8 + (ToolStep - 6) * 2 + LvSweepRadius);
                 if (IsAdrenalineZone) baseGrab = Mathf.CeilToInt(baseGrab * 1.35f);
                 return baseGrab;
             }
@@ -235,9 +243,9 @@ namespace TrashCleaner3D
             get
             {
                 float baseDur = ToolHoldDurs[Mathf.Clamp(ToolStep, 0, ToolHoldDurs.Length - 1)];
-                float workMult = Mathf.Max(0.35f, StenchWorkSpeedMult);
+                float workMult = Mathf.Max(0.45f, StenchWorkSpeedMult);
                 float totalSpeed = workMult * (1f + FeverSpeedBonus) * AdrenalineSpeedMult;
-                return Mathf.Clamp(baseDur / totalSpeed, 0.05f, 1.8f);
+                return Mathf.Clamp(baseDur / totalSpeed, 0.04f, 0.6f);
             }
         }
 
@@ -257,7 +265,8 @@ namespace TrashCleaner3D
             }
         }
 
-        public bool IsLast10Jackpot => Phase1Percent >= 90f || (Phase == GamePhase.Phase2_FloorMopping && Phase2Percent >= 50f);
+        public bool IsLast10Jackpot => CoreLoopConfig.EnableLast10Jackpot &&
+            (Phase1Percent >= 90f || (Phase == GamePhase.Phase2_FloorMopping && Phase2Percent >= 50f));
         public float Last10JackpotMult => IsLast10Jackpot ? (HasVipContract ? 5.0f : 4.0f) : 1.0f;
         public float VipMoneyMult => HasVipContract ? 1.5f : 1.0f;
 
@@ -347,8 +356,18 @@ namespace TrashCleaner3D
 
         public string ToastMessage { get; private set; } = "";
         private float _toastTimer;
-        private float _pitchCombo;
+        private int _melodyStep;            // 도레미파솔 연속 수거음 계단
         private float _pitchResetTimer;
+
+        // 트럭에 쏟은 돈이 드르르륵 올라가는 카운트업 상태
+        private int _cashPayoutRemaining;
+        private int _cashPayoutTotal;
+        private float _cashPayoutElapsed;
+        private float _cashPayoutDuration = CoreLoopConfig.CashCrunchBaseDuration;
+
+        /// <summary>[수금 중] 아직 카운트업이 끝나지 않은 금액 (HUD 표시용).</summary>
+        public int PendingCash => _cashPayoutRemaining;
+        public bool IsCrunchingCash => _cashPayoutRemaining > 0;
 
         private void Awake()
         {
@@ -365,6 +384,53 @@ namespace TrashCleaner3D
             CollectTargets();
             UpdateAtmosphere();
             UpdateVehicleStageVisuals();
+            if (spawnFieldUpgradeStation) EnsureFieldUpgradeStation();
+        }
+
+        /// <summary>
+        /// 트럭 반납 지점 바로 옆에 '현장 강화' 존을 런타임 스폰한다.
+        /// 씬에 이미 있으면 그것을 쓰고, 없으면 코드로 새로 만든다(씬/프리팹 직렬화 의존 없음).
+        /// </summary>
+        public void EnsureFieldUpgradeStation()
+        {
+            if (fieldStation != null)
+            {
+                if (fieldStation.manager == null) fieldStation.Init(this, fieldStation.transform.eulerAngles.y);
+                return;
+            }
+
+            fieldStation = FindFirstObjectByType<FieldUpgradeStation>();
+            if (fieldStation == null)
+            {
+                Vector3 basePos = truckBedGoal != null ? truckBedGoal.position : new Vector3(2.1f, 0f, 10.6f);
+
+                // 플레이어가 문을 나와 트럭을 바라보는 방향을 기준으로 '트럭 옆 한 걸음' 지점
+                Vector3 toRoom = playerSpawnPoint != null ? playerSpawnPoint.position - basePos : Vector3.back;
+                toRoom.y = 0f;
+                if (toRoom.sqrMagnitude < 0.01f) toRoom = Vector3.back;
+                toRoom.Normalize();
+                Vector3 side = Vector3.Cross(Vector3.up, toRoom).normalized;
+
+                Vector3 pos = basePos + side * 3.0f + toRoom * 0.6f;
+                pos.x = Mathf.Clamp(pos.x, -2.9f, 6.9f);
+                pos.z = Mathf.Clamp(pos.z, 4.2f, 15.6f);
+                pos.y = 0f;
+
+                GameObject stationObj = new GameObject("FieldUpgradeStation");
+                stationObj.transform.position = pos;
+                fieldStation = stationObj.AddComponent<FieldUpgradeStation>();
+            }
+
+            // 표지판이 트럭을 마주 보도록 배치
+            float yaw = 0f;
+            if (truckBedGoal != null)
+            {
+                Vector3 look = truckBedGoal.position - fieldStation.transform.position;
+                look.y = 0f;
+                if (look.sqrMagnitude > 0.01f)
+                    yaw = Mathf.Atan2(look.x, look.z) * Mathf.Rad2Deg;
+            }
+            fieldStation.Init(this, yaw);
         }
 
         public void SetMouseSensitivity(float val)
@@ -412,7 +478,8 @@ namespace TrashCleaner3D
             if (_toastTimer > 0f) { _toastTimer -= dt; if (_toastTimer <= 0f) ToastMessage = ""; }
             if (AppraisalBannerTimer > 0f) { AppraisalBannerTimer -= dt; AppraisalBannerAge += dt; }
             if (CompressionBannerTimer > 0f) { CompressionBannerTimer -= dt; }
-            if (_pitchResetTimer > 0f) { _pitchResetTimer -= dt; if (_pitchResetTimer <= 0f) _pitchCombo = 0f; }
+            if (_pitchResetTimer > 0f) { _pitchResetTimer -= dt; if (_pitchResetTimer <= 0f) _melodyStep = 0; }
+            TickCashCrunch(dt);
             if (_treasureCooldown > 0f) _treasureCooldown -= dt;
             if (TreasureFlash01 > 0f) TreasureFlash01 = Mathf.MoveTowards(TreasureFlash01, 0f, dt * 1.1f);
             if (StealAlertFlash01 > 0f) StealAlertFlash01 = Mathf.MoveTowards(StealAlertFlash01, 0f, dt * 1.0f);
@@ -478,6 +545,62 @@ namespace TrashCleaner3D
             FloatingTexts.Add(new FloatingWorldText { worldPos = worldPos, text = text, color = color, age = 0f, duration = duration });
         }
 
+        /// <summary>
+        /// 트럭에 밀어 넣은 돈을 0.55~1.25초 동안 드르르륵 카운트업한다.
+        /// (Money에 바로 넣지 않고 조금씩 푸는 방식 → HUD 숫자가 실제로 올라가는 걸 보여줌)
+        /// </summary>
+        private void AddCashCrunch(int amount)
+        {
+            if (amount <= 0) return;
+            if (_cashPayoutRemaining <= 0)
+            {
+                _cashPayoutElapsed = 0f;
+                _cashPayoutTotal = 0;
+                _cashPayoutDuration = CoreLoopConfig.CashCrunchBaseDuration;
+            }
+
+            _cashPayoutRemaining += amount;
+            _cashPayoutTotal += amount;
+            _cashPayoutDuration = Mathf.Clamp(
+                CoreLoopConfig.CashCrunchBaseDuration + _cashPayoutTotal / 900f,
+                CoreLoopConfig.CashCrunchBaseDuration,
+                CoreLoopConfig.CashCrunchMaxDuration);
+        }
+
+        private void TickCashCrunch(float dt)
+        {
+            if (_cashPayoutRemaining <= 0)
+            {
+                if (_cashPayoutTotal != 0) _cashPayoutTotal = 0;
+                return;
+            }
+
+            _cashPayoutElapsed += dt;
+            float t = Mathf.Clamp01(_cashPayoutElapsed / Mathf.Max(0.2f, _cashPayoutDuration));
+            float eased = t * t * (3f - 2f * t);
+
+            int shouldHavePaid = Mathf.RoundToInt(_cashPayoutTotal * eased);
+            int alreadyPaid = _cashPayoutTotal - _cashPayoutRemaining;
+            int delta = shouldHavePaid - alreadyPaid;
+            if (delta > 0)
+            {
+                Money += delta;
+                _cashPayoutRemaining -= delta;
+            }
+
+            if (t >= 1f && _cashPayoutRemaining > 0)
+            {
+                Money += _cashPayoutRemaining;
+                _cashPayoutRemaining = 0;
+            }
+            if (_cashPayoutRemaining <= 0)
+            {
+                _cashPayoutRemaining = 0;
+                _cashPayoutTotal = 0;
+                _cashPayoutElapsed = 0f;
+            }
+        }
+
         private void CheckSuspicionCleanMilestones()
         {
             float pct = OverallCleanPercent;
@@ -510,38 +633,48 @@ namespace TrashCleaner3D
             float feverStep = HasFeverEngine ? 0.055f : 0.035f;
             ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + feverStep);
 
-            // 동종 연속 압축
-            int targetStreak = CompressionStreakTarget;
-            if (typeIdx == StreakTypeIdx)
+            // 동종 연속 압축 (v1.0 코어 루프에서는 꺼둔다 — 봉투 용량으로만 성장 체감)
+            if (CoreLoopConfig.EnableStreakCompression)
             {
-                StreakCount++;
-                if (StreakCount >= targetStreak)
+                int targetStreak = CompressionStreakTarget;
+                if (typeIdx == StreakTypeIdx)
                 {
-                    StreakCount = 0;
-                    TotalCompressionsThisRoom++;
-                    CollectingCount = Mathf.Max(0, CollectingCount - targetStreak);
-                    int bonus = gainedVal * targetStreak;
-                    CollectingPendingValue += bonus;
-                    sfx.PlayChime();
-                    if (player != null)
+                    StreakCount++;
+                    if (StreakCount >= targetStreak)
                     {
-                        Vector3 fxPos = player.transform.position + player.transform.forward * 1.4f + Vector3.up * 0.9f;
-                        SpawnFloatingText(fxPos, $"★ {typeLabel} {targetStreak}연속! 봉투 비움 · +${bonus}", new Color(0.35f, 1f, 0.72f), 1.5f);
+                        StreakCount = 0;
+                        TotalCompressionsThisRoom++;
+                        CollectingCount = Mathf.Max(0, CollectingCount - targetStreak);
+                        int bonus = gainedVal * targetStreak;
+                        CollectingPendingValue += bonus;
+                        sfx.PlayChime();
+                        if (player != null)
+                        {
+                            Vector3 fxPos = player.transform.position + player.transform.forward * 1.4f + Vector3.up * 0.9f;
+                            SpawnFloatingText(fxPos, $"★ {typeLabel} {targetStreak}연속! 봉투 비움 · +${bonus}", new Color(0.35f, 1f, 0.72f), 1.5f);
+                        }
+                        CompressionBannerText = $"★ [{typeLabel}] {targetStreak}연속 보너스! · 봉투 -{targetStreak}칸 비움 · 보너스 +${bonus}";
+                        CompressionBannerTimer = 2.2f;
                     }
-                    CompressionBannerText = $"★ [{typeLabel}] {targetStreak}연속 보너스! · 봉투 -{targetStreak}칸 비움 · 보너스 +${bonus}";
-                    CompressionBannerTimer = 2.2f;
+                }
+                else
+                {
+                    StreakTypeIdx = typeIdx;
+                    StreakTypeLabel = typeLabel;
+                    StreakCount = 1;
                 }
             }
             else
             {
-                StreakTypeIdx = typeIdx;
-                StreakTypeLabel = typeLabel;
-                StreakCount = 1;
+                StreakTypeIdx = -1;
+                StreakTypeLabel = "";
+                StreakCount = 0;
             }
 
-            _pitchResetTimer = 0.45f;
-            _pitchCombo = Mathf.Min(1.65f, _pitchCombo + 0.05f);
-            sfx.PlayPop(0.88f + _pitchCombo * 0.38f);
+            // 도레미파솔: 연속으로 담을수록 수거음이 한 칸씩 올라간다(한 옥타브 다 오르면 다시 '도').
+            _pitchResetTimer = 0.55f;
+            _melodyStep = _melodyStep >= CoreLoopConfig.MelodyTopStep ? 0 : _melodyStep + 1;
+            sfx.PlayNote(_melodyStep);
 
             // 100% 도달 시 즉시 완성 봉투로 묶기!
             if (CollectingCount >= HandBagCapacity)
@@ -630,6 +763,7 @@ namespace TrashCleaner3D
 
         private void TryRollAutomaticTreasure(bool fromBigPile)
         {
+            if (!CoreLoopConfig.EnableTreasureBranch) return;   // v1.0: 슈킹/신뢰도·암시장 분기는 꺼둔다
             if (Phase != GamePhase.Phase1_TrashRemoval) return;
             int maxTreasures = HasTreasureSense ? 6 : 5;
             if (_treasuresFoundThisRoom >= maxTreasures) return;
@@ -863,13 +997,17 @@ namespace TrashCleaner3D
             int vehBonus = LvTruckSize * 20;
             int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * comboMult + distBonus + vehBonus));
 
-            Money += totalPay;
-            sfx.PlayChime();
-            SpawnStackedBagVisualInTruck();
+            // 와르르: 짐칸으로 쏟아져 들어가는 다발 + 돈 드르르륵 카운트업
+            AddCashCrunch(totalPay);
+            sfx.PlayPour();
+            TruckPourBurst.Spawn(scoreWorldPos, truckBedGoal, count, new Color(0.95f, 0.86f, 0.42f));
+
+            int stackCount = Mathf.Clamp(count / 5, 1, 3);
+            for (int i = 0; i < stackCount; i++) SpawnStackedBagVisualInTruck();
 
             string popup = ThrowComboCount >= 2
                 ? $"{ThrowComboCount}연속! +${totalPay}"
-                : distBonus >= 35 ? $"롱슛! +${totalPay}" : $"+${totalPay}";
+                : distBonus >= 35 ? $"롱슛! +${totalPay}" : $"와르르! +${totalPay}";
             Color popCol = ThrowComboCount >= 2 ? new Color(1f, 0.85f, 0.22f) : new Color(0.45f, 1f, 0.55f);
             SpawnFloatingText(scoreWorldPos + Vector3.up * 0.45f, popup, popCol, 1.8f);
 
@@ -945,25 +1083,25 @@ namespace TrashCleaner3D
 
         // ===== 인게임 스킬트리 가격 ($ 현금 전용 — 저렴한 가격 + 다단계 3~10Lv 클릭 손맛!) =====
         public int CostTool => ToolStepCosts[Mathf.Clamp(ToolStep, 0, ToolStepCosts.Length - 1)];
-        public int CostSweep => Mathf.RoundToInt(15 * Mathf.Pow(1.38f, LvSweepRadius));
-        public int CostFever => Mathf.RoundToInt(35 * Mathf.Pow(1.45f, LvFever));
-        public int CostCrit => Mathf.RoundToInt(20 * Mathf.Pow(1.38f, LvCrit));
-        public int CostChain => Mathf.RoundToInt(35 * Mathf.Pow(1.40f, LvChainPop));
-        public int CostRoomba => Mathf.RoundToInt(70 * Mathf.Pow(1.48f, LvRoomba));
+        public int CostSweep => Mathf.RoundToInt(10 * Mathf.Pow(1.38f, LvSweepRadius));
+        public int CostFever => Mathf.RoundToInt(30 * Mathf.Pow(1.45f, LvFever));
+        public int CostCrit => Mathf.RoundToInt(16 * Mathf.Pow(1.38f, LvCrit));
+        public int CostChain => Mathf.RoundToInt(32 * Mathf.Pow(1.40f, LvChainPop));
+        public int CostRoomba => Mathf.RoundToInt(60 * Mathf.Pow(1.48f, LvRoomba));
 
-        public int CostBag => Mathf.RoundToInt(15 * Mathf.Pow(1.38f, LvBagSize));
-        public int CostThrowPower => Mathf.RoundToInt(18 * Mathf.Pow(1.36f, LvThrowPower));
-        public int CostTrashPrice => Mathf.RoundToInt(22 * Mathf.Pow(1.38f, LvTrashPrice));
+        public int CostBag => Mathf.RoundToInt(10 * Mathf.Pow(1.38f, LvBagSize));
+        public int CostThrowPower => Mathf.RoundToInt(15 * Mathf.Pow(1.36f, LvThrowPower));
+        public int CostTrashPrice => Mathf.RoundToInt(18 * Mathf.Pow(1.38f, LvTrashPrice));
         public int CostTruck => TruckStepCosts[Mathf.Clamp(LvTruckSize, 0, TruckStepCosts.Length - 1)];
         public int CostComboTime => Mathf.RoundToInt(28 * Mathf.Pow(1.40f, LvComboTime));
         public int CostMagnet => Mathf.RoundToInt(85 * Mathf.Pow(1.55f, LvMagnet));
 
-        public int CostMask => Mathf.RoundToInt(15 * Mathf.Pow(1.35f, LvMask));
-        public int CostMoveSpeed => Mathf.RoundToInt(18 * Mathf.Pow(1.38f, LvMoveSpeed));
-        public int CostMop => Mathf.RoundToInt(35 * Mathf.Pow(1.50f, LvMop));
-        public int CostScrub => Mathf.RoundToInt(25 * Mathf.Pow(1.40f, LvScrubPower));
+        public int CostMask => Mathf.RoundToInt(12 * Mathf.Pow(1.35f, LvMask));
+        public int CostMoveSpeed => Mathf.RoundToInt(12 * Mathf.Pow(1.38f, LvMoveSpeed));
+        public int CostMop => Mathf.RoundToInt(32 * Mathf.Pow(1.50f, LvMop));
+        public int CostScrub => Mathf.RoundToInt(22 * Mathf.Pow(1.40f, LvScrubPower));
 
-        public int CostFist => Mathf.RoundToInt(16 * Mathf.Pow(1.38f, LvFistPower));
+        public int CostFist => Mathf.RoundToInt(12 * Mathf.Pow(1.38f, LvFistPower));
         public int CostShockwave => Mathf.RoundToInt(32 * Mathf.Pow(1.42f, LvShockwave));
         public int CostBeacon => 45;
 
@@ -1154,6 +1292,8 @@ namespace TrashCleaner3D
             ThrowComboTimer = 0f;
             ContinuousFever01 = 0f;
             _feverDecayDelay = 0f;
+            _melodyStep = 0;
+            _pitchResetTimer = 0f;
             StreakTypeIdx = -1;
             StreakTypeLabel = "";
             StreakCount = 0;

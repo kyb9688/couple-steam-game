@@ -15,6 +15,11 @@ namespace TrashCleaner3D
         private AudioClip _upgradeClip;
         private AudioClip _alertClip;
         private AudioClip _fanfareClip;
+        private AudioClip _pourClip;
+
+        // 도레미파솔: 연속 수거 시 한 칸씩 올라가는 음계 (C 장조 한 옥타브)
+        private static readonly int[] ScaleSemitones = { 0, 2, 4, 5, 7, 9, 11, 12 };
+        private float _lastNoteTime = -10f;
 
         private void Awake()
         {
@@ -30,9 +35,26 @@ namespace TrashCleaner3D
             _upgradeClip = MakeSweep(0.16f, 420f, 920f, 0.45f);
             _alertClip = MakeSweep(0.26f, 820f, 440f, 0.55f);
             _fanfareClip = MakeChord(0.55f, new[] { 523.25f, 659.25f, 783.99f, 1046.5f }, 0.4f);
+            _pourClip = MakePour(0.55f);
         }
 
         public void PlayPop(float pitch = 1f) { Play(_popClip, pitch); }
+
+        /// <summary>
+        /// 연속 수거 '도레미파솔' — step 0(도)부터 7(한 옥타브 위 도)까지 올라간다.
+        /// 초당 수십 개를 빨아들이는 진공 단계에서도 기관총이 되지 않도록 최소 간격을 둔다.
+        /// </summary>
+        public void PlayNote(int step)
+        {
+            if (Time.time - _lastNoteTime < 0.045f) return;
+            _lastNoteTime = Time.time;
+            int idx = Mathf.Clamp(step, 0, ScaleSemitones.Length - 1);
+            float pitch = 0.72f * Mathf.Pow(2f, ScaleSemitones[idx] / 12f);
+            Play(_popClip, Mathf.Clamp(pitch, 0.35f, 2.9f));
+        }
+
+        /// <summary>트럭에 봉투를 와르르 쏟을 때의 낮고 잦아드는 잡음.</summary>
+        public void PlayPour() { Play(_pourClip, Random.Range(0.94f, 1.06f)); }
         public void PlayScrub() { Play(_scrubClip, Random.Range(0.9f, 1.15f)); }
         public void PlayChime() { Play(_chimeClip, 1f); }
         public void PlaySteal() { Play(_stealClip, 1f); }
@@ -83,6 +105,26 @@ namespace TrashCleaner3D
                 samples[i] = (v / freqs.Length) * env * amp;
             }
             var clip = AudioClip.Create("chord", len, 1, sr, false);
+            clip.SetData(samples, 0);
+            return clip;
+        }
+
+        private static AudioClip MakePour(float duration)
+        {
+            int sr = 22050;
+            int len = Mathf.Max(1, Mathf.RoundToInt(sr * duration));
+            float[] samples = new float[len];
+            float smooth = 0f;
+            for (int i = 0; i < len; i++)
+            {
+                float t = i / (float)len;
+                float env = Mathf.Pow(1f - t, 1.35f);
+                float noise = Random.Range(-1f, 1f);
+                smooth = Mathf.Lerp(smooth, noise, 0.18f);   // 살짝 뭉갠 자갈 소리
+                float rumble = Mathf.Sin(2f * Mathf.PI * Mathf.Lerp(150f, 72f, t) * (i / (float)sr));
+                samples[i] = (smooth * 0.85f + rumble * 0.30f) * env * 0.55f;
+            }
+            var clip = AudioClip.Create("pour", len, 1, sr, false);
             clip.SetData(samples, 0);
             return clip;
         }

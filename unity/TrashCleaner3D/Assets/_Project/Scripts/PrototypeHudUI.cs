@@ -219,12 +219,22 @@ namespace TrashCleaner3D
 
             // 1행: STAGE + 3재화 + %
             GUI.color = new Color(0.06f, 0.46f, 0.20f);
-            GUI.Label(new Rect(tl.x + 10, tl.y + 7, 88, 22), $"${manager.Money:N0}", _lightBold);
-            GUI.color = new Color(0.10f, 0.38f, 0.78f);
-            GUI.Label(new Rect(tl.x + 100, tl.y + 7, 50, 22), $"★{manager.TrustTokens}", _lightBold);
-            GUI.color = new Color(0.76f, 0.12f, 0.32f);
-            GUI.Label(new Rect(tl.x + 150, tl.y + 7, 50, 22), $"♦{manager.BlackMarketPts}", _lightBold);
+            GUI.Label(new Rect(tl.x + 10, tl.y + 7, 96, 22), $"${manager.Money:N0}", _lightBold);
             GUI.color = Color.white;
+            if (CoreLoopConfig.EnableTreasureBranch)
+            {
+                GUI.color = new Color(0.10f, 0.38f, 0.78f);
+                GUI.Label(new Rect(tl.x + 100, tl.y + 7, 50, 22), $"★{manager.TrustTokens}", _lightBold);
+                GUI.color = new Color(0.76f, 0.12f, 0.32f);
+                GUI.Label(new Rect(tl.x + 150, tl.y + 7, 50, 22), $"♦{manager.BlackMarketPts}", _lightBold);
+                GUI.color = Color.white;
+            }
+            else if (manager.PendingCash > 0)
+            {
+                GUI.color = new Color(0.96f, 0.78f, 0.18f);
+                GUI.Label(new Rect(tl.x + 100, tl.y + 7, 100, 22), $"+${manager.PendingCash:N0}", _lightBold);
+                GUI.color = Color.white;
+            }
             GUI.Label(new Rect(tl.x + cardW - 60, tl.y + 7, 50, 22), $"{manager.OverallCleanPercent:0}%", _inkRight);
 
             // 2행: 진행률 바 (80% 컷 + 90% 골드 잭팟 구간)
@@ -275,7 +285,7 @@ namespace TrashCleaner3D
             // ===== 2. 상단 중앙: 악취 4칸 + 의심 게이지(80~95% ADRENALINE) =====
             float barW = Mathf.Round(Mathf.Min(380f, w * 0.40f));
             float barX = Mathf.Round((w - barW) * 0.5f);
-            Rect tc = new Rect(barX, topY, barW, 70f);
+            Rect tc = new Rect(barX, topY, barW, CoreLoopConfig.EnableSuspicionBranch ? 70f : 46f);
             DrawBorderedBox(tc, new Color(0.11f, 0.12f, 0.15f, 0.92f), manager.IsAdrenalineZone ? new Color(1f, 0.55f, 0.15f) : new Color(0.32f, 0.35f, 0.42f), manager.IsAdrenalineZone ? 2 : 1);
 
             int st = manager.StenchStage;
@@ -306,35 +316,38 @@ namespace TrashCleaner3D
             GUI.color = Color.white;
 
             // 의심 게이지
-            float sy = tc.y + 38f;
-            Color suspCol = manager.IsAdrenalineZone ? new Color(1.0f, 0.42f, 0.15f)
-                          : manager.SuspicionPercent >= 50f ? new Color(0.98f, 0.72f, 0.22f)
-                          : new Color(0.52f, 0.84f, 0.96f);
+            if (CoreLoopConfig.EnableSuspicionBranch)
+            {
+                float sy = tc.y + 38f;
+                Color suspCol = manager.IsAdrenalineZone ? new Color(1.0f, 0.42f, 0.15f)
+                              : manager.SuspicionPercent >= 50f ? new Color(0.98f, 0.72f, 0.22f)
+                              : new Color(0.52f, 0.84f, 0.96f);
 
-            GUI.color = suspCol;
-            GUI.Label(new Rect(tc.x + 10, sy, 54, 22), "◎ 의심", _lightSmall);
-            GUI.color = Color.white;
+                GUI.color = suspCol;
+                GUI.Label(new Rect(tc.x + 10, sy, 54, 22), "◎ 의심", _lightSmall);
+                GUI.color = Color.white;
 
-            Rect suspTrack = new Rect(cellStartX, sy + 4, trackW, 14);
-            DrawRect(suspTrack, new Color(0.20f, 0.22f, 0.26f));
-            DrawRect(new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 1, trackW * 0.15f, suspTrack.height + 2), new Color(1.0f, 0.45f, 0.12f, manager.IsAdrenalineZone ? 0.68f : 0.34f));
-            DrawRect(new Rect(suspTrack.x + trackW * 0.95f, suspTrack.y, trackW * 0.05f, suspTrack.height), new Color(0.92f, 0.15f, 0.15f, 0.58f));
+                Rect suspTrack = new Rect(cellStartX, sy + 4, trackW, 14);
+                DrawRect(suspTrack, new Color(0.20f, 0.22f, 0.26f));
+                DrawRect(new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 1, trackW * 0.15f, suspTrack.height + 2), new Color(1.0f, 0.45f, 0.12f, manager.IsAdrenalineZone ? 0.68f : 0.34f));
+                DrawRect(new Rect(suspTrack.x + trackW * 0.95f, suspTrack.y, trackW * 0.05f, suspTrack.height), new Color(0.92f, 0.15f, 0.15f, 0.58f));
 
-            float suspFillW = trackW * (manager.SuspicionPercent / 100f);
-            if (suspFillW > 0.5f) DrawRect(new Rect(suspTrack.x, suspTrack.y + 1, suspFillW, suspTrack.height - 2), suspCol);
-            DrawRect(new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 2, 2, suspTrack.height + 4), new Color(1f, 0.85f, 0.25f));
+                float suspFillW = trackW * (manager.SuspicionPercent / 100f);
+                if (suspFillW > 0.5f) DrawRect(new Rect(suspTrack.x, suspTrack.y + 1, suspFillW, suspTrack.height - 2), suspCol);
+                DrawRect(new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 2, 2, suspTrack.height + 4), new Color(1f, 0.85f, 0.25f));
 
-            string suspTag = manager.IsAdrenalineZone ? $"스릴 ×{manager.AdrenalineMult:0.#}" : $"{manager.SuspicionPercent:0}%";
-            GUI.color = suspCol;
-            GUI.Label(new Rect(cellStartX + trackW + 8, sy, 76, 22), suspTag, _lightSmall);
-            GUI.color = Color.white;
+                string suspTag = manager.IsAdrenalineZone ? $"스릴 ×{manager.AdrenalineMult:0.#}" : $"{manager.SuspicionPercent:0}%";
+                GUI.color = suspCol;
+                GUI.Label(new Rect(cellStartX + trackW + 8, sy, 76, 22), suspTag, _lightSmall);
+                GUI.color = Color.white;
+            }
 
             // ===== 3. 우상단: [Tab] 현금 스킬트리 + 노란 포스트잇 의뢰 메모 =====
             int afford = manager.CountAffordableCashUpgrades();
             Rect trBtn = new Rect(w - sideX - 128, topY, 128, 32);
             DrawReceiptBox(trBtn);
             GUI.color = afford > 0 ? new Color(0.76f, 0.34f, 0.04f) : new Color(0.12f, 0.13f, 0.16f);
-            GUI.Label(trBtn, afford > 0 ? $"[Tab] ★+{afford}" : "[Tab] 스킬트리", _lightCenter);
+            GUI.Label(trBtn, afford > 0 ? $"[Tab] 강화 +{afford}" : "[Tab] 스킬트리", _lightCenter);
             GUI.color = Color.white;
 
             bool hintMin = controller != null && controller.ShowHelp;
@@ -417,24 +430,27 @@ namespace TrashCleaner3D
             float by = Mathf.Round(h - botSafe - 48f);
 
             // 요청 #2: '압축' 대신 직관적인 [같은 쓰레기 연속 보너스] (동그라미 게이지 ●●●○○ + 효과 명시!)
-            if (manager.CompressionBannerTimer > 0f)
+            if (CoreLoopConfig.EnableStreakCompression)
             {
-                Rect cBan = new Rect(Mathf.Round(w * 0.5f - 210), by - 34, 420, 28);
-                DrawBorderedBox(cBan, new Color(0.06f, 0.30f, 0.20f, 0.96f), new Color(0.36f, 1f, 0.68f), 2);
-                GUI.color = new Color(0.60f, 1f, 0.78f);
-                GUI.Label(cBan, manager.CompressionBannerText, _lightCenter);
-                GUI.color = Color.white;
-            }
-            else if (manager.StreakCount >= 2 && manager.Phase == GamePhase.Phase1_TrashRemoval)
-            {
-                int target = manager.CompressionStreakTarget;
-                string dots = "";
-                for (int i = 0; i < target; i++) dots += (i < manager.StreakCount ? "●" : "○");
-                Rect sChip = new Rect(Mathf.Round(w * 0.5f - 190), by - 32, 380, 26);
-                DrawBorderedBox(sChip, new Color(0.08f, 0.22f, 0.18f, 0.93f), new Color(0.34f, 0.94f, 0.64f), 1);
-                GUI.color = new Color(0.55f, 1f, 0.76f);
-                GUI.Label(sChip, $"같은 쓰레기 [{manager.StreakTypeLabel}] {dots}  → 봉투 비움 + ×2", _lightCenter);
-                GUI.color = Color.white;
+                if (manager.CompressionBannerTimer > 0f)
+                {
+                    Rect cBan = new Rect(Mathf.Round(w * 0.5f - 210), by - 34, 420, 28);
+                    DrawBorderedBox(cBan, new Color(0.06f, 0.30f, 0.20f, 0.96f), new Color(0.36f, 1f, 0.68f), 2);
+                    GUI.color = new Color(0.60f, 1f, 0.78f);
+                    GUI.Label(cBan, manager.CompressionBannerText, _lightCenter);
+                    GUI.color = Color.white;
+                }
+                else if (manager.StreakCount >= 2 && manager.Phase == GamePhase.Phase1_TrashRemoval)
+                {
+                    int target = manager.CompressionStreakTarget;
+                    string dots = "";
+                    for (int i = 0; i < target; i++) dots += (i < manager.StreakCount ? "●" : "○");
+                    Rect sChip = new Rect(Mathf.Round(w * 0.5f - 190), by - 32, 380, 26);
+                    DrawBorderedBox(sChip, new Color(0.08f, 0.22f, 0.18f, 0.93f), new Color(0.34f, 0.94f, 0.64f), 1);
+                    GUI.color = new Color(0.55f, 1f, 0.76f);
+                    GUI.Label(sChip, $"같은 쓰레기 [{manager.StreakTypeLabel}] {dots}  → 봉투 비움 + ×2", _lightCenter);
+                    GUI.color = Color.white;
+                }
             }
 
             if (manager.HasCarriedBag)
@@ -511,6 +527,21 @@ namespace TrashCleaner3D
                 Rect pr = new Rect(cx - 140, cy + 28, 280, 28);
                 DrawBorderedBox(pr, new Color(0.08f, 0.09f, 0.12f, 0.88f), dotCol, 1);
                 GUI.Label(pr, prompt, _lightCenter);
+            }
+
+            // v1.0 트럭 옆 '현장 강화' 발판 안내
+            if (controller.FieldPadActive)
+            {
+                float fy = string.IsNullOrEmpty(prompt) ? cy + 32f : cy + 64f;
+                Rect fp = new Rect(cx - 210f, fy, 420f, 50f);
+                Color fpBord = controller.FieldPadCanBuy ? controller.FieldPadColor : new Color(0.42f, 0.45f, 0.52f);
+                DrawBorderedBox(fp, new Color(0.07f, 0.08f, 0.11f, 0.93f), fpBord, 2);
+
+                GUI.color = controller.FieldPadCanBuy ? controller.FieldPadColor : new Color(0.86f, 0.88f, 0.92f);
+                GUI.Label(new Rect(fp.x + 10f, fp.y + 5f, fp.width - 20f, 22f), controller.FieldPadTitle, _lightBold);
+                GUI.color = new Color(0.84f, 0.87f, 0.93f);
+                GUI.Label(new Rect(fp.x + 10f, fp.y + 26f, fp.width - 20f, 20f), controller.FieldPadDetail, _lightSmall);
+                GUI.color = Color.white;
             }
         }
 
@@ -807,10 +838,18 @@ namespace TrashCleaner3D
             GUI.Label(new Rect(hdr.x + 16, hdr.y + 9, 100, 24), $"STAGE {manager.CurrentStage}", _inkBold);
             GUI.color = new Color(0.06f, 0.46f, 0.20f);
             GUI.Label(new Rect(hdr.x + 125, hdr.y + 9, 125, 24), $"현금 ${manager.Money:N0}", _lightBold);
-            GUI.color = new Color(0.10f, 0.38f, 0.78f);
-            GUI.Label(new Rect(hdr.x + 260, hdr.y + 9, 115, 24), $"★ 신뢰도 {manager.TrustTokens}", _lightBold);
-            GUI.color = new Color(0.76f, 0.12f, 0.32f);
-            GUI.Label(new Rect(hdr.x + 385, hdr.y + 9, 120, 24), $"♦ 암시장 {manager.BlackMarketPts}", _lightBold);
+            if (CoreLoopConfig.EnableTreasureBranch)
+            {
+                GUI.color = new Color(0.10f, 0.38f, 0.78f);
+                GUI.Label(new Rect(hdr.x + 260, hdr.y + 9, 115, 24), $"★ 신뢰도 {manager.TrustTokens}", _lightBold);
+                GUI.color = new Color(0.76f, 0.12f, 0.32f);
+                GUI.Label(new Rect(hdr.x + 385, hdr.y + 9, 120, 24), $"♦ 암시장 {manager.BlackMarketPts}", _lightBold);
+            }
+            else
+            {
+                GUI.color = new Color(0.62f, 0.48f, 0.10f);
+                GUI.Label(new Rect(hdr.x + 260, hdr.y + 9, 240, 24), "무더기 밀기 → 트럭 환전 → 현장 강화", _inkRight);
+            }
             GUI.color = Color.white;
 
             if (_postTab != PostRoundTab.Receipt)
@@ -825,18 +864,23 @@ namespace TrashCleaner3D
             else if (_postTab == PostRoundTab.TrustPerks) DrawTrustPerksPanel(w, h);
             else if (_postTab == PostRoundTab.CashUpgrades) DrawCashSkillTree(w, h, true);
 
-            // 하단 5버튼 허브 바: [다시 시작] [다음 단계] [♦ 암시장] [★ 특전] [$ 강화]
+            // 하단 허브 바: 코어 루프 모드에서는 [다시 시작][다음 단계 ▶][$ 강화] 3버튼만
+            int btnCount = CoreLoopConfig.CoreLoopOnly ? 3 : 5;
             float barW = Mathf.Min(720f, w - 40f);
             float btnGap = 10f;
-            float btnW = Mathf.Floor((barW - btnGap * 4f) / 5f);
-            float startX = Mathf.Round((w - (btnW * 5f + btnGap * 4f)) * 0.5f);
+            float btnW = Mathf.Floor((barW - btnGap * (btnCount - 1)) / btnCount);
+            float startX = Mathf.Round((w - (btnW * btnCount + btnGap * (btnCount - 1))) * 0.5f);
             float btnY = Mathf.Round(h - 62f);
 
-            DrawHubButton(new Rect(startX + (btnW + btnGap) * 0, btnY, btnW, 44), "다시 시작", false, new Color(0.28f, 0.32f, 0.38f), () => manager.ReplayRoomKeepUpgrades());
-            DrawHubButton(new Rect(startX + (btnW + btnGap) * 1, btnY, btnW, 44), $"다음 단계 ▶", false, new Color(0.16f, 0.56f, 0.30f), () => manager.StartNextStage());
-            DrawHubButton(new Rect(startX + (btnW + btnGap) * 2, btnY, btnW, 44), $"♦ 암시장 ({manager.BlackMarketPts})", _postTab == PostRoundTab.BlackMarket, new Color(0.72f, 0.14f, 0.32f), () => _postTab = PostRoundTab.BlackMarket);
-            DrawHubButton(new Rect(startX + (btnW + btnGap) * 3, btnY, btnW, 44), $"★ 특전 ({manager.TrustTokens})", _postTab == PostRoundTab.TrustPerks, new Color(0.16f, 0.44f, 0.80f), () => _postTab = PostRoundTab.TrustPerks);
-            DrawHubButton(new Rect(startX + (btnW + btnGap) * 4, btnY, btnW, 44), $"$ 강화", _postTab == PostRoundTab.CashUpgrades, new Color(0.78f, 0.54f, 0.10f), () => _postTab = PostRoundTab.CashUpgrades);
+            int bi = 0;
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), "다시 시작", false, new Color(0.28f, 0.32f, 0.38f), () => manager.ReplayRoomKeepUpgrades());
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), $"다음 단계 ▶", false, new Color(0.16f, 0.56f, 0.30f), () => manager.StartNextStage());
+            if (!CoreLoopConfig.CoreLoopOnly)
+            {
+                DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), $"♦ 암시장 ({manager.BlackMarketPts})", _postTab == PostRoundTab.BlackMarket, new Color(0.72f, 0.14f, 0.32f), () => _postTab = PostRoundTab.BlackMarket);
+                DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), $"★ 특전 ({manager.TrustTokens})", _postTab == PostRoundTab.TrustPerks, new Color(0.16f, 0.44f, 0.80f), () => _postTab = PostRoundTab.TrustPerks);
+            }
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), $"$ 강화", _postTab == PostRoundTab.CashUpgrades, new Color(0.78f, 0.54f, 0.10f), () => _postTab = PostRoundTab.CashUpgrades);
         }
 
         private void DrawHubButton(Rect r, string label, bool active, Color accent, System.Action onClick)
@@ -865,8 +909,14 @@ namespace TrashCleaner3D
 
             float y = r.y + 78f;
             DrawReceiptRow(r, y, "청소 진행률", $"{manager.OverallCleanPercent:0.0}%"); y += 26;
-            DrawReceiptRow(r, y, "같은 쓰레기 보너스", $"{manager.TotalCompressionsThisRoom}회"); y += 26;
-            DrawReceiptRow(r, y, "보물 전달 / 슈킹", $"{manager.ReturnedCount}건 / {manager.StolenCount}건"); y += 26;
+            if (CoreLoopConfig.EnableStreakCompression)
+            {
+                DrawReceiptRow(r, y, "같은 쓰레기 보너스", $"{manager.TotalCompressionsThisRoom}회"); y += 26;
+            }
+            if (CoreLoopConfig.EnableTreasureBranch)
+            {
+                DrawReceiptRow(r, y, "보물 전달 / 슈킹", $"{manager.ReturnedCount}건 / {manager.StolenCount}건"); y += 26;
+            }
             DrawReceiptRow(r, y, "방 클리어 보너스", manager.WasEvicted ? "$0 (몰수)" : $"+${manager.LastClearBonus:N0}"); y += 26;
             if (manager.WasEvicted)
             {

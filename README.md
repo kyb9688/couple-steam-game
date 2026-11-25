@@ -6,11 +6,35 @@
 1. **GitHub Desktop**에서 `Fetch origin` → **`Pull origin`** 클릭.
 2. **Unity Hub** 열기 → 오른쪽 위 **`추가` → `디스크에서 프로젝트 추가`** → 내 PC의 `couple-steam-game\unity\TrashCleaner3D` 폴더 선택.
 3. Unity 에디터가 열리면 상단 메뉴 **`TrashCleaner` → `Build Room 01 Playable Prototype`** 클릭 → 가운데 **Play(`▶`)** 버튼으로 바로 테스트!
-   - 조작: `WASD` 이동 · `마우스` 시점 · `좌클릭` 청소/닦기/CCTV 거품 · `1/2/3` 장비 전환 · `E` 슈킹 · `Q` 보관 · `Z/X/C/V` 현장 강화 · `F` 손전등 · `R` 트럭 복귀
+   - 조작: `WASD` 이동 · `마우스` 시점 · `좌클릭(꾹)` 바닥 쓰레기 흡입 · `좌클릭(단타)` 큰 봉투 타격 · `우클릭` 봉투 투척/회수/묶기 · `E` 트럭 옆 현장 강화 · `F` 현관문 · `T` 손전등 · `Tab` 강화 트리 · `K` 80% 조기 정산 · `ESC` 설정
 4. **충돌 방지 협업 규칙 (필수):**
    - **오빠 (파트 A):** `unity/TrashCleaner3D/Assets/_Project/Scripts/`, `Editor/` 수정
    - **여자친구 (파트 B):** `unity/TrashCleaner3D/Assets/_Project/Scenes/`, `Art/` (방 배치·에셋 추가) 수정  
    *(같은 `.unity` 씬 파일을 두 사람이 동시에 열어서 수정하지 마세요!)*
+
+---
+
+## v1.0 코어 루프 — 무더기 밀기 → 트럭에 와르르 환전 → 트럭 옆 현장 강화 (2026-11-26)
+
+플레이어가 **청소 → 환전 → 강화** 3박자에만 집중하도록 부가 기믹은 꺼두고 손맛·템포·연출만 다듬은 버전입니다.
+
+| 항목 | v0.9.3 | v1.0 |
+|---|---|---|
+| 바닥 쓰레기 줍기 | 1.00초 홀드 | **0.22초** 홀드 (도구 강화 시 0.07초) |
+| 봉투 용량(초반) | 15칸 | **30칸** |
+| 첫 강화 가격 | $20 | **$12~18** |
+| 수거 연출 | 직선 이동 | **포물선으로 빨려 들어오며 축소 + 도레미파솔 수거음** |
+| 트럭 환전 | 즉시 지급 | **다발 연출 + 돈 드르르륵 카운트업** |
+| 강화 장소 | 방 안 [Tab] 트리 | **[Tab] 트리 + 트럭 옆 현장 발판 3개(범위·흡입·용량)** |
+| 쓰레기 배치 | 방 전체 균등 | **5개 구역 무더기(총 1,200개) → 한 덩어리 밀면 바닥이 드러남** |
+
+**꺼둔 부가 기믹** — 동종 연속 압축 / 의심 80~95% 아드레날린 구간 / 막판 10% 잭팟 / 보물 [Q]전달·[E]슈킹·신뢰도(★)·암시장(♦) 분기.
+코드는 삭제하지 않고 분기만 해두었으므로, `Assets/_Project/Scripts/CoreLoopConfig.cs`의 `CoreLoopOnly = false` 한 줄이면 v0.9.3 규칙이 그대로 되살아납니다.
+
+**밸런스 수치 위치**
+- `GamePrototypeManager.cs` — `BagCapByLv`, `ToolStepCosts`, `TruckStepCosts`, `ToolHoldDurs`, `Cost*` 프로퍼티
+- `InstancedTrashSwarm.cs` — `InitialSwarmCount`, `AddUnit`의 `value`, `ClusterCenters`
+- `FieldUpgradeStation.cs` — 발판 3종 구성(범위 sweep · 흡입 tool · 용량 bag)
 
 ---
 

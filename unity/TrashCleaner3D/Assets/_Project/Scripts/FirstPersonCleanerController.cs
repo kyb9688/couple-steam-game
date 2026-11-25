@@ -7,8 +7,9 @@ using UnityEngine.InputSystem;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v0.9 1인칭 컨트롤러:
-    /// - [LMB 꾹(HOLD)] = 바닥 쓰레기 전용! (맨손 1.0초 진동 차징 후 쏙 / 집게 0.40초 / 진공 0.10초 — 큰 쓰레기 봉지에는 데미지 X!)
+    /// v1.0 1인칭 컨트롤러:
+    /// - [LMB 꾹(HOLD)] = 바닥 쓰레기 전용! (맨손 0.22초 진동 차징 후 쏙 / 집게 0.15초 / 진공 0.07초 — 큰 쓰레기 봉지에는 데미지 X!)
+    /// - [E] = 트럭 옆 '현장 강화' 발판 위에서 범위·흡입·용량 강화 구매
     /// - [LMB 단타 클릭] = 큰 쓰레기 봉투/박스 타격 전용!
     /// - 봉투 100% 정직 원복 (벽 충돌 과적 폭발 제거), 완성 시 [RMB] 투하 / 바닥 봉지 [RMB] 회수 통일!
     /// - [F] 현관문 / [K] 80% 조기 정산 / [Space] 점프 / [Tab] 스킬트리 / [ESC] 설정
@@ -39,6 +40,14 @@ namespace TrashCleaner3D
         public bool NeedMouseShakeHint { get; private set; }
         public float AimProgress01 { get; private set; } = -1f;
         public bool ShowHelp { get; private set; }
+
+        // ===== v1.0 트럭 옆 '현장 강화' 발판 상태 (HUD 표시용) =====
+        public bool FieldPadActive { get; private set; }
+        public bool FieldPadCanBuy { get; private set; }
+        public bool FieldPadMaxed { get; private set; }
+        public string FieldPadTitle { get; private set; } = "";
+        public string FieldPadDetail { get; private set; } = "";
+        public Color FieldPadColor { get; private set; } = Color.white;
 
         private CharacterController _cc;
         private Camera _cam;
@@ -138,6 +147,7 @@ namespace TrashCleaner3D
             UpdateToolVisuals();
             UpdateCameraEffects();
             Vector2 mouseDelta = HandleMovementAndLook();
+            HandleFieldStation();
             HandleInteraction(mouseDelta);
             AnimateHandsAndBag();
         }
@@ -182,6 +192,39 @@ namespace TrashCleaner3D
 #else
             return Input.GetKeyDown(KeyCode.K);
 #endif
+        }
+
+        private static bool WasKeyEPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            return Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.E);
+#endif
+        }
+
+        /// <summary>
+        /// 트럭 옆 '현장 강화' 발판 위에 서 있으면 HUD 안내를 켜고, [E]로 그 자리에서 바로 강화를 산다.
+        /// </summary>
+        private void HandleFieldStation()
+        {
+            FieldPadActive = false;
+            if (manager == null || manager.fieldStation == null) return;
+
+            FieldUpgradeStation station = manager.fieldStation;
+            FieldUpgradeStation.PadInfo info;
+            if (!station.TryGetStandingPad(transform.position, out info)) return;
+
+            FieldPadActive = true;
+            FieldPadCanBuy = info.affordable;
+            FieldPadMaxed = info.maxed;
+            FieldPadTitle = info.title;
+            FieldPadDetail = info.maxed
+                ? info.stat
+                : $"{info.stat}   ·   보유 ${manager.Money}";
+            FieldPadColor = info.color;
+
+            if (WasKeyEPressed()) station.TryBuy(info);
         }
 
         private void UpdateToolVisuals()
