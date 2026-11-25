@@ -15,6 +15,7 @@ namespace TrashCleaner3D
     public class InstancedTrashSwarm : MonoBehaviour
     {
         public const int InitialSwarmCount = 1200;
+        public const byte NoCluster = 255;
 
         public struct TrashUnit
         {
@@ -32,6 +33,7 @@ namespace TrashCleaner3D
             public float holdCharge; // 0~1: 꾹 누르는 동안 진동 차징!
             public float suckDur;    // 흡입 연출 1회 재생 시간(초) — 거리 기반으로 짧게
             public float arcHeight;   // 흡입 궤적이 위로 솟는 높이
+            public byte clusterIdx;   // 0~4: 5대 무더기 구역, 255: 산개된 쓰레기(구역 클리어 집계 제외)
         }
 
         [System.Serializable]
@@ -92,6 +94,35 @@ namespace TrashCleaner3D
         public int CleanedCount => _cleanedCount;
         public int RemainingCount => Mathf.Max(0, _unitCount - _cleanedCount);
 
+        // ===== v1.2: 5대 무더기 구역 클리어 추적 =====
+        /// <summary>무더기 하나가 0개가 된 순간 (구역 인덱스, 무더기 중심 월드 좌표)을 알린다.</summary>
+        public event System.Action<int, Vector3> ClusterCleared;
+        public int ClearedClusterCount { get; private set; }
+        private readonly int[] _clusterRemaining = new int[ClusterCenters.Length];
+        private readonly bool[] _clusterCleared = new bool[ClusterCenters.Length];
+
+        public int ClusterSlotCount => ClusterCenters.Length;
+
+        public int RemainingInCluster(int idx)
+        {
+            return idx >= 0 && idx < _clusterRemaining.Length ? _clusterRemaining[idx] : 0;
+        }
+
+        public bool IsClusterCleared(int idx)
+        {
+            return idx >= 0 && idx < _clusterCleared.Length && _clusterCleared[idx];
+        }
+
+        public static string ClusterName(int idx)
+        {
+            return idx >= 0 && idx < ClusterNames.Length ? ClusterNames[idx] : "구역";
+        }
+
+        public static Vector3 ClusterCenter(int idx)
+        {
+            return idx >= 0 && idx < ClusterCenters.Length ? ClusterCenters[idx] : Vector3.zero;
+        }
+
         private void Awake()
         {
             if (meshTypes.Count > 0 && (_units == null || _units.Length == 0))
@@ -117,7 +148,18 @@ namespace TrashCleaner3D
             _selectedSet.Clear();
             _lockedIndices.Clear();
             MaxSelectedCharge01 = 0f;
+            ResetClusterTracking();
             EnsureRenderBuffers();
+        }
+
+        private void ResetClusterTracking()
+        {
+            for (int i = 0; i < _clusterRemaining.Length; i++)
+            {
+                _clusterRemaining[i] = 0;
+                _clusterCleared[i] = false;
+            }
+            ClearedClusterCount = 0;
         }
 
         private void EnsureRenderBuffers()
@@ -409,6 +451,16 @@ namespace TrashCleaner3D
             new Vector3(0.55f, 0f, 1.45f)
         };
 
+        /// <summary>ClusterCenters와 같은 순서의 구역 이름 (원룸 가구 배치 기준).</summary>
+        private static readonly string[] ClusterNames =
+        {
+            "현관 앞",
+            "서쪽 벽",
+            "책상 앞",
+            "침대 앞",
+            "싱크대 앞"
+        };
+
         public void SpawnInitialSwarm(int count)
         {
             if (meshTypes.Count == 0) return;
@@ -419,9 +471,12 @@ namespace TrashCleaner3D
             for (int i = 0; i < count; i++)
             {
                 Vector3 pos;
+                byte cluster = NoCluster;
                 if (i < count * 0.86f)
                 {
-                    Vector3 h = ClusterCenters[i % ClusterCenters.Length];
+                    int clusterIdx = i % ClusterCenters.Length;
+                    cluster = (byte)clusterIdx;
+                    Vector3 h = ClusterCenters[clusterIdx];
                     float ang = Random.Range(0f, Mathf.PI * 2f);
                     float dist = Mathf.Sqrt(Random.value) * 1.02f;
                     float dist01 = dist / 1.02f;
@@ -444,7 +499,7 @@ namespace TrashCleaner3D
                 if (pos.x > 1.45f && pos.z > 1.90f) pos.z -= 1.05f; // 현관문 스윙 공간 확보
 
                 int preferredType = (i < count * 0.55f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
-                AddUnit(pos, pos, false, preferredType);
+                AddUnit(pos, pos, false, preferredType, cluster);
             }
         }
 
@@ -465,12 +520,14 @@ namespace TrashCleaner3D
             }
         }
 
-        private void AddUnit(Vector3 startPos, Vector3 endPos, bool popAnimation, int tIdx)
+        private void AddUnit(Vector3 startPos, Vector3 endPos, bool popAnimation, int tIdx, byte cluster = NoCluster)
         {
             if (_unitCount >= _units.Length) return;
             tIdx = Mathf.Clamp(tIdx, 0, meshTypes.Count - 1);
             float baseS = meshTypes[tIdx].normalizedScale * Random.Range(0.86f, 1.22f);
             Quaternion baseOffset = Quaternion.Euler(meshTypes[tIdx].baseEulerOffset);
+
+            if (cluster < _clusterRemaining.Length) _clusterRemaining[cluster]++;
 
             _units[_unitCount++] = new TrashUnit
             {
@@ -485,8 +542,28 @@ namespace TrashCleaner3D
                 endPos = endPos,
                 value = 4,
                 isCritBonus = false,
-                holdCharge = 0f
+                holdCharge = 0f,
+                clusterIdx = cluster
             };
+        }
+
+        /// <summary>
+        /// 쓰레기 하나가 바닥에서 완전히 사라졌을 때(플레이어 흡입·로봇 수거 공통) 해당 무더기의 남은 개수를 줄이고,
+        /// 0이 되는 순간 구역 클리어 이벤트를 한 번만 발생시킨다.
+        /// </summary>
+        private void NotifyUnitCleaned(int idx)
+        {
+            if (idx < 0 || idx >= _unitCount) return;
+            byte cluster = _units[idx].clusterIdx;
+            if (cluster >= _clusterRemaining.Length) return;   // 산개 14%는 구역 집계 제외
+
+            if (_clusterRemaining[cluster] > 0) _clusterRemaining[cluster]--;
+            if (_clusterRemaining[cluster] == 0 && !_clusterCleared[cluster])
+            {
+                _clusterCleared[cluster] = true;
+                ClearedClusterCount++;
+                ClusterCleared?.Invoke(cluster, ClusterCenters[cluster]);
+            }
         }
 
         public void UpdateHoverSelection(bool active, bool isHolding, Vector3 aimPoint, float cursorRadius, int maxSelectCount)
@@ -771,6 +848,7 @@ namespace TrashCleaner3D
                     {
                         _units[i].state = 3;
                         _cleanedCount++;
+                        NotifyUnitCleaned(i);
                         if (st == 2 && manager != null)
                         {
                             int val = _units[i].isCritBonus ? _units[i].value * 2 : _units[i].value;

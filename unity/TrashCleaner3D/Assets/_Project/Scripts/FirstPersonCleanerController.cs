@@ -13,6 +13,7 @@ namespace TrashCleaner3D
     /// - [LMB 단타 클릭] = 큰 쓰레기 봉투/박스 타격 전용!
     /// - 봉투 100% 정직 원복 (벽 충돌 과적 폭발 제거), 완성 시 [RMB] 투하 / 바닥 봉지 [RMB] 회수 통일!
     /// - [F] 현관문 / [K] 80% 조기 정산 / [Space] 점프 / [Tab] 스킬트리 / [ESC] 설정
+    /// - v1.2: 진공 단계 흡입 소용돌이 연출 + 트럭 정산·봉투 폭발·구역 클리어의 짧은 카메라 흔들림
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
     public class FirstPersonCleanerController : MonoBehaviour
@@ -62,6 +63,16 @@ namespace TrashCleaner3D
         private Vector3 _rightBasePos;
         private Quaternion _rightBaseRot;
         private Vector3 _leftBasePos;
+
+        // v1.2: 카메라 흔들림은 '로컬 포지션 오프셋'만 쓴다 (회전 멀미 없이 짧고 묵직하게)
+        private Vector3 _camBaseLocalPos;
+        private float _shakeIntensity;
+        private float _shakeDuration;
+        private float _shakeTime;
+        private float _shakeSeed;
+
+        // v1.2: 진공청소기 노즐 앞 흡입 소용돌이
+        private VacuumSuctionVortex _vacuumVortex;
         private float _punchTimer;
         private float _grabSwingTimer;
         private float _scrubMotionWeight;
@@ -81,13 +92,68 @@ namespace TrashCleaner3D
             if (cameraTransform != null) _cam = cameraTransform.GetComponent<Camera>();
             if (rightToolPivot != null) { _rightBasePos = rightToolPivot.localPosition; _rightBaseRot = rightToolPivot.localRotation; }
             if (leftBagPivot != null) _leftBasePos = leftBagPivot.localPosition;
+            if (cameraTransform != null) _camBaseLocalPos = cameraTransform.localPosition;
         }
 
         private void Start()
         {
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
             if (manager != null) mouseSensitivity = manager.MouseSensitivity;
+            EnsureVacuumVortex();
             LockCursorStrict();
+        }
+
+        /// <summary>
+        /// 진공 노즐 비주얼이 준비돼 있으면 그 입구에 흡입 소용돌이를 한 번만 붙인다.
+        /// (씬을 다시 빌드하지 않아도 런타임에 항상 생기도록 컨트롤러가 직접 만든다)
+        /// </summary>
+        private void EnsureVacuumVortex()
+        {
+            if (_vacuumVortex != null || vacuumVisual == null) return;
+            _vacuumVortex = VacuumSuctionVortex.Attach(
+                vacuumVisual.transform,
+                new Vector3(0f, -0.17f, 0.60f),
+                Quaternion.Euler(14f, 0f, 0f));
+        }
+
+        /// <summary>
+        /// 짧고 묵직한 카메라 흔들림. 여러 요청이 겹치면 더 센 쪽 강도와 더 긴 시간을 사용한다.
+        /// (회전이 아니라 카메라 로컬 포지션만 흔들어 멀미를 만들지 않는다)
+        /// </summary>
+        public void AddCameraShake(float intensity, float duration)
+        {
+            if (intensity <= 0f || duration <= 0f) return;
+            _shakeIntensity = Mathf.Max(_shakeIntensity, intensity);
+            _shakeDuration = Mathf.Max(_shakeDuration, duration);
+            _shakeTime = Mathf.Max(_shakeTime, duration);
+            if (_shakeSeed <= 0f) _shakeSeed = UnityEngine.Random.Range(0.1f, 10f);
+        }
+
+        private void ApplyCameraShake()
+        {
+            if (cameraTransform == null) return;
+            if (_shakeTime <= 0f) return;
+
+            _shakeTime = Mathf.Max(0f, _shakeTime - Time.deltaTime);
+            float k = _shakeDuration > 0.001f ? Mathf.Clamp01(_shakeTime / _shakeDuration) : 0f;
+            float amp = _shakeIntensity * k * k;   // 끝으로 갈수록 빠르게 잦아든다
+            float t = Time.time * 120f + _shakeSeed;
+
+            Vector3 offset = new Vector3(
+                Mathf.Sin(t * 1.13f) * amp,
+                Mathf.Sin(t * 1.61f + 1.3f) * amp * 0.75f,
+                Mathf.Sin(t * 0.87f + 2.1f) * amp * 0.55f);
+
+            if (_shakeTime <= 0f)
+            {
+                _shakeIntensity = 0f;
+                _shakeDuration = 0f;
+                cameraTransform.localPosition = _camBaseLocalPos;
+            }
+            else
+            {
+                cameraTransform.localPosition = _camBaseLocalPos + offset;
+            }
         }
 
         private void OnApplicationFocus(bool hasFocus)
@@ -119,6 +185,11 @@ namespace TrashCleaner3D
         private void Update()
         {
             if (manager == null) return;
+
+            // v1.2: 오버레이(설정·스킬트리) 중에도 흔들림이 자연스럽게 잦아들도록 가장 먼저 갱신
+            ApplyCameraShake();
+            // 흡입 연출은 1단계 청소 중에만 — 보물 팝업·설정·정산 화면에서는 즉시 끈다
+            if (_vacuumVortex != null && manager.Phase != GamePhase.Phase1_TrashRemoval) _vacuumVortex.SetIntensity(0f);
 
             if (WasEscPressed()) { manager.ToggleSettingsMenu(); ClearHighlight(); return; }
 
@@ -249,8 +320,9 @@ namespace TrashCleaner3D
         {
             if (_cam == null) return;
             int st = manager.StenchStage;
-            float baseFov = manager.IsAdrenalineZone ? 75f : (manager.HasFeverEngine && manager.IsFeverHot) ? 73f : 70f;
-            float targetFov = st == 4 ? 60f : st == 3 ? 64f : st == 2 ? 67f : baseFov;
+            // v1.2: 방(7.2×6.0m)과 마당 왕복 동선이 한눈에 들어오도록 기본 화각을 72°로 넓힘
+            float baseFov = manager.IsAdrenalineZone ? 77f : (manager.HasFeverEngine && manager.IsFeverHot) ? 75f : 72f;
+            float targetFov = st == 4 ? 62f : st == 3 ? 66f : st == 2 ? 69f : baseFov;
             _cam.fieldOfView = Mathf.Lerp(_cam.fieldOfView, targetFov, 4.5f * Time.deltaTime);
         }
 
@@ -377,7 +449,7 @@ namespace TrashCleaner3D
 #endif
 
             Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
-            RaycastHit[] hits = Physics.RaycastAll(ray, 5.4f);
+            RaycastHit[] hits = Physics.RaycastAll(ray, 5.8f);
             Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
             CleanableTarget hitPile = null;
@@ -393,7 +465,7 @@ namespace TrashCleaner3D
                 if (h.collider.GetComponentInParent<FirstPersonCleanerController>() != null) continue;
 
                 var dropped = h.collider.GetComponentInParent<ThrownTrashBag>();
-                if (dropped != null && dropped.IsRetrievable && hitDroppedBag == null && h.distance <= 3.8f)
+                if (dropped != null && dropped.IsRetrievable && hitDroppedBag == null && h.distance <= 4.0f)
                 {
                     hitDroppedBag = dropped;
                     continue;
@@ -436,7 +508,7 @@ namespace TrashCleaner3D
                 bool showRing = hasWorldPoint &&
                                 manager.Phase == GamePhase.Phase1_TrashRemoval &&
                                 worldAimPoint.y <= 0.95f &&
-                                Vector3.Distance(cameraTransform.position, worldAimPoint) <= 5.4f &&
+                                Vector3.Distance(cameraTransform.position, worldAimPoint) <= 5.8f &&
                                 !manager.HasCarriedBag;
                 manager.trashSwarm.SetCursorRing(showRing, worldAimPoint, manager.SweepRadius);
             }
@@ -515,7 +587,7 @@ namespace TrashCleaner3D
             {
                 // 요청 #4: 큰 쓰레기 봉투/박스 타격은 오직 [LMB 단타 클릭(lmbDown)] 전용!
                 // (꾹 누르고 있을 때는 큰 봉투에 데미지가 절대 들어가지 않음!)
-                if (hitPile != null && Vector3.Distance(cameraTransform.position, hitPile.transform.position) <= 3.7f)
+                if (hitPile != null && Vector3.Distance(cameraTransform.position, hitPile.transform.position) <= 4.0f)
                 {
                     _lastTarget = hitPile;
                     hitPile.SetHighlighted(true);
@@ -536,7 +608,7 @@ namespace TrashCleaner3D
                 }
 
                 // 요청 #1: [LMB 꾹(HOLD)] = 한번 락온된 쓰레기는 커서 원 반경 밖으로 나가기 전까지 절대 초기화 X!
-                if (manager.trashSwarm != null && hasWorldPoint && Vector3.Distance(cameraTransform.position, worldAimPoint) <= 4.6f)
+                if (manager.trashSwarm != null && hasWorldPoint && Vector3.Distance(cameraTransform.position, worldAimPoint) <= 5.0f)
                 {
                     float r = manager.SweepRadius;
                     int grabLimit = manager.AutoGrabPerTick;
@@ -613,6 +685,14 @@ namespace TrashCleaner3D
             Vector3 targetPos = _rightBasePos;
             Quaternion targetRot = _rightBaseRot;
 
+            // v1.2: 진공 단계에서만 노즐 앞 소용돌이가 보이도록 (차징이 오를수록 조금 더 세짐)
+            if (_vacuumVortex != null)
+            {
+                bool sucking = _isVacuumingNow && manager.ToolTier >= 2 && !manager.HasCarriedBag;
+                float charge = manager.trashSwarm != null ? Mathf.Clamp01(manager.trashSwarm.MaxSelectedCharge01) : 0f;
+                _vacuumVortex.SetIntensity(sucking ? 0.75f + charge * 0.25f : 0f);
+            }
+
             if (_scrubMotionWeight > 0.05f && manager.Phase == GamePhase.Phase2_FloorMopping)
             {
                 // v1.1.2: 마우스로 문지르는 방향(좌우/앞뒤)이 손에 든 걸레에 그대로 실리게 한다 (카메라는 고정)
@@ -662,6 +742,23 @@ namespace TrashCleaner3D
             }
             else
             {
+                // v1.2: 티어마다 손에 든 도구의 기본 자세를 다르게 → 실루엣이 한눈에 구분된다
+                if (manager.Phase == GamePhase.Phase1_TrashRemoval)
+                {
+                    int tier = manager.ToolTier;
+                    if (tier >= 2)
+                    {
+                        // 진공: 무게감 있게 낮게, 노즐을 바닥 쪽으로
+                        targetPos += new Vector3(0.03f, 0.02f, 0.03f);
+                        targetRot = Quaternion.Euler(8f, 2f, -2f);
+                    }
+                    else if (tier == 1)
+                    {
+                        // 빗자루: 몸 바깥으로 비스듬히 쓸어내는 자세
+                        targetPos += new Vector3(-0.03f, -0.01f, 0.02f);
+                        targetRot = Quaternion.Euler(-6f, -8f, 7f);
+                    }
+                }
                 targetPos += new Vector3(0f, Mathf.Sin(Time.time * 2.4f) * 0.005f, 0f);
             }
 

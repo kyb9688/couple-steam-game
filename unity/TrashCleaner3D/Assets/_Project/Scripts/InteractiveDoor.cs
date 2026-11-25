@@ -3,7 +3,8 @@ using UnityEngine;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// 밖에서 [F] 키로 직접 열고 들어가는 현관문 (열릴 때 방 안 1,000개 쓰레기가 극적으로 공개!).
+    /// 밖에서 [F] 키로 직접 열고 들어가는 현관문 (열릴 때 방 안 쓰레기가 극적으로 공개!).
+    /// v1.2: 라운드 시작 시 매니저가 자동으로 열어 두고(트럭 왕복 동선 확보), 청소 중에는 닫히지 않는다.
     /// 마우스를 올리면 하얀색 테두리 아웃라인 표시.
     /// </summary>
     public class InteractiveDoor : MonoBehaviour
@@ -13,6 +14,9 @@ namespace TrashCleaner3D
         public float closedAngleY = 0f;
         public float openAngleY = -98f;
         public float openSpeed = 3.2f;
+        /// <summary>문 앞에 플레이어가 있을 때 닫기를 막는 안전장치 (끼임/동선 차단 방지)</summary>
+        public bool blockCloseWhenPlayerNear = true;
+        public GamePrototypeManager manager;
 
         public bool IsOpen { get; private set; }
         public bool HasOpenedOnce { get; private set; }
@@ -20,6 +24,7 @@ namespace TrashCleaner3D
         private float _open01;
         private GameObject _outlineRoot;
         private bool _highlighted;
+        private FirstPersonCleanerController _player;
 
         private void Awake()
         {
@@ -65,9 +70,48 @@ namespace TrashCleaner3D
 
         public void ToggleDoor(ProceduralSfx sfx = null)
         {
-            IsOpen = !IsOpen;
-            if (IsOpen) HasOpenedOnce = true;
-            if (sfx != null) sfx.PlayPop(IsOpen ? 0.55f : 0.42f);
+            SetOpen(!IsOpen, sfx);
+        }
+
+        /// <summary>
+        /// 문을 열거나 닫는다. 닫을 때 플레이어가 문틱에 서 있으면 끼이지 않도록 닫기를 거부한다.
+        /// (라운드 시작 시 매니저가 이 메서드로 문을 활짝 열어 둔다)
+        /// </summary>
+        public void SetOpen(bool open, ProceduralSfx sfx = null)
+        {
+            if (IsOpen == open) return;
+
+            if (!open && blockCloseWhenPlayerNear && IsCleaningRound())
+            {
+                // 청소 중에는 방↔트럭 왕복 동선이 막히지 않도록 문을 닫지 않는다.
+                if (manager != null) manager.ShowToast("청소 중에는 현관문을 열어 둡니다 · 왕복 동선 확보");
+                return;
+            }
+
+            if (!open && blockCloseWhenPlayerNear && IsPlayerAtDoorway())
+            {
+                if (manager != null) manager.ShowToast("문 앞에서는 닫히지 않아요 · 동선 확보");
+                return;
+            }
+
+            IsOpen = open;
+            if (open) HasOpenedOnce = true;
+            if (sfx != null) sfx.PlayPop(open ? 0.55f : 0.42f);
+        }
+
+        private bool IsCleaningRound()
+        {
+            return manager != null &&
+                   (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping);
+        }
+
+        private bool IsPlayerAtDoorway()
+        {
+            if (_player == null) _player = FindFirstObjectByType<FirstPersonCleanerController>();
+            if (_player == null || hingePivot == null) return false;
+            Vector3 d = _player.transform.position - hingePivot.position;
+            d.y = 0f;
+            return d.sqrMagnitude <= 1.25f * 1.25f;
         }
 
         private void Update()

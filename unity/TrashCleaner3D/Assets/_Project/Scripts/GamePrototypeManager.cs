@@ -338,6 +338,11 @@ namespace TrashCleaner3D
         private bool _mentionedFoundThisRoom;
         private float _treasureCooldown;
 
+        // ===== v1.2: 5대 무더기 구역 클리어 보너스 & 현관문 자동 열림 =====
+        private const int ClusterClearBonus = 35;      // 구역당 $30~40 선 (경제 밸런스를 해치지 않는 소소한 보너스)
+        private InteractiveDoor[] _doors;
+        private float _doorAutoOpenTimer;
+
         private static readonly (string name, int val, TreasureRarity rarity, float susp)[] RandomTreasurePool =
         {
             ("구겨진 5만 원권 뭉치", 65, TreasureRarity.Common, 15f),
@@ -401,6 +406,13 @@ namespace TrashCleaner3D
             if (trashSwarm == null) trashSwarm = FindFirstObjectByType<InstancedTrashSwarm>();
             if (player != null) player.mouseSensitivity = MouseSensitivity;
             CollectTargets();
+            if (trashSwarm != null)
+            {
+                trashSwarm.ClusterCleared -= OnTrashClusterCleared;
+                trashSwarm.ClusterCleared += OnTrashClusterCleared;
+            }
+            CacheDoors();
+            ScheduleDoorsOpenForRun();
             if (sunLight == null)
             {
                 var lights = FindObjectsByType<Light>(FindObjectsSortMode.None);
@@ -578,6 +590,11 @@ namespace TrashCleaner3D
             if (_pitchResetTimer > 0f) { _pitchResetTimer -= dt; if (_pitchResetTimer <= 0f) _melodyStep = 0; }
             TickCashCrunch(dt);
             TickAtmosphere(dt);
+            if (_doorAutoOpenTimer > 0f)
+            {
+                _doorAutoOpenTimer -= dt;
+                if (_doorAutoOpenTimer <= 0f) EnsureDoorsOpenForRun();
+            }
             if (_treasureCooldown > 0f) _treasureCooldown -= dt;
             if (TreasureFlash01 > 0f) TreasureFlash01 = Mathf.MoveTowards(TreasureFlash01, 0f, dt * 1.1f);
             if (StealAlertFlash01 > 0f) StealAlertFlash01 = Mathf.MoveTowards(StealAlertFlash01, 0f, dt * 1.0f);
@@ -641,6 +658,55 @@ namespace TrashCleaner3D
         public void SpawnFloatingText(Vector3 worldPos, string text, Color color, float duration = 1.4f)
         {
             FloatingTexts.Add(new FloatingWorldText { worldPos = worldPos, text = text, color = color, age = 0f, duration = duration });
+        }
+
+        // ===== v1.2: 5대 무더기 구역 클리어 피드백 =====
+        /// <summary>
+        /// 무더기 하나를 다 비웠을 때: 그 자리에 반짝이 + "OO 구역 클리어! +$35" 팝업 + 가벼운 3화음 +
+        /// 구역당 $35 소소한 현금 보너스 + 짧은 카메라 임팩트.
+        /// (산개된 14%는 집계에서 빠지므로 5대 클러스터만 대상)
+        /// </summary>
+        private void OnTrashClusterCleared(int clusterIdx, Vector3 center)
+        {
+            string zoneName = InstancedTrashSwarm.ClusterName(clusterIdx);
+            AddCashCrunch(ClusterClearBonus);
+
+            Vector3 fxPos = new Vector3(center.x, Mathf.Max(0.10f, center.y + 0.10f), center.z);
+            SparkleBurst.Spawn(fxPos, 22, 0.95f, new Color(0.62f, 1f, 0.84f));
+            SpawnFloatingText(fxPos + Vector3.up * 0.85f, $"{zoneName} 구역 클리어! +${ClusterClearBonus}",
+                new Color(0.55f, 1f, 0.78f), 2.0f);
+
+            int cleared = trashSwarm != null ? trashSwarm.ClearedClusterCount : 1;
+            int total = trashSwarm != null ? trashSwarm.ClusterSlotCount : 5;
+            ShowToast($"{zoneName} 구역 클리어! +${ClusterClearBonus} · {cleared}/{total}");
+            sfx.PlayZoneClear();
+            if (player != null) player.AddCameraShake(0.032f, 0.12f);
+        }
+
+        // ===== v1.2: 현관문을 청소 중에는 항상 열어 두어 방↔마당 왕복 동선이 막히지 않게 =====
+        private void CacheDoors()
+        {
+            _doors = FindObjectsByType<InteractiveDoor>(FindObjectsSortMode.None);
+            for (int i = 0; i < _doors.Length; i++)
+            {
+                if (_doors[i] != null) _doors[i].manager = this;
+            }
+        }
+
+        private void ScheduleDoorsOpenForRun()
+        {
+            _doorAutoOpenTimer = 0.9f;   // 문이 열리며 방이 드러나는 연출 + 트럭 왕복 동선 확보
+        }
+
+        /// <summary>현관문을 전부 연다. (열려 있으면 그대로 둔다)</summary>
+        public void EnsureDoorsOpenForRun()
+        {
+            if (_doors == null || _doors.Length == 0) CacheDoors();
+            if (_doors == null) return;
+            for (int i = 0; i < _doors.Length; i++)
+            {
+                if (_doors[i] != null && !_doors[i].IsOpen) _doors[i].SetOpen(true, sfx);
+            }
         }
 
         /// <summary>
@@ -863,6 +929,7 @@ namespace TrashCleaner3D
         public void OnBigPileBurst(CleanableTarget pile)
         {
             sfx.PlayPop(0.62f);
+            if (player != null) player.AddCameraShake(0.045f, 0.14f);   // 큰 봉투가 터지는 묵직한 임팩트
             _pilesBrokenThisRoom++;
             if (trashSwarm != null) trashSwarm.SpawnBurstFountain(pile.transform.position, 22);
 
@@ -1120,6 +1187,7 @@ namespace TrashCleaner3D
             // 와르르: 짐칸으로 쏟아져 들어가는 다발 + 돈 드르르륵 카운트업
             AddCashCrunch(totalPay);
             sfx.PlayPour();
+            if (player != null) player.AddCameraShake(0.030f, 0.12f);   // 트럭에 봉투가 쏟아져 정산되는 순간
             TruckPourBurst.Spawn(scoreWorldPos, truckBedGoal, count, new Color(0.95f, 0.86f, 0.42f));
 
             int stackCount = Mathf.Clamp(count / 5, 1, 3);
@@ -1445,6 +1513,8 @@ namespace TrashCleaner3D
 
             UpdateAtmosphere();
             UpdateVehicleStageVisuals();
+            EnsureDoorsOpenForRun();
+            ScheduleDoorsOpenForRun();
             if (player != null && playerSpawnPoint != null)
             {
                 player.TeleportTo(playerSpawnPoint.position, playerSpawnPoint.rotation);

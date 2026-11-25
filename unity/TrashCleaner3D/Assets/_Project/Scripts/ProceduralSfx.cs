@@ -16,6 +16,7 @@ namespace TrashCleaner3D
         private AudioClip _alertClip;
         private AudioClip _fanfareClip;
         private AudioClip _pourClip;
+        private AudioClip _zoneClearClip;
 
         // 도레미파솔: 연속 수거 시 한 칸씩 올라가는 음계 (C 장조 한 옥타브)
         private static readonly int[] ScaleSemitones = { 0, 2, 4, 5, 7, 9, 11, 12 };
@@ -36,6 +37,7 @@ namespace TrashCleaner3D
             _alertClip = MakeSweep(0.26f, 820f, 440f, 0.55f);
             _fanfareClip = MakeChord(0.55f, new[] { 523.25f, 659.25f, 783.99f, 1046.5f }, 0.4f);
             _pourClip = MakePour(0.55f);
+            _zoneClearClip = MakeChord(0.34f, new[] { 659.25f, 987.77f, 1318.51f }, 0.26f);
         }
 
         public void PlayPop(float pitch = 1f) { Play(_popClip, pitch); }
@@ -61,6 +63,9 @@ namespace TrashCleaner3D
         public void PlayUpgrade() { Play(_upgradeClip, 1f); }
         public void PlayAlert() { Play(_alertClip, 1f); }
         public void PlayFanfare() { Play(_fanfareClip, 1f); }
+
+        /// <summary>무더기 구역을 하나 비웠을 때의 가벼운 3화음 (도-솔-높은 미).</summary>
+        public void PlayZoneClear() { Play(_zoneClearClip, Random.Range(0.98f, 1.04f)); }
 
         private void Play(AudioClip clip, float pitch)
         {

@@ -23,7 +23,7 @@ namespace TrashCleaner3D.Editor
         private const string AptKitRoot = "Assets/Brick Project Studio/Apartment Kit/_Prefabs";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 41;
+        private const int SceneBuildVersion = 42;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -715,7 +715,7 @@ namespace TrashCleaner3D.Editor
             camObj.transform.localPosition = new Vector3(0, 1.50f, 0);
             var cam = camObj.AddComponent<Camera>();
             cam.nearClipPlane = 0.08f;
-            cam.fieldOfView = 70f;
+            cam.fieldOfView = 72f;
             camObj.AddComponent<AudioListener>();
             var urpCam = camObj.AddComponent<UniversalAdditionalCameraData>();
             urpCam.renderPostProcessing = true;
@@ -737,7 +737,9 @@ namespace TrashCleaner3D.Editor
             rightPivot.transform.SetParent(camObj.transform, false);
             rightPivot.transform.localPosition = new Vector3(0.32f, -0.26f, 0.52f);
 
-            // 1) 맨손 주먹 (Phase 1 초반)
+            // 1) 1티어: 장갑 낀 맨손 (어두운 작업장갑 + 주황 커프) — 빗자루(초록)·진공(빨강)과 색이 확실히 갈린다
+            Material matGlove = CreateSimpleLitMaterial("Mat_Tool_WorkGlove", new Color(0.19f, 0.21f, 0.26f), 0.16f);
+            Material matGloveCuff = CreateSimpleLitMaterial("Mat_Tool_GloveCuff", new Color(0.95f, 0.56f, 0.14f), 0.22f);
             GameObject fist = new GameObject("Visual_FistHand");
             fist.transform.SetParent(rightPivot.transform, false);
             GameObject forearm = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -748,14 +750,32 @@ namespace TrashCleaner3D.Editor
             Object.DestroyImmediate(forearm.GetComponent<Collider>());
             forearm.GetComponent<Renderer>().sharedMaterial = matSkin;
 
+            // 주황 커프 밴드: 손목에서 티어 색을 한 번 더 각인
+            GameObject cuff = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            cuff.transform.SetParent(fist.transform, false);
+            cuff.transform.localPosition = new Vector3(0.022f, -0.03f, -0.025f);
+            cuff.transform.localRotation = Quaternion.Euler(78f, -12f, 0f);
+            cuff.transform.localScale = new Vector3(0.10f, 0.035f, 0.10f);
+            Object.DestroyImmediate(cuff.GetComponent<Collider>());
+            cuff.GetComponent<Renderer>().sharedMaterial = matGloveCuff;
+
             GameObject knuckles = GameObject.CreatePrimitive(PrimitiveType.Cube);
             knuckles.transform.SetParent(fist.transform, false);
             knuckles.transform.localPosition = new Vector3(0f, 0.01f, 0.08f);
-            knuckles.transform.localScale = new Vector3(0.11f, 0.10f, 0.11f);
+            knuckles.transform.localRotation = Quaternion.Euler(-6f, 0f, 0f);
+            knuckles.transform.localScale = new Vector3(0.115f, 0.105f, 0.12f);
             Object.DestroyImmediate(knuckles.GetComponent<Collider>());
-            knuckles.GetComponent<Renderer>().sharedMaterial = matSkin;
+            knuckles.GetComponent<Renderer>().sharedMaterial = matGlove;
 
-            // 1.5) 2단계 도구: 집게 / 빗자루 (커서 범위 확대 + 2~3개 묶음 쓸어담기!)
+            GameObject thumb = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            thumb.transform.SetParent(fist.transform, false);
+            thumb.transform.localPosition = new Vector3(0.055f, 0.015f, 0.055f);
+            thumb.transform.localRotation = Quaternion.Euler(18f, -22f, -28f);
+            thumb.transform.localScale = new Vector3(0.038f, 0.052f, 0.085f);
+            Object.DestroyImmediate(thumb.GetComponent<Collider>());
+            thumb.GetComponent<Renderer>().sharedMaterial = matGlove;
+
+            // 1.5) 2티어 도구: 빗자루 (초록 자루 + 크롬 페룰 + 부채꼴 짚 5가닥 — 마른 잎 색)
             Material matBroomGreen = CreateSimpleLitMaterial("Mat_Tool_BroomGreen", new Color(0.24f, 0.72f, 0.42f), 0.35f);
             Material matBristleStraw = CreateSimpleLitMaterial("Mat_Tool_BroomBristle", new Color(0.84f, 0.74f, 0.42f), 0.12f);
             GameObject tongsBroom = new GameObject("Visual_TongsBroom");
@@ -776,41 +796,95 @@ namespace TrashCleaner3D.Editor
             Object.DestroyImmediate(bHead.GetComponent<Collider>());
             bHead.GetComponent<Renderer>().sharedMaterial = matBroomGreen;
 
-            GameObject bBristle = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            bBristle.transform.SetParent(tongsBroom.transform, false);
-            bBristle.transform.localPosition = new Vector3(0f, -0.22f, 0.51f);
-            bBristle.transform.localRotation = Quaternion.Euler(14f, 0f, 0f);
-            bBristle.transform.localScale = new Vector3(0.28f, 0.11f, 0.07f);
-            Object.DestroyImmediate(bBristle.GetComponent<Collider>());
-            bBristle.GetComponent<Renderer>().sharedMaterial = matBristleStraw;
+            // 자루와 머리를 잇는 금속 페룰 링
+            GameObject bFerrule = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            bFerrule.transform.SetParent(tongsBroom.transform, false);
+            bFerrule.transform.localPosition = new Vector3(0f, -0.105f, 0.43f);
+            bFerrule.transform.localRotation = Quaternion.Euler(14f, 0f, 0f);
+            bFerrule.transform.localScale = new Vector3(0.055f, 0.022f, 0.055f);
+            Object.DestroyImmediate(bFerrule.GetComponent<Collider>());
+            bFerrule.GetComponent<Renderer>().sharedMaterial = matVacuumMetal;
+
+            // 짚가닥 5개를 부채꼴로 벌려 빗자루 실루엣을 확실히
+            for (int i = 0; i < 5; i++)
+            {
+                float off = (i - 2) * 0.052f;
+                GameObject straw = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                straw.name = $"BroomStraw_{i + 1}";
+                straw.transform.SetParent(tongsBroom.transform, false);
+                straw.transform.localPosition = new Vector3(off, -0.235f, 0.505f + Mathf.Abs(off) * 0.25f);
+                straw.transform.localRotation = Quaternion.Euler(14f, off * 240f, off * 160f);
+                straw.transform.localScale = new Vector3(0.034f, 0.135f, 0.05f);
+                Object.DestroyImmediate(straw.GetComponent<Collider>());
+                straw.GetComponent<Renderer>().sharedMaterial = matBristleStraw;
+            }
             tongsBroom.SetActive(false);
 
-            // 2) 진공청소기 노즐 (마인드맵 해금 시 폭풍 흡입!)
+            // 2) 3티어: 진공청소기 (빨간 몸통 + 크롬 호스 리브 + 시원하게 벌린 노즐 + 하늘색 흡입구)
+            Material matVacuumGlow = CreateSimpleLitMaterial("Mat_Tool_VacuumGlow", new Color(0.34f, 0.95f, 1.0f), 0.85f);
             GameObject vacuum = new GameObject("Visual_VacuumNozzle");
             vacuum.transform.SetParent(rightPivot.transform, false);
+
+            GameObject vacBody = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            vacBody.transform.SetParent(vacuum.transform, false);
+            vacBody.transform.localPosition = new Vector3(0f, -0.005f, 0.06f);
+            vacBody.transform.localScale = new Vector3(0.155f, 0.15f, 0.30f);
+            Object.DestroyImmediate(vacBody.GetComponent<Collider>());
+            vacBody.GetComponent<Renderer>().sharedMaterial = matVacuumBody;
+
+            // 몸통 크롬 밴드
+            GameObject vacBand = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            vacBand.transform.SetParent(vacuum.transform, false);
+            vacBand.transform.localPosition = new Vector3(0f, -0.055f, 0.06f);
+            vacBand.transform.localScale = new Vector3(0.165f, 0.03f, 0.305f);
+            Object.DestroyImmediate(vacBand.GetComponent<Collider>());
+            vacBand.GetComponent<Renderer>().sharedMaterial = matVacuumMetal;
+
             GameObject vacHandle = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             vacHandle.transform.SetParent(vacuum.transform, false);
-            vacHandle.transform.localPosition = new Vector3(0f, -0.02f, 0.05f);
+            vacHandle.transform.localPosition = new Vector3(0f, 0.055f, -0.01f);
             vacHandle.transform.localRotation = Quaternion.Euler(76f, 0f, 0f);
-            vacHandle.transform.localScale = new Vector3(0.075f, 0.24f, 0.075f);
+            vacHandle.transform.localScale = new Vector3(0.055f, 0.13f, 0.055f);
             Object.DestroyImmediate(vacHandle.GetComponent<Collider>());
             vacHandle.GetComponent<Renderer>().sharedMaterial = matVacuumBody;
 
             GameObject vacPipe = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             vacPipe.transform.SetParent(vacuum.transform, false);
-            vacPipe.transform.localPosition = new Vector3(0f, -0.08f, 0.34f);
+            vacPipe.transform.localPosition = new Vector3(0f, -0.10f, 0.34f);
             vacPipe.transform.localRotation = Quaternion.Euler(76f, 0f, 0f);
-            vacPipe.transform.localScale = new Vector3(0.052f, 0.22f, 0.052f);
+            vacPipe.transform.localScale = new Vector3(0.058f, 0.22f, 0.058f);
             Object.DestroyImmediate(vacPipe.GetComponent<Collider>());
             vacPipe.GetComponent<Renderer>().sharedMaterial = matVacuumMetal;
 
+            // 호스 리브 3개 — 진공청소기 특유의 주름 호스 실루엣
+            for (int i = 0; i < 3; i++)
+            {
+                GameObject rib = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                rib.name = $"VacRib_{i + 1}";
+                rib.transform.SetParent(vacuum.transform, false);
+                rib.transform.localPosition = new Vector3(0f, -0.085f - i * 0.035f, 0.24f + i * 0.095f);
+                rib.transform.localRotation = Quaternion.Euler(76f, 0f, 0f);
+                rib.transform.localScale = new Vector3(0.076f, 0.016f, 0.076f);
+                Object.DestroyImmediate(rib.GetComponent<Collider>());
+                rib.GetComponent<Renderer>().sharedMaterial = matVacuumBody;
+            }
+
             GameObject vacNozzle = GameObject.CreatePrimitive(PrimitiveType.Cube);
             vacNozzle.transform.SetParent(vacuum.transform, false);
-            vacNozzle.transform.localPosition = new Vector3(0f, -0.14f, 0.56f);
+            vacNozzle.transform.localPosition = new Vector3(0f, -0.165f, 0.575f);
             vacNozzle.transform.localRotation = Quaternion.Euler(14f, 0f, 0f);
-            vacNozzle.transform.localScale = new Vector3(0.24f, 0.06f, 0.10f);
+            vacNozzle.transform.localScale = new Vector3(0.31f, 0.075f, 0.13f);
             Object.DestroyImmediate(vacNozzle.GetComponent<Collider>());
             vacNozzle.GetComponent<Renderer>().sharedMaterial = matVacuumBody;
+
+            // 노즐 입에 하늘색 발광띠 — 흡입 중 소용돌이가 나오는 지점을 눈으로 표시
+            GameObject vacLip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            vacLip.transform.SetParent(vacuum.transform, false);
+            vacLip.transform.localPosition = new Vector3(0f, -0.196f, 0.615f);
+            vacLip.transform.localRotation = Quaternion.Euler(14f, 0f, 0f);
+            vacLip.transform.localScale = new Vector3(0.27f, 0.022f, 0.045f);
+            Object.DestroyImmediate(vacLip.GetComponent<Collider>());
+            vacLip.GetComponent<Renderer>().sharedMaterial = matVacuumGlow;
             vacuum.SetActive(false);
 
             // 3) 물티슈 한 장 (Phase 2 초반 — 맨손 문지르기)
