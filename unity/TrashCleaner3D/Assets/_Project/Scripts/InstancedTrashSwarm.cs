@@ -5,9 +5,10 @@ using UnityEngine.Rendering;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v0.7 2,250+ GPU Instancing 쓰레기 매니저:
-    /// - 가벼운(1클릭)/보통(2클릭)/끈적한(3클릭) 혼합 손맛 + 크리티컬 1방 즉사(×2 수익) + 연쇄 도미노 폭발 수거!
-    /// - 3D 로봇청소기(AutoRoombaCleaner) 자동 추적 & 흡입 지원 + 10% 이하 황금 투시 테두리 유지!
+    /// v0.8 GPU-Instanced 2,250+ 쓰레기 매니저:
+    /// - 클릭 연타 완전 제거! 마우스 커서 반경 내 호버/홀드 자동 처리 (1단계 맨손 → 2단계 집게/빗자루 → 3단계 진공청소기 광역 오라!)
+    /// - 바닥 커서 범위 링(오라) 실시간 렌더링으로 도구 진화에 따른 범위 확대 체감 극대화!
+    /// - 쓰레기 종류(typeIdx)별 동종 연속 압축 지원 + 지층 보물(BuriedTreasureObject) 커버 카운트 제공!
     /// </summary>
     public class InstancedTrashSwarm : MonoBehaviour
     {
@@ -21,14 +22,11 @@ namespace TrashCleaner3D
             public float curScale;
             public int typeIdx;
             public byte state;       // 0:Idle, 1:Popping, 2:SuckingToPlayer, 3:Cleaned, 4:SuckingToRobot
-            public byte hp;          // 1(가벼움), 2(보통), 3(끈적함)
-            public byte maxHp;
-            public float hopTimer;
             public float timer;
             public Vector3 startPos;
             public Vector3 endPos;
             public int value;
-            public bool isCritBonus; // 크리티컬 발동 시 2배 정산!
+            public bool isCritBonus;
         }
 
         [System.Serializable]
@@ -64,25 +62,20 @@ namespace TrashCleaner3D
         private Material _detectMat;
         private RenderParams _detectRenderParams;
 
+        // 바닥 도구 커서 반경 오라 비주얼 (1단계 좁은 원 → 2단계 중형 원 → 3단계 대형 진공 회오리 오라!)
+        private Mesh _auraRingMesh;
+        private Material _auraRingMat;
+        private bool _auraVisible;
+        private Vector3 _auraCenter;
+        private float _auraRadius;
+
         private readonly List<int> _selectedIndices = new List<int>(64);
-        private readonly List<(int idx, float distSq)> _candidates = new List<(int, float)>(128);
+        private readonly List<(int idx, float distSq)> _candidates = new List<(int, float)>(256);
         public int HoveredCount => _selectedIndices.Count;
 
         public int TotalCount => _unitCount;
         public int CleanedCount => _cleanedCount;
         public int RemainingCount => Mathf.Max(0, _unitCount - _cleanedCount);
-
-        public float SelectedPeelProgress01
-        {
-            get
-            {
-                if (_selectedIndices.Count == 0) return -1f;
-                int idx = _selectedIndices[0];
-                if (idx < 0 || idx >= _unitCount || _units[idx].state != 0) return -1f;
-                if (_units[idx].hp >= _units[idx].maxHp || _units[idx].maxHp <= 1) return -1f;
-                return Mathf.Clamp01((_units[idx].maxHp - _units[idx].hp) / (float)_units[idx].maxHp);
-            }
-        }
 
         private void Awake()
         {
@@ -167,12 +160,47 @@ namespace TrashCleaner3D
                     receiveShadows = false
                 };
             }
+
+            if (_auraRingMesh == null)
+            {
+                _auraRingMesh = BuildRingMesh(48, 0.88f, 1.0f);
+                _auraRingMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+                _auraRingMat.SetFloat("_Surface", 1f);
+                _auraRingMat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+                _auraRingMat.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+                _auraRingMat.SetFloat("_ZWrite", 0f);
+                _auraRingMat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                _auraRingMat.renderQueue = (int)RenderQueue.Transparent + 10;
+            }
+        }
+
+        private static Mesh BuildRingMesh(int segments, float innerR, float outerR)
+        {
+            Mesh m = new Mesh();
+            Vector3[] verts = new Vector3[segments * 2];
+            int[] tris = new int[segments * 6];
+            for (int i = 0; i < segments; i++)
+            {
+                float a = (i / (float)segments) * Mathf.PI * 2f;
+                float c = Mathf.Cos(a), s = Mathf.Sin(a);
+                verts[i * 2] = new Vector3(c * innerR, 0f, s * innerR);
+                verts[i * 2 + 1] = new Vector3(c * outerR, 0f, s * outerR);
+
+                int ni = (i + 1) % segments;
+                int t = i * 6;
+                tris[t] = i * 2; tris[t + 1] = i * 2 + 1; tris[t + 2] = ni * 2 + 1;
+                tris[t + 3] = i * 2; tris[t + 4] = ni * 2 + 1; tris[t + 5] = ni * 2;
+            }
+            m.vertices = verts;
+            m.triangles = tris;
+            m.RecalculateNormals();
+            return m;
         }
 
         public void SpawnInitialSwarm(int count)
         {
             if (meshTypes.Count == 0) return;
-            InitializeCapacity(count + 750);
+            InitializeCapacity(count + 900);
 
             Vector3[] hubs =
             {
@@ -211,7 +239,9 @@ namespace TrashCleaner3D
                 if (pos.x < -1.55f && pos.z < -0.55f) pos.y += 0.32f;
                 if (pos.x > 1.50f && pos.z > 1.90f) pos.z -= 1.05f;
 
-                AddUnit(pos, pos, false);
+                // 동종 연속 압축의 재미를 높이기 위해 클러스터 근처에 같은 종류가 살짝 뭉치도록 배치!
+                int preferredType = (i < count * 0.55f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
+                AddUnit(pos, pos, false, preferredType);
             }
         }
 
@@ -228,20 +258,16 @@ namespace TrashCleaner3D
                     Mathf.Clamp(origin.z + off.y, -2.60f, 2.45f)
                 );
                 if (land.x < -1.55f && land.z < -0.55f) land.y += 0.32f;
-                AddUnit(origin + Vector3.up * 0.35f, land, true);
+                AddUnit(origin + Vector3.up * 0.35f, land, true, Random.Range(0, meshTypes.Count));
             }
         }
 
-        private void AddUnit(Vector3 startPos, Vector3 endPos, bool popAnimation)
+        private void AddUnit(Vector3 startPos, Vector3 endPos, bool popAnimation, int tIdx)
         {
             if (_unitCount >= _units.Length) return;
-            int tIdx = Random.Range(0, meshTypes.Count);
+            tIdx = Mathf.Clamp(tIdx, 0, meshTypes.Count - 1);
             float baseS = meshTypes[tIdx].normalizedScale * Random.Range(0.86f, 1.22f);
             Quaternion baseOffset = Quaternion.Euler(meshTypes[tIdx].baseEulerOffset);
-
-            // 가벼운 쓰레기(1클릭 35%), 보통(2클릭 40%), 끈적한 묵은 쓰레기(3클릭 25%) 혼합!
-            float roll = Random.value;
-            byte unitHp = roll < 0.35f ? (byte)1 : roll < 0.75f ? (byte)2 : (byte)3;
 
             _units[_unitCount++] = new TrashUnit
             {
@@ -251,24 +277,39 @@ namespace TrashCleaner3D
                 curScale = baseS,
                 typeIdx = tIdx,
                 state = popAnimation ? (byte)1 : (byte)0,
-                hp = unitHp,
-                maxHp = unitHp,
-                hopTimer = 0f,
                 timer = 0f,
                 startPos = startPos,
                 endPos = endPos,
-                value = unitHp == 3 ? 5 : unitHp == 2 ? 4 : 3,
+                value = 3,
                 isCritBonus = false
             };
         }
 
-        public void UpdateHoverSelection(bool active, Vector3 aimPoint, float searchRadius, int maxSelectCount)
+        public int CountIdleCovering(Vector3 worldPos, float radius)
+        {
+            float rSq = radius * radius;
+            int cnt = 0;
+            for (int i = 0; i < _unitCount; i++)
+            {
+                if (_units[i].state != 0) continue;
+                Vector3 d = _units[i].pos - worldPos;
+                d.y = 0f;
+                if (d.sqrMagnitude <= rSq) cnt++;
+            }
+            return cnt;
+        }
+
+        public void UpdateHoverSelection(bool active, Vector3 aimPoint, float cursorRadius, int maxSelectCount)
         {
             _selectedIndices.Clear();
+            _auraVisible = active;
+            _auraCenter = aimPoint;
+            _auraRadius = cursorRadius;
+
             if (!active || maxSelectCount <= 0 || _unitCount == 0) return;
 
             _candidates.Clear();
-            float rSq = searchRadius * searchRadius;
+            float rSq = cursorRadius * cursorRadius;
 
             for (int i = 0; i < _unitCount; i++)
             {
@@ -281,93 +322,60 @@ namespace TrashCleaner3D
 
             if (_candidates.Count == 0) return;
 
-            if (maxSelectCount == 1)
-            {
-                int bestIdx = _candidates[0].idx;
-                float bestD = _candidates[0].distSq;
-                for (int k = 1; k < _candidates.Count; k++)
-                {
-                    if (_candidates[k].distSq < bestD)
-                    {
-                        bestD = _candidates[k].distSq;
-                        bestIdx = _candidates[k].idx;
-                    }
-                }
-                _selectedIndices.Add(bestIdx);
-            }
-            else
-            {
-                _candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
-                int take = Mathf.Min(maxSelectCount, _candidates.Count);
-                for (int k = 0; k < take; k++) _selectedIndices.Add(_candidates[k].idx);
-            }
+            _candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
+            int take = Mathf.Min(maxSelectCount, _candidates.Count);
+            for (int k = 0; k < take; k++) _selectedIndices.Add(_candidates[k].idx);
         }
 
         /// <summary>
-        /// 크리티컬 즉사(×2 수익) + 연쇄 도미노 폭발 수거가 결합된 클릭 줍기!
+        /// v0.8 호버/홀드 자동 처리 (1단계 1개씩 → 2단계 2~3개 묶음 → 3단계 진공 광역 회오리 흡입!)
         /// </summary>
-        public void HitOrPickSelectedUnits(
-            Transform suckDest, int maxTargets, int pickDamage,
-            float critChance, float chainChance, int chainExtraCount,
-            out int peeledCount, out int pickedCount, out bool didCrit, out bool didChain, out Vector3 effectOrigin)
+        public int AutoProcessSelected(
+            Transform suckDest, int maxGrab, float critChance, float chainChance, int chainExtraCount,
+            out bool didCrit, out bool didChain, out Vector3 fxOrigin)
         {
-            peeledCount = 0;
-            pickedCount = 0;
             didCrit = false;
             didChain = false;
-            effectOrigin = Vector3.zero;
-            if (maxTargets <= 0 || _selectedIndices.Count == 0) return;
+            fxOrigin = Vector3.zero;
+            if (maxGrab <= 0 || _selectedIndices.Count == 0) return 0;
             _suckDestination = suckDest;
 
             bool rolledCrit = critChance > 0f && Random.value < critChance;
-            int processed = 0;
+            int picked = 0;
 
-            for (int k = 0; k < _selectedIndices.Count && processed < maxTargets; k++)
+            for (int k = 0; k < _selectedIndices.Count && picked < maxGrab; k++)
             {
                 int idx = _selectedIndices[k];
                 if (idx < 0 || idx >= _unitCount || _units[idx].state != 0) continue;
-                processed++;
-                if (processed == 1) effectOrigin = _units[idx].pos;
-
-                if (rolledCrit || _units[idx].hp <= pickDamage)
-                {
-                    _units[idx].hp = 0;
-                    _units[idx].state = 2;
-                    _units[idx].timer = 0f;
-                    _units[idx].isCritBonus = rolledCrit;
-                    pickedCount++;
-                    if (rolledCrit) didCrit = true;
-                }
-                else
-                {
-                    _units[idx].hp = (byte)(_units[idx].hp - pickDamage);
-                    _units[idx].hopTimer = 0.14f;
-                    peeledCount++;
-                }
+                if (picked == 0) fxOrigin = _units[idx].pos;
+                _units[idx].state = 2;
+                _units[idx].timer = 0f;
+                _units[idx].isCritBonus = rolledCrit;
+                picked++;
+                if (rolledCrit) didCrit = true;
             }
 
-            // 연쇄 도미노 폭발! (1개 주울 때 확률적으로 주변 3~6개 동시 연쇄 수거!)
-            if (pickedCount > 0 && chainChance > 0f && chainExtraCount > 0 && Random.value < chainChance)
+            if (picked > 0 && chainChance > 0f && chainExtraCount > 0 && Random.value < chainChance)
             {
                 float chainRSq = 1.15f * 1.15f;
                 int chained = 0;
                 for (int i = 0; i < _unitCount && chained < chainExtraCount; i++)
                 {
                     if (_units[i].state != 0) continue;
-                    if ((_units[i].pos - effectOrigin).sqrMagnitude <= chainRSq)
+                    if ((_units[i].pos - fxOrigin).sqrMagnitude <= chainRSq)
                     {
-                        _units[i].hp = 0;
                         _units[i].state = 2;
                         _units[i].timer = 0f;
                         _units[i].isCritBonus = false;
                         chained++;
-                        pickedCount++;
+                        picked++;
                     }
                 }
                 if (chained > 0) didChain = true;
             }
 
-            if (pickedCount > 0) _selectedIndices.Clear();
+            if (picked > 0) _selectedIndices.Clear();
+            return picked;
         }
 
         public bool TryFindNearestIdlePos(Vector3 fromPos, out Vector3 foundPos)
@@ -375,7 +383,6 @@ namespace TrashCleaner3D
             foundPos = Vector3.zero;
             float best = float.MaxValue;
             int bestIdx = -1;
-            // 빠르게 8개 간격 샘플링으로 O(1)급 탐색
             int step = Mathf.Max(1, _unitCount / 220);
             for (int i = 0; i < _unitCount; i += step)
             {
@@ -399,7 +406,7 @@ namespace TrashCleaner3D
                 d.y *= 0.4f;
                 if (d.sqrMagnitude <= rSq)
                 {
-                    _units[i].state = 4; // SuckingToRobot!
+                    _units[i].state = 4;
                     _units[i].timer = 0f;
                     eaten++;
                 }
@@ -442,13 +449,6 @@ namespace TrashCleaner3D
                 byte st = _units[i].state;
                 if (st == 3) continue;
 
-                float hopY = 0f;
-                if (_units[i].hopTimer > 0f)
-                {
-                    _units[i].hopTimer = Mathf.Max(0f, _units[i].hopTimer - dt);
-                    hopY = Mathf.Sin((_units[i].hopTimer / 0.14f) * Mathf.PI) * 0.11f;
-                }
-
                 if (st == 1)
                 {
                     _units[i].timer += dt;
@@ -461,9 +461,10 @@ namespace TrashCleaner3D
                 else if (st == 2 || st == 4)
                 {
                     Vector3 dest = st == 4 ? botDest : playerDest;
-                    _units[i].pos = Vector3.MoveTowards(_units[i].pos, dest, 15.0f * dt);
-                    _units[i].rot = _units[i].rot * Quaternion.Euler(0f, 540f * dt, 260f * dt);
-                    _units[i].curScale = Mathf.MoveTowards(_units[i].curScale, 0f, _units[i].baseScale * 4.4f * dt);
+                    float suckSpd = (manager != null && manager.ToolTier >= 2) ? 18.0f : 14.5f;
+                    _units[i].pos = Vector3.MoveTowards(_units[i].pos, dest, suckSpd * dt);
+                    _units[i].rot = _units[i].rot * Quaternion.Euler(0f, 620f * dt, 280f * dt);
+                    _units[i].curScale = Mathf.MoveTowards(_units[i].curScale, 0f, _units[i].baseScale * 4.5f * dt);
 
                     if ((_units[i].pos - dest).sqrMagnitude < 0.04f || _units[i].curScale <= 0.002f)
                     {
@@ -472,7 +473,8 @@ namespace TrashCleaner3D
                         if (st == 2 && manager != null)
                         {
                             int val = _units[i].isCritBonus ? _units[i].value * 2 : _units[i].value;
-                            manager.OnInstancedTrashCollected(val);
+                            string label = _units[i].typeIdx < meshTypes.Count ? meshTypes[_units[i].typeIdx].label : "쓰레기";
+                            manager.OnInstancedTrashCollected(val, _units[i].typeIdx, label);
                         }
                         continue;
                     }
@@ -482,8 +484,7 @@ namespace TrashCleaner3D
                 int c = _batchCounts[tIdx];
                 if (c < 1023)
                 {
-                    Vector3 drawPos = hopY > 0f ? _units[i].pos + Vector3.up * hopY : _units[i].pos;
-                    Matrix4x4 mtx = Matrix4x4.TRS(drawPos, _units[i].rot, Vector3.one * _units[i].curScale);
+                    Matrix4x4 mtx = Matrix4x4.TRS(_units[i].pos, _units[i].rot, Vector3.one * _units[i].curScale);
                     _batchMatrices[tIdx][c] = mtx;
                     _batchCounts[tIdx] = c + 1;
 
@@ -503,12 +504,12 @@ namespace TrashCleaner3D
                 int oc = _outlineCounts[tIdx];
                 if (oc < 1023)
                 {
-                    float hopY = _units[idx].hopTimer > 0f ? Mathf.Sin((_units[idx].hopTimer / 0.14f) * Mathf.PI) * 0.11f : 0f;
-                    _outlineMatrices[tIdx][oc] = Matrix4x4.TRS(_units[idx].pos + Vector3.up * hopY, _units[idx].rot, Vector3.one * _units[idx].curScale);
+                    _outlineMatrices[tIdx][oc] = Matrix4x4.TRS(_units[idx].pos, _units[idx].rot, Vector3.one * _units[idx].curScale);
                     _outlineCounts[tIdx] = oc + 1;
                 }
             }
 
+            // 1) 일반 3D 쓰레기 렌더
             for (int t = 0; t < meshTypes.Count; t++)
             {
                 int cnt = _batchCounts[t];
@@ -516,6 +517,7 @@ namespace TrashCleaner3D
                     Graphics.RenderMeshInstanced(_renderParams[t], meshTypes[t].mesh, 0, _batchMatrices[t], cnt);
             }
 
+            // 2) 10% 투시 황금 테두리
             if (showDetectOutline && _detectMat != null)
             {
                 for (int t = 0; t < meshTypes.Count; t++)
@@ -526,6 +528,7 @@ namespace TrashCleaner3D
                 }
             }
 
+            // 3) 호버 하얀 테두리
             if (_outlineMat != null)
             {
                 for (int t = 0; t < meshTypes.Count; t++)
@@ -534,6 +537,23 @@ namespace TrashCleaner3D
                     if (ocnt > 0 && meshTypes[t].mesh != null)
                         Graphics.RenderMeshInstanced(_outlineRenderParams, meshTypes[t].mesh, 0, _outlineMatrices[t], ocnt);
                 }
+            }
+
+            // 4) 바닥 도구 커서 반경 오라 (1단계 좁은 흰색 원 → 2단계 연두 원 → 3단계 대형 청록 진공 오라!)
+            if (_auraVisible && _auraRingMesh != null && _auraRingMat != null && _auraRadius > 0.05f)
+            {
+                int tier = manager != null ? manager.ToolTier : 0;
+                Color auraCol = tier >= 2
+                    ? new Color(0.25f, 0.92f, 1.0f, 0.55f + 0.15f * Mathf.Sin(Time.time * 8f))
+                    : tier == 1
+                        ? new Color(0.45f, 0.96f, 0.55f, 0.42f)
+                        : new Color(1.0f, 1.0f, 1.0f, 0.34f);
+                _auraRingMat.SetColor("_BaseColor", auraCol);
+
+                float spin = tier >= 2 ? Time.time * 90f : 0f;
+                Vector3 ringPos = new Vector3(_auraCenter.x, Mathf.Max(0.03f, _auraCenter.y + 0.02f), _auraCenter.z);
+                Matrix4x4 ringMtx = Matrix4x4.TRS(ringPos, Quaternion.Euler(0f, spin, 0f), new Vector3(_auraRadius, 1f, _auraRadius));
+                Graphics.DrawMesh(_auraRingMesh, ringMtx, _auraRingMat, 0);
             }
         }
     }

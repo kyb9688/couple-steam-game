@@ -22,7 +22,7 @@ namespace TrashCleaner3D.Editor
         private const string ArtRoot = "Assets/_Project/Art";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 36;
+        private const int SceneBuildVersion = 38;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -327,10 +327,39 @@ namespace TrashCleaner3D.Editor
                 }
             }
 
-            // 8. 1,000+ GPU-Instanced 3D Trash Swarm
+            // 8. 2,250+ GPU-Instanced 3D Trash Swarm
             GameObject swarmObj = new GameObject("TrashSwarm_1000");
             var swarm = swarmObj.AddComponent<InstancedTrashSwarm>();
             PopulateSwarmMeshTypes(swarm);
+
+            // 8.5. v0.8 쓰레기 지층 발굴 보물 5종 (쓰레기 더미 아래에 숨겨져 걷어내면 노출!)
+            GameObject buriedRoot = new GameObject("BuriedTreasures_Stratum");
+            Material matCashEnv = CreateSimpleLitMaterial("Mat_Treasure_Envelope", new Color(0.95f, 0.78f, 0.25f), 0.35f);
+            Material matConsole = CreateSimpleLitMaterial("Mat_Treasure_Console", new Color(0.24f, 0.56f, 0.88f), 0.65f);
+            Material matGold = CreateSimpleLitMaterial("Mat_Treasure_Gold", new Color(0.96f, 0.80f, 0.20f), 0.85f);
+            Material matFigure = CreateSimpleLitMaterial("Mat_Treasure_Figure", new Color(0.92f, 0.36f, 0.45f), 0.52f);
+
+            // ① 의뢰인이 언급한 비상금 봉투 (매트리스 옆!) — 슈킹 시 단가 ×2 & 의심 ×2
+            CreateBuriedTreasure("Treasure_SecretCash", "남편의 비밀 비상금 봉투",
+                new Vector3(-1.35f, 0.045f, -1.25f), new Vector3(0.28f, 0.05f, 0.16f),
+                matCashEnv, buriedRoot.transform, 210, TreasureRarity.Legendary, true, 24f);
+
+            // ② 일반 지층 보물 4종 (방 곳곳의 쓰레기 산 아래 매립)
+            CreateBuriedTreasure("Treasure_Handheld", "중고 휴대용 게임기",
+                new Vector3(1.65f, 0.05f, 0.75f), new Vector3(0.26f, 0.05f, 0.14f),
+                matConsole, buriedRoot.transform, 150, TreasureRarity.Rare, false, 15f);
+
+            CreateBuriedTreasure("Treasure_GoldWatch", "빈티지 금시계",
+                new Vector3(2.45f, 0.055f, -0.75f), new Vector3(0.18f, 0.07f, 0.18f),
+                matGold, buriedRoot.transform, 230, TreasureRarity.Rare, false, 18f);
+
+            CreateBuriedTreasure("Treasure_Figure", "한정판 피규어 박스",
+                new Vector3(-0.55f, 0.08f, 1.45f), new Vector3(0.22f, 0.22f, 0.18f),
+                matFigure, buriedRoot.transform, 185, TreasureRarity.Rare, false, 16f);
+
+            CreateBuriedTreasure("Treasure_MiniGoldBar", "24K 미니 골드바",
+                new Vector3(0.35f, 0.055f, -1.95f), new Vector3(0.24f, 0.08f, 0.12f),
+                matGold, buriedRoot.transform, 340, TreasureRarity.Legendary, false, 24f);
 
             // 9. Hidden Runtime Template for Thrown Trash Bag
             GameObject templateRoot = new GameObject("_RuntimeTemplates");
@@ -377,7 +406,37 @@ namespace TrashCleaner3D.Editor
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
-            Debug.Log("[TrashCleaner3D v0.5] +50% 확장 방 + 4단계 수거함(쓰레기통→리어카→다마스→1톤 트럭) 빌드 완료!");
+            Debug.Log("[TrashCleaner3D v0.8] 도구 진화(3단계) + 지층 보물 5종 + 이원화 슈킹/성실 루트 + 4대 기믹 빌드 완료!");
+        }
+
+        private static void CreateBuriedTreasure(
+            string objName, string displayName, Vector3 pos, Vector3 scale, Material mat,
+            Transform parent, int value, TreasureRarity rarity, bool mentionedByClient, float suspGain)
+        {
+            GameObject go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            go.name = objName;
+            go.transform.SetParent(parent, false);
+            go.transform.position = pos;
+            go.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+            go.transform.localScale = scale;
+            go.GetComponent<Renderer>().sharedMaterial = mat;
+
+            // 살짝 여유 있는 발굴 판정 콜라이더
+            var col = go.GetComponent<BoxCollider>();
+            if (col != null)
+            {
+                col.size = new Vector3(1.45f, 2.2f, 1.45f);
+                col.isTrigger = true;
+            }
+
+            var bt = go.AddComponent<BuriedTreasureObject>();
+            bt.itemName = displayName;
+            bt.baseValue = value;
+            bt.rarity = rarity;
+            bt.isMentionedByClient = mentionedByClient;
+            bt.baseSuspicionGain = suspGain;
+            bt.coverThreshold = 5;
+            bt.coverCheckRadius = 0.72f;
         }
 
         private static GameObject BuildOpenContainerStage(string name, Transform parent, float w, float h, float d, float wallT, Material bodyMat, Material rimMat)
@@ -594,6 +653,36 @@ namespace TrashCleaner3D.Editor
             Object.DestroyImmediate(knuckles.GetComponent<Collider>());
             knuckles.GetComponent<Renderer>().sharedMaterial = matSkin;
 
+            // 1.5) 2단계 도구: 집게 / 빗자루 (커서 범위 확대 + 2~3개 묶음 쓸어담기!)
+            Material matBroomGreen = CreateSimpleLitMaterial("Mat_Tool_BroomGreen", new Color(0.24f, 0.72f, 0.42f), 0.35f);
+            Material matBristleStraw = CreateSimpleLitMaterial("Mat_Tool_BroomBristle", new Color(0.84f, 0.74f, 0.42f), 0.12f);
+            GameObject tongsBroom = new GameObject("Visual_TongsBroom");
+            tongsBroom.transform.SetParent(rightPivot.transform, false);
+            GameObject bHandle = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            bHandle.transform.SetParent(tongsBroom.transform, false);
+            bHandle.transform.localPosition = new Vector3(0f, -0.02f, 0.16f);
+            bHandle.transform.localRotation = Quaternion.Euler(68f, 0f, 0f);
+            bHandle.transform.localScale = new Vector3(0.036f, 0.34f, 0.036f);
+            Object.DestroyImmediate(bHandle.GetComponent<Collider>());
+            bHandle.GetComponent<Renderer>().sharedMaterial = matBroomGreen;
+
+            GameObject bHead = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            bHead.transform.SetParent(tongsBroom.transform, false);
+            bHead.transform.localPosition = new Vector3(0f, -0.15f, 0.48f);
+            bHead.transform.localRotation = Quaternion.Euler(14f, 0f, 0f);
+            bHead.transform.localScale = new Vector3(0.26f, 0.05f, 0.09f);
+            Object.DestroyImmediate(bHead.GetComponent<Collider>());
+            bHead.GetComponent<Renderer>().sharedMaterial = matBroomGreen;
+
+            GameObject bBristle = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            bBristle.transform.SetParent(tongsBroom.transform, false);
+            bBristle.transform.localPosition = new Vector3(0f, -0.22f, 0.51f);
+            bBristle.transform.localRotation = Quaternion.Euler(14f, 0f, 0f);
+            bBristle.transform.localScale = new Vector3(0.28f, 0.11f, 0.07f);
+            Object.DestroyImmediate(bBristle.GetComponent<Collider>());
+            bBristle.GetComponent<Renderer>().sharedMaterial = matBristleStraw;
+            tongsBroom.SetActive(false);
+
             // 2) 진공청소기 노즐 (마인드맵 해금 시 폭풍 흡입!)
             GameObject vacuum = new GameObject("Visual_VacuumNozzle");
             vacuum.transform.SetParent(rightPivot.transform, false);
@@ -703,6 +792,7 @@ namespace TrashCleaner3D.Editor
             ctrl.rightToolPivot = rightPivot.transform;
             ctrl.leftBagPivot = leftBagRoot.transform;
             ctrl.fistHandVisual = fist;
+            ctrl.tongsBroomVisual = tongsBroom;
             ctrl.vacuumVisual = vacuum;
             ctrl.tissueVisual = tissue;
             ctrl.mopVisual = mop;

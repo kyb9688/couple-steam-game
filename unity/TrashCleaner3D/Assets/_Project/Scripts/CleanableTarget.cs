@@ -231,7 +231,83 @@ namespace TrashCleaner3D
             _isSuckingAway = false;
             SetDetectOutlineVisible(false);
             SetHighlighted(false);
+            if (kind == CleanableKind.FloorStain)
+            {
+                CleanSparkleEffect.Spawn(transform.position + Vector3.up * 0.06f);
+            }
             gameObject.SetActive(false);
+        }
+    }
+
+    /// <summary>
+    /// 바닥 얼룩 닦기 완료 시 깨끗하게 반짝이는 광택(글린트) 시각 보상 이펙트!
+    /// </summary>
+    public class CleanSparkleEffect : MonoBehaviour
+    {
+        private float _age;
+        private const float Duration = 0.85f;
+        private Material _mat;
+        private Transform[] _glints;
+
+        public static void Spawn(Vector3 pos)
+        {
+            GameObject root = new GameObject("CleanSparkleFx");
+            root.transform.position = pos;
+            var fx = root.AddComponent<CleanSparkleEffect>();
+            fx.Init();
+        }
+
+        private void Init()
+        {
+            _mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+            _mat.SetFloat("_Surface", 1f);
+            _mat.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            _mat.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
+            _mat.SetFloat("_ZWrite", 0f);
+            _mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            _mat.renderQueue = 3100;
+            _mat.SetColor("_BaseColor", new Color(0.82f, 0.97f, 1.0f, 0.9f));
+
+            _glints = new Transform[3];
+            for (int i = 0; i < 3; i++)
+            {
+                GameObject g = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                Destroy(g.GetComponent<Collider>());
+                g.transform.SetParent(transform, false);
+                g.transform.localPosition = new Vector3((i - 1) * 0.28f, 0.04f + i * 0.06f, (i == 1 ? 0.22f : -0.14f));
+                g.transform.localRotation = Quaternion.Euler(90f, i * 45f, 0f);
+                g.transform.localScale = Vector3.one * 0.22f;
+                var mr = g.GetComponent<MeshRenderer>();
+                mr.sharedMaterial = _mat;
+                mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                _glints[i] = g.transform;
+            }
+        }
+
+        private void Update()
+        {
+            _age += Time.deltaTime;
+            float t = Mathf.Clamp01(_age / Duration);
+            float alpha = Mathf.Sin(t * Mathf.PI);
+            if (_mat != null) _mat.SetColor("_BaseColor", new Color(0.84f, 0.98f, 1.0f, alpha * 0.85f));
+
+            if (_glints != null)
+            {
+                for (int i = 0; i < _glints.Length; i++)
+                {
+                    if (_glints[i] == null) continue;
+                    float s = Mathf.Lerp(0.12f, 0.72f, t);
+                    _glints[i].localScale = new Vector3(s, s * 0.25f, s);
+                    _glints[i].Rotate(Vector3.forward, 160f * Time.deltaTime, Space.Self);
+                    _glints[i].localPosition += Vector3.up * (0.28f * Time.deltaTime);
+                }
+            }
+
+            if (_age >= Duration)
+            {
+                if (_mat != null) Destroy(_mat);
+                Destroy(gameObject);
+            }
         }
     }
 }
