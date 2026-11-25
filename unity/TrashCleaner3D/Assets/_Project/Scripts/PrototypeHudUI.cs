@@ -3,38 +3,47 @@ using UnityEngine;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// TrashCleaner3D v0.8 UI (한국형 원룸 배달 영수증 + 노란 포스트잇 테마):
-    /// - 서술형 문구 0% · 개조식 + 레이아웃/도장/게이지 직관 전달!
-    /// - 3축 재화($ 현금 / ★ 신뢰도 토큰 / ♦ 암시장 포인트)
-    /// - 상단 악취 + 의심 게이지(80~95% ADRENALINE 골드-레드 강조 구간!)
-    /// - 하단 봉투 0~100% + 150% 과적 위험 바 + 동종 연속 압축 칩
-    /// - 80% 조기 정산([K]) 도장 & 막판 10% ×4/×5 잭팟 도장
-    /// - 지층 보물 포스트잇 결정창([Q] 전달 vs [E] 슈킹) & 24노드 이원화 스킬트리
-    /// - Unity 6 안전 BMP 기호만 사용 (이모지 폰트 경고 0개)
+    /// TrashCleaner3D v0.9 UI:
+    /// - Malgun Gothic 동적 한글 폰트 + RectOffset(0) + TextClipping.Overflow로 글씨 깨짐/잘림 0%!
+    /// - 100% 봉투 바 원복 + 1초 HOLD 진동 차징 바 + 동종 압축 칩
+    /// - 크고 화려한 보물 발견 팝업 (회전 황금 광선 · 쉬머 배너 · 팝인 애니메이션 · [Q]전달 / [E]슈킹)
+    /// - 인게임 [Tab] 현금($) 전용 19노드 스킬트리
+    /// - 클리어 후 5버튼 허브: [다시 시작] [다음 단계] [♦ 암시장] [★ 특전] [$ 강화]
     /// </summary>
     public class PrototypeHudUI : MonoBehaviour
     {
         public GamePrototypeManager manager;
         public FirstPersonCleanerController controller;
 
-        private bool _stylesReady;
-        private bool _hintMinimized;
-        private Camera _cam;
+        private enum PostRoundTab { Receipt, BlackMarket, TrustPerks, CashUpgrades }
+        private PostRoundTab _postTab = PostRoundTab.Receipt;
+        private GamePhase _lastObservedPhase = GamePhase.Phase1_TrashRemoval;
 
+        private bool _stylesReady;
+        private Camera _cam;
+        private Font _krFont;
         private Texture2D _whiteTex;
         private Texture2D _dimTex;
 
-        private GUIStyle _inkStyle;
+        private GUIStyle _inkLeft;
         private GUIStyle _inkBold;
         private GUIStyle _inkCenter;
+        private GUIStyle _inkRight;
         private GUIStyle _inkSmall;
-        private GUIStyle _lightStyle;
+        private GUIStyle _inkWrap;
+
+        private GUIStyle _lightLeft;
         private GUIStyle _lightBold;
         private GUIStyle _lightCenter;
+        private GUIStyle _lightRight;
         private GUIStyle _lightSmall;
+        private GUIStyle _lightBigCenter;
+        private GUIStyle _lightTitleCenter;
+
         private GUIStyle _worldPopStyle;
         private GUIStyle _nodeIconStyle;
         private GUIStyle _nodeSubStyle;
+        private GUIStyle _btnStyle;
 
         private struct SkillNodeDef
         {
@@ -43,13 +52,20 @@ namespace TrashCleaner3D
             public int level, maxLevel;
             public bool unlocked, affordable;
             public Color accent;
-            public int currencyType; // 0:$, 1:★, 2:♦
         }
 
         private void Awake()
         {
             _whiteTex = MakeTex(Color.white);
-            _dimTex = MakeTex(new Color(0.05f, 0.06f, 0.08f, 0.84f));
+            _dimTex = MakeTex(new Color(0.04f, 0.05f, 0.08f, 0.86f));
+            try
+            {
+                _krFont = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "맑은 고딕", "NanumGothic", "Arial" }, 14);
+            }
+            catch
+            {
+                _krFont = null;
+            }
         }
 
         private static Texture2D MakeTex(Color c)
@@ -60,35 +76,58 @@ namespace TrashCleaner3D
             return t;
         }
 
+        private GUIStyle MakeLabelStyle(int size, FontStyle fs, TextAnchor align, Color col, bool wrap = false)
+        {
+            var s = new GUIStyle(GUI.skin.label)
+            {
+                font = _krFont != null ? _krFont : GUI.skin.font,
+                fontSize = size,
+                fontStyle = fs,
+                alignment = align,
+                wordWrap = wrap,
+                clipping = wrap ? TextClipping.Clip : TextClipping.Overflow,
+                padding = new RectOffset(0, 0, 0, 0),
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+            s.normal.textColor = col;
+            return s;
+        }
+
         private void EnsureStyles()
         {
             if (_stylesReady) return;
             _stylesReady = true;
 
-            Color ink = new Color(0.12f, 0.13f, 0.15f);
-            _inkStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, wordWrap = true };
-            _inkStyle.normal.textColor = ink;
+            Color ink = new Color(0.11f, 0.12f, 0.14f);
+            Color white = Color.white;
 
-            _inkBold = new GUIStyle(_inkStyle) { fontSize = 14, fontStyle = FontStyle.Bold };
-            _inkCenter = new GUIStyle(_inkBold) { alignment = TextAnchor.MiddleCenter };
-            _inkSmall = new GUIStyle(_inkStyle) { fontSize = 11 };
+            _inkLeft = MakeLabelStyle(13, FontStyle.Normal, TextAnchor.MiddleLeft, ink);
+            _inkBold = MakeLabelStyle(14, FontStyle.Bold, TextAnchor.MiddleLeft, ink);
+            _inkCenter = MakeLabelStyle(14, FontStyle.Bold, TextAnchor.MiddleCenter, ink);
+            _inkRight = MakeLabelStyle(14, FontStyle.Bold, TextAnchor.MiddleRight, ink);
+            _inkSmall = MakeLabelStyle(12, FontStyle.Normal, TextAnchor.MiddleLeft, ink);
+            _inkWrap = MakeLabelStyle(13, FontStyle.Normal, TextAnchor.UpperLeft, ink, true);
 
-            _lightStyle = new GUIStyle(GUI.skin.label) { fontSize = 13, wordWrap = true };
-            _lightStyle.normal.textColor = new Color(0.95f, 0.96f, 0.98f);
+            _lightLeft = MakeLabelStyle(13, FontStyle.Normal, TextAnchor.MiddleLeft, white);
+            _lightBold = MakeLabelStyle(14, FontStyle.Bold, TextAnchor.MiddleLeft, white);
+            _lightCenter = MakeLabelStyle(14, FontStyle.Bold, TextAnchor.MiddleCenter, white);
+            _lightRight = MakeLabelStyle(13, FontStyle.Bold, TextAnchor.MiddleRight, white);
+            _lightSmall = MakeLabelStyle(12, FontStyle.Bold, TextAnchor.MiddleLeft, white);
+            _lightBigCenter = MakeLabelStyle(20, FontStyle.Bold, TextAnchor.MiddleCenter, white);
+            _lightTitleCenter = MakeLabelStyle(26, FontStyle.Bold, TextAnchor.MiddleCenter, white);
 
-            _lightBold = new GUIStyle(_lightStyle) { fontSize = 14, fontStyle = FontStyle.Bold };
-            _lightCenter = new GUIStyle(_lightBold) { alignment = TextAnchor.MiddleCenter };
-            _lightSmall = new GUIStyle(_lightStyle) { fontSize = 11 };
+            _worldPopStyle = MakeLabelStyle(17, FontStyle.Bold, TextAnchor.MiddleCenter, white);
+            _nodeIconStyle = MakeLabelStyle(19, FontStyle.Bold, TextAnchor.MiddleCenter, white);
+            _nodeSubStyle = MakeLabelStyle(11, FontStyle.Bold, TextAnchor.MiddleCenter, white);
 
-            _worldPopStyle = new GUIStyle(GUI.skin.label)
+            _btnStyle = new GUIStyle(GUI.skin.button)
             {
-                fontSize = 17,
+                font = _krFont != null ? _krFont : GUI.skin.font,
+                fontSize = 14,
                 fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleCenter
+                alignment = TextAnchor.MiddleCenter,
+                padding = new RectOffset(4, 4, 2, 2)
             };
-
-            _nodeIconStyle = new GUIStyle(GUI.skin.label) { fontSize = 18, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            _nodeSubStyle = new GUIStyle(GUI.skin.label) { fontSize = 10, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
         }
 
         private void OnGUI()
@@ -96,6 +135,13 @@ namespace TrashCleaner3D
             if (manager == null) return;
             EnsureStyles();
             if (_cam == null) _cam = Camera.main;
+
+            // 방 클리어 화면에 새로 진입할 때 항상 영수증 탭부터 시작
+            if (manager.Phase != _lastObservedPhase)
+            {
+                if (manager.Phase == GamePhase.RoomCompleted) _postTab = PostRoundTab.Receipt;
+                _lastObservedPhase = manager.Phase;
+            }
 
             float w = Screen.width;
             float h = Screen.height;
@@ -108,15 +154,14 @@ namespace TrashCleaner3D
                 DrawHud(w, h);
                 DrawCrosshairAndPrompt(w, h);
             }
-            else if (manager.Phase == GamePhase.TreasureDecision) DrawTreasurePostItModal(w, h);
-            else if (manager.Phase == GamePhase.MindMapUpgrade) DrawSkillTreeBoard(w, h);
+            else if (manager.Phase == GamePhase.TreasureDecision) DrawGrandTreasurePopup(w, h);
+            else if (manager.Phase == GamePhase.MindMapUpgrade) DrawCashSkillTree(w, h, false);
             else if (manager.Phase == GamePhase.SettingsMenu) DrawSettingsMenu(w, h);
-            else if (manager.Phase == GamePhase.RoomCompleted) DrawSettlementReceipt(w, h);
+            else if (manager.Phase == GamePhase.RoomCompleted) DrawPostRoundHub(w, h);
         }
 
         private void DrawScreenOverlays(float w, float h)
         {
-            // 악취 테두리
             if (!manager.IsOutsideVentilating && manager.StenchPercent >= 25f)
             {
                 float t = Mathf.Clamp01((manager.StenchPercent - 25f) / 75f);
@@ -124,14 +169,13 @@ namespace TrashCleaner3D
                 Color edge = manager.StenchStage >= 4 ? new Color(0.45f, 0.14f, 0.40f, alpha) : new Color(0.32f, 0.44f, 0.12f, alpha);
                 DrawBorderGlow(w, h, edge, Mathf.Lerp(16f, 44f, t));
             }
-            // 아드레날린 80~95% 스릴 골드-레드 펄스 테두리!
             if (manager.IsAdrenalineZone)
             {
                 float pulse = 0.10f + 0.08f * Mathf.Abs(Mathf.Sin(Time.time * 6.5f));
                 DrawBorderGlow(w, h, new Color(1.0f, 0.36f, 0.14f, pulse), 22f);
             }
             if (manager.FreshAirFlash01 > 0.01f) DrawRect(new Rect(0, 0, w, h), new Color(0.65f, 0.92f, 1f, manager.FreshAirFlash01 * 0.12f));
-            if (manager.TreasureFlash01 > 0.01f) DrawRect(new Rect(0, 0, w, h), new Color(1f, 0.88f, 0.3f, manager.TreasureFlash01 * 0.16f));
+            if (manager.TreasureFlash01 > 0.01f) DrawRect(new Rect(0, 0, w, h), new Color(1f, 0.88f, 0.3f, manager.TreasureFlash01 * 0.24f));
             if (manager.StealAlertFlash01 > 0.01f) DrawRect(new Rect(0, 0, w, h), new Color(0.95f, 0.16f, 0.14f, manager.StealAlertFlash01 * 0.22f));
         }
 
@@ -150,79 +194,77 @@ namespace TrashCleaner3D
             {
                 Vector3 sp = _cam.WorldToScreenPoint(ft.worldPos);
                 if (sp.z <= 0.1f) continue;
-                float sx = sp.x, sy = h - sp.y;
+                float sx = Mathf.Round(sp.x), sy = Mathf.Round(h - sp.y);
                 float alpha = Mathf.Clamp01(1f - (ft.age / ft.duration) * (ft.age / ft.duration));
                 Color c = ft.color; c.a = alpha;
-                _worldPopStyle.normal.textColor = new Color(0, 0, 0, alpha * 0.8f);
-                GUI.Label(new Rect(sx - 139, sy - 13, 280, 28), ft.text, _worldPopStyle);
+                _worldPopStyle.normal.textColor = new Color(0, 0, 0, alpha * 0.85f);
+                GUI.Label(new Rect(sx - 149, sy - 13, 300, 28), ft.text, _worldPopStyle);
                 _worldPopStyle.normal.textColor = c;
-                GUI.Label(new Rect(sx - 140, sy - 14, 280, 28), ft.text, _worldPopStyle);
+                GUI.Label(new Rect(sx - 150, sy - 14, 300, 28), ft.text, _worldPopStyle);
             }
         }
 
         private void DrawHud(float w, float h)
         {
-            float topY = Mathf.Max(38f, h * 0.062f);
-            float botSafe = Mathf.Max(56f, h * 0.088f);
-            float sideX = Mathf.Max(34f, w * 0.048f);
+            float topY = Mathf.Round(Mathf.Max(38f, h * 0.062f));
+            float botSafe = Mathf.Round(Mathf.Max(56f, h * 0.088f));
+            float sideX = Mathf.Round(Mathf.Max(34f, w * 0.048f));
 
-            // ===== 1. 좌상단: 배달 영수증 카드 ($ · ★ · ♦ · 진행률 · 80% 조기정산 / 막판 10% 도장) =====
-            float cardW = 248f;
+            // ===== 1. 좌상단: 배달 영수증 카드 =====
+            float cardW = 264f;
             bool showExtraRow = manager.ContinuousFever01 > 0.05f || manager.IsLast10Jackpot || manager.CanEarlyCheckout;
-            float cardH = showExtraRow ? 92f : 66f;
+            float cardH = showExtraRow ? 106f : 78f;
             Rect tl = new Rect(sideX, topY, cardW, cardH);
             DrawReceiptBox(tl);
 
-            // 1행: 3축 재화 + 청소 %
+            // 1행: STAGE + 3재화 + %
             GUI.color = new Color(0.06f, 0.46f, 0.20f);
-            GUI.Label(new Rect(tl.x + 10, tl.y + 6, 86, 20), $"${manager.Money:N0}", _lightBold);
+            GUI.Label(new Rect(tl.x + 10, tl.y + 7, 88, 22), $"${manager.Money:N0}", _lightBold);
             GUI.color = new Color(0.10f, 0.38f, 0.78f);
-            GUI.Label(new Rect(tl.x + 92, tl.y + 6, 48, 20), $"★{manager.TrustTokens}", _lightBold);
+            GUI.Label(new Rect(tl.x + 100, tl.y + 7, 50, 22), $"★{manager.TrustTokens}", _lightBold);
             GUI.color = new Color(0.76f, 0.12f, 0.32f);
-            GUI.Label(new Rect(tl.x + 140, tl.y + 6, 48, 20), $"♦{manager.BlackMarketPts}", _lightBold);
+            GUI.Label(new Rect(tl.x + 150, tl.y + 7, 50, 22), $"♦{manager.BlackMarketPts}", _lightBold);
             GUI.color = Color.white;
-            GUI.Label(new Rect(tl.x + cardW - 56, tl.y + 6, 48, 20), $"{manager.OverallCleanPercent:0}%", _inkCenter);
+            GUI.Label(new Rect(tl.x + cardW - 60, tl.y + 7, 50, 22), $"{manager.OverallCleanPercent:0}%", _inkRight);
 
-            // 2행: 진행률 바 (80% 컷 + 90% 잭팟 구역 표시)
-            Rect progBg = new Rect(tl.x + 10, tl.y + 30, cardW - 20, 10);
+            // 2행: 진행률 바 (80% 컷 + 90% 골드 잭팟 구간)
+            Rect progBg = new Rect(tl.x + 10, tl.y + 34, cardW - 20, 11);
             DrawRect(progBg, new Color(0.80f, 0.77f, 0.70f));
-            // 90~100% 골드 잭팟 구간 배경 표시
-            DrawRect(new Rect(progBg.x + progBg.width * 0.90f, progBg.y, progBg.width * 0.10f, progBg.height), new Color(0.96f, 0.78f, 0.20f, 0.55f));
+            DrawRect(new Rect(progBg.x + progBg.width * 0.90f, progBg.y, progBg.width * 0.10f, progBg.height), new Color(0.96f, 0.78f, 0.20f, 0.60f));
             Color progFill = manager.IsLast10Jackpot ? new Color(0.95f, 0.65f, 0.10f) : (manager.Phase == GamePhase.Phase2_FloorMopping ? new Color(0.22f, 0.62f, 0.90f) : new Color(0.18f, 0.68f, 0.34f));
             DrawRect(new Rect(progBg.x, progBg.y, progBg.width * (manager.OverallCleanPercent / 100f), progBg.height), progFill);
-            // 80% 조기 정산 마커 선
             DrawRect(new Rect(progBg.x + progBg.width * 0.80f, progBg.y - 2, 2, progBg.height + 4), new Color(0.75f, 0.20f, 0.18f));
 
-            // 3행: 현재 도구 + 배율 뱃지
+            // 3행: 스테이지 + 현재 도구
             string toolTag = manager.Phase == GamePhase.Phase2_FloorMopping
-                ? (manager.HasMopUnlocked ? "도구: T자 대걸레" : "도구: 물티슈")
-                : $"도구: {manager.CurrentToolName}";
-            GUI.Label(new Rect(tl.x + 10, tl.y + 44, cardW - 20, 18), toolTag, _inkSmall);
+                ? (manager.HasMopUnlocked ? "T자 대걸레" : "물티슈")
+                : manager.CurrentToolName;
+            GUI.Label(new Rect(tl.x + 10, tl.y + 50, cardW - 20, 22), $"ST.{manager.CurrentStage} · {toolTag}", _inkSmall);
 
-            // 4행 (동적): 피버 바 / 막판 10% 잭팟 도장 / 80% 조기 정산 도장
+            // 4행 (동적): 피버 / 조기 정산 / 막판 잭팟
             if (showExtraRow)
             {
-                float ry = tl.y + 66f;
+                float ry = tl.y + 76f;
                 if (manager.CanEarlyCheckout)
                 {
-                    Rect stampR = new Rect(tl.x + 10, ry - 2, 114, 21);
-                    DrawBorderedBox(stampR, new Color(0.96f, 0.90f, 0.88f), new Color(0.78f, 0.18f, 0.18f), 2);
+                    Rect stampR = new Rect(tl.x + 10, ry, 118, 22);
+                    DrawBorderedBox(stampR, new Color(0.98f, 0.91f, 0.90f), new Color(0.78f, 0.18f, 0.18f), 2);
                     GUI.color = new Color(0.78f, 0.14f, 0.14f);
                     GUI.Label(stampR, "[K] 조기 정산", _lightCenter);
                     GUI.color = Color.white;
                 }
                 else if (manager.ContinuousFever01 > 0.05f)
                 {
-                    Rect fBg = new Rect(tl.x + 10, ry + 3, 114, 12);
+                    Rect fBg = new Rect(tl.x + 10, ry + 2, 118, 18);
                     DrawRect(fBg, new Color(0.78f, 0.75f, 0.68f));
                     Color fCol = manager.IsFeverHot ? new Color(0.96f, 0.45f, 0.12f) : new Color(0.95f, 0.74f, 0.18f);
                     DrawRect(new Rect(fBg.x, fBg.y, fBg.width * manager.ContinuousFever01, fBg.height), fCol);
-                    GUI.Label(new Rect(fBg.x + 4, fBg.y - 2, 108, 16), $"FEVER {manager.ContinuousFever01 * 100f:0}%", _inkSmall);
+                    GUI.Label(new Rect(fBg.x + 6, fBg.y, 108, 18), $"FEVER {manager.ContinuousFever01 * 100f:0}%", _inkSmall);
                 }
 
                 if (manager.IsLast10Jackpot)
                 {
-                    Rect jpR = new Rect(tl.x + 130, ry - 2, 108, 21);
+                    Rect jpR = new Rect(tl.x + 136, ry, 118, 22);
                     DrawBorderedBox(jpR, new Color(1.0f, 0.92f, 0.56f), new Color(0.84f, 0.48f, 0.06f), 2);
                     GUI.color = new Color(0.62f, 0.28f, 0.02f);
                     GUI.Label(jpR, $"★ 막판 ×{manager.Last10JackpotMult:0}", _lightCenter);
@@ -230,13 +272,12 @@ namespace TrashCleaner3D
                 }
             }
 
-            // ===== 2. 상단 중앙: 악취 4칸 바 + 의심 게이지 (80~95% ADRENALINE 구간 강조!) =====
-            float barW = Mathf.Min(360f, w * 0.40f);
-            float barX = (w - barW) * 0.5f;
-            Rect tc = new Rect(barX, topY, barW, 64f);
-            DrawBorderedBox(tc, new Color(0.12f, 0.13f, 0.16f, 0.90f), manager.IsAdrenalineZone ? new Color(1f, 0.55f, 0.15f) : new Color(0.32f, 0.35f, 0.42f), manager.IsAdrenalineZone ? 2 : 1);
+            // ===== 2. 상단 중앙: 악취 4칸 + 의심 게이지(80~95% ADRENALINE) =====
+            float barW = Mathf.Round(Mathf.Min(380f, w * 0.40f));
+            float barX = Mathf.Round((w - barW) * 0.5f);
+            Rect tc = new Rect(barX, topY, barW, 70f);
+            DrawBorderedBox(tc, new Color(0.11f, 0.12f, 0.15f, 0.92f), manager.IsAdrenalineZone ? new Color(1f, 0.55f, 0.15f) : new Color(0.32f, 0.35f, 0.42f), manager.IsAdrenalineZone ? 2 : 1);
 
-            // 상단: 악취 4칸
             int st = manager.StenchStage;
             Color stCol = manager.IsOutsideVentilating ? new Color(0.38f, 0.84f, 1f) :
                 st == 0 ? new Color(0.40f, 0.88f, 0.48f) :
@@ -245,15 +286,15 @@ namespace TrashCleaner3D
                 st == 3 ? new Color(0.95f, 0.24f, 0.22f) : new Color(0.82f, 0.28f, 0.96f);
 
             GUI.color = stCol;
-            GUI.Label(new Rect(tc.x + 8, tc.y + 6, 48, 20), "☣ 악취", _lightSmall);
+            GUI.Label(new Rect(tc.x + 10, tc.y + 8, 54, 22), "☣ 악취", _lightSmall);
             GUI.color = Color.white;
 
-            float cellStartX = tc.x + 58f;
-            float trackW = barW - 142f;
+            float cellStartX = tc.x + 68f;
+            float trackW = barW - 156f;
             float cellW = (trackW - 9f) / 4f;
             for (int i = 0; i < 4; i++)
             {
-                Rect cell = new Rect(cellStartX + i * (cellW + 3f), tc.y + 9, cellW, 12);
+                Rect cell = new Rect(cellStartX + i * (cellW + 3f), tc.y + 12, cellW, 13);
                 DrawRect(cell, new Color(0.22f, 0.24f, 0.28f));
                 float seg = Mathf.Clamp01((manager.StenchPercent - i * 25f) / 25f);
                 if (seg > 0.001f) DrawRect(new Rect(cell.x, cell.y, cell.width * seg, cell.height), stCol);
@@ -261,74 +302,63 @@ namespace TrashCleaner3D
             string stTag = manager.IsOutsideVentilating ? "환기 중" :
                 st == 4 ? "작업불가!" : st == 3 ? "이속↓↓" : st == 2 ? "이속↓" : st == 1 ? "답답함" : "쾌적";
             GUI.color = stCol;
-            GUI.Label(new Rect(cellStartX + trackW + 6, tc.y + 6, 74, 20), stTag, _lightSmall);
+            GUI.Label(new Rect(cellStartX + trackW + 8, tc.y + 8, 76, 22), stTag, _lightSmall);
             GUI.color = Color.white;
 
-            // 하단: 의심 게이지 (0~100% 확정 발각 + 80~95% ADRENALINE 골드-레드 강조!)
-            float sy = tc.y + 34f;
+            // 의심 게이지
+            float sy = tc.y + 38f;
             Color suspCol = manager.IsAdrenalineZone ? new Color(1.0f, 0.42f, 0.15f)
                           : manager.SuspicionPercent >= 50f ? new Color(0.98f, 0.72f, 0.22f)
                           : new Color(0.52f, 0.84f, 0.96f);
 
             GUI.color = suspCol;
-            GUI.Label(new Rect(tc.x + 8, sy, 48, 20), "◎ 의심", _lightSmall);
+            GUI.Label(new Rect(tc.x + 10, sy, 54, 22), "◎ 의심", _lightSmall);
             GUI.color = Color.white;
 
-            Rect suspTrack = new Rect(cellStartX, sy + 3, trackW, 14);
+            Rect suspTrack = new Rect(cellStartX, sy + 4, trackW, 14);
             DrawRect(suspTrack, new Color(0.20f, 0.22f, 0.26f));
+            DrawRect(new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 1, trackW * 0.15f, suspTrack.height + 2), new Color(1.0f, 0.45f, 0.12f, manager.IsAdrenalineZone ? 0.68f : 0.34f));
+            DrawRect(new Rect(suspTrack.x + trackW * 0.95f, suspTrack.y, trackW * 0.05f, suspTrack.height), new Color(0.92f, 0.15f, 0.15f, 0.58f));
 
-            // 80~95% ADRENALINE 강조 구역 배경
-            Rect adrZone = new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 1, trackW * 0.15f, suspTrack.height + 2);
-            DrawRect(adrZone, new Color(1.0f, 0.45f, 0.12f, manager.IsAdrenalineZone ? 0.65f : 0.32f));
-            // 100% 확정 퇴거 레드 끝선
-            DrawRect(new Rect(suspTrack.x + trackW * 0.95f, suspTrack.y, trackW * 0.05f, suspTrack.height), new Color(0.92f, 0.15f, 0.15f, 0.55f));
-
-            // 실제 의심 바 채움
             float suspFillW = trackW * (manager.SuspicionPercent / 100f);
             if (suspFillW > 0.5f) DrawRect(new Rect(suspTrack.x, suspTrack.y + 1, suspFillW, suspTrack.height - 2), suspCol);
-
-            // 80% 경계 틱
             DrawRect(new Rect(suspTrack.x + trackW * 0.80f, suspTrack.y - 2, 2, suspTrack.height + 4), new Color(1f, 0.85f, 0.25f));
 
-            string suspTag = manager.IsAdrenalineZone
-                ? $"스릴 ×{manager.AdrenalineMult:0.#}"
-                : $"{manager.SuspicionPercent:0}%";
+            string suspTag = manager.IsAdrenalineZone ? $"스릴 ×{manager.AdrenalineMult:0.#}" : $"{manager.SuspicionPercent:0}%";
             GUI.color = suspCol;
-            GUI.Label(new Rect(cellStartX + trackW + 6, sy, 74, 20), suspTag, _lightSmall);
+            GUI.Label(new Rect(cellStartX + trackW + 8, sy, 76, 22), suspTag, _lightSmall);
             GUI.color = Color.white;
 
-            // ===== 3. 우상단: [Tab] 스킬트리 + 의뢰인 노란 포스트잇 힌트 =====
-            int afford = manager.CountAffordableUpgrades();
-            Rect trBtn = new Rect(w - sideX - 118, topY, 118, 30);
+            // ===== 3. 우상단: [Tab] 현금 스킬트리 + 노란 포스트잇 의뢰 메모 =====
+            int afford = manager.CountAffordableCashUpgrades();
+            Rect trBtn = new Rect(w - sideX - 128, topY, 128, 32);
             DrawReceiptBox(trBtn);
-            GUI.color = afford > 0 ? new Color(0.76f, 0.34f, 0.04f) : new Color(0.14f, 0.15f, 0.18f);
+            GUI.color = afford > 0 ? new Color(0.76f, 0.34f, 0.04f) : new Color(0.12f, 0.13f, 0.16f);
             GUI.Label(trBtn, afford > 0 ? $"[Tab] ★+{afford}" : "[Tab] 스킬트리", _lightCenter);
             GUI.color = Color.white;
 
-            // 노란 포스트잇: 의뢰인 코믹 힌트 (간결한 메모 카드, [H]로 접기/펴기)
-            _hintMinimized = controller != null && controller.ShowHelp;
-            Rect postItRect = _hintMinimized
-                ? new Rect(w - sideX - 118, topY + 36, 118, 24)
-                : new Rect(w - sideX - 208, topY + 36, 208, 64);
+            bool hintMin = controller != null && controller.ShowHelp;
+            Rect postItRect = hintMin
+                ? new Rect(w - sideX - 128, topY + 38, 128, 28)
+                : new Rect(w - sideX - 228, topY + 38, 228, 72);
             DrawPostItBox(postItRect);
-            if (_hintMinimized)
+            if (hintMin)
             {
                 GUI.Label(postItRect, "■ 의뢰 메모 [H]", _inkCenter);
             }
             else
             {
-                GUI.Label(new Rect(postItRect.x + 8, postItRect.y + 6, postItRect.width - 16, 18), "■ 의뢰인 메모 [H]", _inkBold);
-                GUI.Label(new Rect(postItRect.x + 8, postItRect.y + 24, postItRect.width - 16, 36), "매트리스 옆 비상금 · 찾으면 연락!", _inkSmall);
+                GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 8, postItRect.width - 20, 22), "■ 의뢰인 메모 [H]", _inkBold);
+                GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 30, postItRect.width - 20, 38), manager.CurrentClientHint, _inkWrap);
             }
 
-            // ===== 4. 중앙 하단: 봉투(0~100% + 150% 과적) & 동종 연속 압축 칩 =====
+            // ===== 4. 중앙 하단: 100% 정직 봉투 바 + 동종 압축 칩 =====
             DrawBottomBagAndStreakBar(w, h, botSafe);
 
-            // 짧은 토스트 (중앙 하단 위)
             if (!string.IsNullOrEmpty(manager.ToastMessage))
             {
-                Rect toastR = new Rect(w * 0.5f - 175, h - botSafe - 102, 350, 26);
-                DrawBorderedBox(toastR, new Color(0.10f, 0.11f, 0.14f, 0.90f), new Color(0.95f, 0.80f, 0.26f), 1);
+                Rect toastR = new Rect(Mathf.Round(w * 0.5f - 185), h - botSafe - 114, 370, 30);
+                DrawBorderedBox(toastR, new Color(0.10f, 0.11f, 0.14f, 0.92f), new Color(0.95f, 0.80f, 0.26f), 1);
                 GUI.color = new Color(1f, 0.92f, 0.55f);
                 GUI.Label(toastR, manager.ToastMessage, _lightCenter);
                 GUI.color = Color.white;
@@ -337,93 +367,67 @@ namespace TrashCleaner3D
 
         private void DrawBottomBagAndStreakBar(float w, float h, float botSafe)
         {
-            float bw = 286f;
-            float bx = (w - bw) * 0.5f;
-            float by = h - botSafe - 36f;
+            float bw = 290f;
+            float bx = Mathf.Round((w - bw) * 0.5f);
+            float by = Mathf.Round(h - botSafe - 48f);
 
-            // 동종 연속 압축 칩 (2개 이상 쌓이면 바로 위에 표시!)
+            // 동종 연속 압축 칩
             if (manager.StreakCount >= 2 && manager.Phase == GamePhase.Phase1_TrashRemoval)
             {
-                Rect sChip = new Rect(w * 0.5f - 110, by - 26, 220, 22);
-                DrawBorderedBox(sChip, new Color(0.08f, 0.26f, 0.20f, 0.92f), new Color(0.32f, 0.96f, 0.65f), 1);
+                Rect sChip = new Rect(Mathf.Round(w * 0.5f - 125), by - 30, 250, 26);
+                DrawBorderedBox(sChip, new Color(0.08f, 0.26f, 0.20f, 0.94f), new Color(0.32f, 0.96f, 0.65f), 1);
                 GUI.color = new Color(0.45f, 1f, 0.72f);
-                GUI.Label(sChip, $"◈ {manager.StreakTypeLabel} {manager.StreakCount}/{GamePrototypeManager.CompressionStreakTarget} → 압축(0칸·×2)", _lightCenter);
+                GUI.Label(sChip, $"◈ {manager.StreakTypeLabel} {manager.StreakCount}/{manager.CompressionStreakTarget} → 압축(0칸·×2)", _lightCenter);
                 GUI.color = Color.white;
             }
 
             if (manager.HasCarriedBag)
             {
-                Rect card = new Rect(bx, by, bw, 36);
-                DrawBorderedBox(card, new Color(0.14f, 0.13f, 0.08f, 0.94f), new Color(1f, 0.82f, 0.22f), 2);
+                Rect card = new Rect(bx, by + 6, bw, 40);
+                DrawBorderedBox(card, new Color(0.14f, 0.13f, 0.08f, 0.95f), new Color(1f, 0.82f, 0.22f), 2);
                 GUI.color = new Color(1f, 0.90f, 0.36f);
                 GUI.Label(card, $"▣ 보유 봉지 (${manager.CarriedBagValue}) · [RMB] {manager.CurrentVehicleName}", _lightCenter);
                 GUI.color = Color.white;
             }
             else if (manager.Phase == GamePhase.Phase1_TrashRemoval)
             {
-                bool over = manager.IsBagOverfilled;
-                bool ready = manager.IsBagFullReady;
-                Color border = over ? new Color(1f, 0.32f, 0.22f) : ready ? new Color(0.36f, 0.94f, 0.52f) : new Color(0.34f, 0.37f, 0.42f);
+                Rect card = new Rect(bx, by, bw, 46);
+                DrawBorderedBox(card, new Color(0.11f, 0.12f, 0.15f, 0.93f), new Color(0.34f, 0.37f, 0.44f), 1);
 
-                Rect card = new Rect(bx, by, bw, 38);
-                DrawBorderedBox(card, new Color(0.11f, 0.12f, 0.15f, 0.92f), border, over ? 2 : 1);
-
-                string leftTxt = over
-                    ? $"▲ 과적 {manager.BagFillRatio * 100f:0}% ({manager.CollectingCount}/{manager.OverfillCapacity})"
-                    : $"▣ {manager.CollectingCount}/{manager.HandBagCapacity}";
-                string rightTxt = ready
-                    ? $"${manager.CollectingPendingValue} · [RMB] 투하"
-                    : $"${manager.CollectingPendingValue}";
-
-                GUI.color = over ? new Color(1f, 0.48f, 0.36f) : ready ? new Color(0.46f, 0.96f, 0.58f) : Color.white;
-                GUI.Label(new Rect(card.x + 10, card.y + 4, 155, 18), leftTxt, _lightSmall);
-                GUI.Label(new Rect(card.x + bw - 135, card.y + 4, 125, 18), rightTxt, _lightSmall);
+                GUI.Label(new Rect(card.x + 12, card.y + 5, 145, 22), $"▣ 봉투 {manager.CollectingCount} / {manager.HandBagCapacity}", _lightSmall);
+                GUI.color = new Color(0.45f, 0.96f, 0.56f);
+                GUI.Label(new Rect(card.x + bw - 120, card.y + 5, 108, 22), $"${manager.CollectingPendingValue}", _lightRight);
                 GUI.color = Color.white;
 
-                // 0% ~ 150% 스케일 바 (66.7% 지점이 100% 컷, 나머지가 100~150% 과적 구역!)
-                Rect track = new Rect(card.x + 10, card.y + 24, bw - 20, 8);
+                Rect track = new Rect(card.x + 12, card.y + 30, bw - 24, 9);
                 DrawRect(track, new Color(0.22f, 0.24f, 0.28f));
-                float cutX = track.x + track.width * (2f / 3f);
-                // 과적 구역 배경 (붉은 빗금 느낌)
-                DrawRect(new Rect(cutX, track.y, track.width * (1f / 3f), track.height), new Color(0.55f, 0.16f, 0.14f, 0.45f));
-
-                float fill01 = Mathf.Clamp01(manager.BagFillRatio / 1.5f);
-                Color barCol = over ? new Color(1f, 0.30f, 0.20f) : ready ? new Color(0.36f, 0.92f, 0.52f) : new Color(0.42f, 0.80f, 0.98f);
-                DrawRect(new Rect(track.x, track.y, track.width * fill01, track.height), barCol);
-                // 100% 경계선
-                DrawRect(new Rect(cutX, track.y - 2, 2, track.height + 4), Color.white);
+                float ratio = Mathf.Clamp01(manager.CollectingCount / (float)Mathf.Max(1, manager.HandBagCapacity));
+                DrawRect(new Rect(track.x, track.y, track.width * ratio, track.height), new Color(0.38f, 0.84f, 0.98f));
             }
         }
 
         private void DrawCrosshairAndPrompt(float w, float h)
         {
             if (controller == null) return;
-            float cx = w * 0.5f, cy = h * 0.5f;
+            float cx = Mathf.Round(w * 0.5f), cy = Mathf.Round(h * 0.5f);
 
-            bool hasTarget = controller.AimDoor != null || controller.AimDroppedBag != null || controller.AimTreasure != null ||
+            bool hasTarget = controller.AimDoor != null || controller.AimDroppedBag != null ||
                              controller.AimIsPile || controller.AimIsSwarmNear || controller.AimIsStain;
-            Color dotCol = controller.AimTreasure != null ? new Color(1f, 0.86f, 0.22f)
-                         : hasTarget ? new Color(0.42f, 0.98f, 0.58f)
-                         : new Color(1f, 1f, 1f, 0.75f);
+            Color dotCol = hasTarget ? new Color(0.42f, 0.98f, 0.58f) : new Color(1f, 1f, 1f, 0.78f);
             float sz = hasTarget ? 6f : 4f;
             DrawRect(new Rect(cx - sz * 0.5f, cy - sz * 0.5f, sz, sz), dotCol);
 
-            // 큰 더미/얼룩 진행 미니 바
-            if (controller.AimProgress01 > 0.01f && controller.AimProgress01 < 0.99f)
+            // 1초 HOLD 진동 차징 바 / 큰 봉지 내구도 바
+            if (controller.AimProgress01 > 0.01f && controller.AimProgress01 < 0.999f)
             {
-                Rect pb = new Rect(cx - 28, cy + 12, 56, 5);
-                DrawRect(pb, new Color(0, 0, 0, 0.65f));
-                DrawRect(new Rect(pb.x, pb.y, pb.width * controller.AimProgress01, pb.height), dotCol);
+                Rect pb = new Rect(cx - 34, cy + 14, 68, 7);
+                DrawBorderedBox(pb, new Color(0.08f, 0.09f, 0.12f, 0.85f), new Color(0.85f, 0.85f, 0.85f, 0.6f), 1);
+                Color barC = controller.AimIsPile ? new Color(1f, 0.60f, 0.22f) : new Color(1f, 0.90f, 0.28f);
+                DrawRect(new Rect(pb.x + 1, pb.y + 1, (pb.width - 2) * controller.AimProgress01, pb.height - 2), barC);
             }
 
-            // 간결 개조식 조준 프롬프트 (서술형 0%!)
             string prompt = null;
-            if (controller.AimTreasure != null)
-            {
-                string tag = controller.AimTreasure.isMentionedByClient ? "★ 의뢰 언급" : "★ 지층 보물";
-                prompt = $"{tag} · {controller.AimTreasure.itemName} · [LMB/F] 발굴";
-            }
-            else if (controller.AimDoor != null)
+            if (controller.AimDoor != null)
             {
                 prompt = controller.AimDoor.IsOpen ? "[F] 문 닫기" : "[F] 현관문 열기";
             }
@@ -435,146 +439,191 @@ namespace TrashCleaner3D
             {
                 prompt = "←→ 마우스 흔들어 닦기";
             }
-            else if (manager.IsBagOverfilled)
+            else if (controller.AimIsPile)
             {
-                prompt = manager.HasDoubleBottomBag
-                    ? "과적 중 (이중바닥 보호) · [RMB] 투하"
-                    : "▲ 과적 위험 · 벽 충돌 시 폭발 · [RMB] 투하";
+                prompt = "[클릭] 큰 봉투 터뜨리기";
             }
 
             if (!string.IsNullOrEmpty(prompt))
             {
-                Rect pr = new Rect(cx - 160, cy + 26, 320, 24);
-                DrawBorderedBox(pr, new Color(0.08f, 0.09f, 0.12f, 0.86f), dotCol, 1);
+                Rect pr = new Rect(cx - 140, cy + 28, 280, 28);
+                DrawBorderedBox(pr, new Color(0.08f, 0.09f, 0.12f, 0.88f), dotCol, 1);
                 GUI.Label(pr, prompt, _lightCenter);
             }
         }
 
-        // ===== 노란 포스트잇 지층 보물 결정창 ([Q] 전달 vs [E] 슈킹) =====
-        private void DrawTreasurePostItModal(float w, float h)
+        // ===== 요청 #5: 크고 화려한 보물 자동 발견 팝업 ([Q] 전달 vs [E] 슈킹) =====
+        private void DrawGrandTreasurePopup(float w, float h)
         {
             var item = manager.ActiveTreasure;
             if (item == null) return;
 
             GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
 
-            float cw = 430f, ch = 264f;
-            Rect card = new Rect((w - cw) * 0.5f, (h - ch) * 0.5f, cw, ch);
-            DrawPostItBox(card);
+            float now = Time.time;
+            float openT = Mathf.Clamp01(manager.TreasurePopupOpenAge / 0.22f);
+            float popScale = Mathf.Lerp(0.84f, 1.0f, 1f - (1f - openT) * (1f - openT));
 
-            string badge = item.isMentionedByClient ? "★ 의뢰인 언급 물건 (단가 ×2 · 의심 ×2)" : "★ 지층 발굴 보물";
-            GUI.color = item.isMentionedByClient ? new Color(0.76f, 0.12f, 0.10f) : new Color(0.46f, 0.30f, 0.04f);
-            GUI.Label(new Rect(card.x + 18, card.y + 16, cw - 36, 22), badge, _lightCenter);
+            float cx = w * 0.5f, cy = h * 0.5f;
+
+            // 회전하는 황금 광선 12줄 (화려한 잭팟 연출!)
+            Color rayCol = item.isMentionedByClient
+                ? new Color(1.0f, 0.42f, 0.18f, 0.14f)
+                : new Color(1.0f, 0.84f, 0.24f, 0.14f);
+            Matrix4x4 prevMtx = GUI.matrix;
+            for (int i = 0; i < 12; i++)
+            {
+                float ang = i * 30f + now * 18f;
+                GUIUtility.RotateAroundPivot(ang, new Vector2(cx, cy));
+                DrawRect(new Rect(cx - 24f, cy - Mathf.Max(w, h) * 0.65f, 48f, Mathf.Max(w, h) * 1.3f), rayCol);
+                GUI.matrix = prevMtx;
+            }
+
+            float cw = Mathf.Round(Mathf.Min(610f, w * 0.84f) * popScale);
+            float ch = Mathf.Round(Mathf.Min(410f, h * 0.78f) * popScale);
+            Rect card = new Rect(Mathf.Round(cx - cw * 0.5f), Mathf.Round(cy - ch * 0.5f), cw, ch);
+
+            // 바깥 글로우 프레임 + 이중 골드 테두리
+            float glowPulse = 0.65f + 0.35f * Mathf.Sin(now * 6f);
+            Color outerGold = item.isMentionedByClient
+                ? new Color(1.0f, 0.38f, 0.18f, glowPulse)
+                : new Color(1.0f, 0.82f, 0.22f, glowPulse);
+            DrawRect(new Rect(card.x - 8, card.y - 8, card.width + 16, card.height + 16), new Color(outerGold.r, outerGold.g, outerGold.b, 0.28f));
+            DrawBorderedBox(card, new Color(0.10f, 0.11f, 0.15f, 0.97f), outerGold, 3);
+            DrawBorderedBox(new Rect(card.x + 6, card.y + 6, card.width - 12, card.height - 12), new Color(0.13f, 0.14f, 0.18f, 0.98f), new Color(1f, 0.92f, 0.52f, 0.45f), 1);
+
+            // 상단 화려한 배너 + 쉬머 스윕
+            Rect banner = new Rect(card.x + 16, card.y + 16, cw - 32, 42);
+            Color bannerBg = item.isMentionedByClient ? new Color(0.76f, 0.18f, 0.12f)
+                           : item.rarity == TreasureRarity.Legendary ? new Color(0.78f, 0.52f, 0.08f)
+                           : new Color(0.18f, 0.46f, 0.76f);
+            DrawBorderedBox(banner, bannerBg, new Color(1f, 0.92f, 0.46f), 2);
+            float sweepX = Mathf.Repeat(now * 260f, banner.width + 120f) - 60f;
+            DrawRect(new Rect(Mathf.Clamp(banner.x + sweepX, banner.x, banner.xMax - 40), banner.y + 2, 40, banner.height - 4), new Color(1f, 1f, 1f, 0.18f));
+
+            string bannerText = item.isMentionedByClient
+                ? "★ 의뢰인 언급 핵심 물건 발견! (단가 ×2 · 의심 ×2) ★"
+                : item.rarity == TreasureRarity.Legendary
+                    ? "★ LEGENDARY 희귀 보물 발견! ★"
+                    : "✦ 보물 발견! 처리 방식을 선택하세요 ✦";
+            GUI.color = new Color(1f, 0.96f, 0.75f);
+            GUI.Label(banner, bannerText, _lightCenter);
             GUI.color = Color.white;
-            GUI.Label(new Rect(card.x + 18, card.y + 42, cw - 36, 26), item.itemName, new GUIStyle(_inkCenter) { fontSize = 18 });
 
-            // 구분 점선
-            GUI.Label(new Rect(card.x + 18, card.y + 70, cw - 36, 18), "--------------------------------------------------", _inkCenter);
+            // 중앙 대형 보물 이름 + 반짝이 별
+            string starAnim = Mathf.Sin(now * 8f) > 0 ? "✦" : "★";
+            GUI.color = new Color(1f, 0.88f, 0.34f);
+            GUI.Label(new Rect(card.x + 20, card.y + 72, cw - 40, 38), $"{starAnim}  {item.itemName}  {starAnim}", _lightTitleCenter);
+            GUI.color = Color.white;
 
             int honestTokens = item.isMentionedByClient ? 2 : 1;
-            int honestTip = item.isMentionedByClient ? 65 : 30;
+            int honestTip = Mathf.RoundToInt((item.isMentionedByClient ? 65 : 30) * manager.StageRewardMult);
             float mentionMult = item.isMentionedByClient ? 2f : 1f;
             int stealEst = Mathf.RoundToInt(item.value * mentionMult * manager.AdrenalineMult);
             int bmPts = item.isMentionedByClient ? 2 : 1;
             float suspAdd = item.baseSuspicionGain * mentionMult;
 
-            // 좌측: [Q] 전달 (성실 루트)
-            Rect qBox = new Rect(card.x + 18, card.y + 96, 190, 146);
-            DrawBorderedBox(qBox, new Color(0.92f, 0.96f, 0.92f), new Color(0.16f, 0.58f, 0.30f), 2);
-            GUI.color = new Color(0.08f, 0.44f, 0.20f);
-            GUI.Label(new Rect(qBox.x + 8, qBox.y + 10, qBox.width - 16, 22), "[Q] 의뢰인 전달", _lightCenter);
+            string subBadge = manager.IsAdrenalineZone
+                ? $"★ 아드레날린 적용 중! (슈킹 단가 ×{manager.AdrenalineMult:0.#})"
+                : $"현재 의심도 {manager.SuspicionPercent:0}% · 100% 도달 시 강제 퇴거 정산";
+            GUI.color = new Color(0.84f, 0.86f, 0.90f);
+            GUI.Label(new Rect(card.x + 20, card.y + 114, cw - 40, 24), subBadge, _lightCenter);
             GUI.color = Color.white;
-            GUI.Label(new Rect(qBox.x + 12, qBox.y + 40, qBox.width - 24, 62),
-                $"• ★ 신뢰도 +{honestTokens}\n• 의심 -25% 세탁\n• 사례금 +${honestTip}", _inkStyle);
 
-            // 우측: [E] 슈킹 (도둑질 루트)
-            Rect eBox = new Rect(card.x + cw - 208, card.y + 96, 190, 146);
-            DrawBorderedBox(eBox, new Color(0.98f, 0.91f, 0.90f), new Color(0.80f, 0.18f, 0.18f), 2);
-            GUI.color = new Color(0.76f, 0.12f, 0.14f);
-            GUI.Label(new Rect(eBox.x + 8, eBox.y + 10, eBox.width - 16, 22), "[E] 즉시 슈킹", _lightCenter);
+            // 좌/우 대형 선택 카드
+            float boxW = Mathf.Round((cw - 56f) * 0.5f);
+            float boxH = ch - 168f;
+            float boxY = card.y + 148f;
+
+            // 좌측: [Q] 성실 전달
+            Rect qBox = new Rect(card.x + 20, boxY, boxW, boxH);
+            DrawBorderedBox(qBox, new Color(0.08f, 0.22f, 0.16f, 0.96f), new Color(0.32f, 0.94f, 0.56f), 2);
+            GUI.color = new Color(0.46f, 1.0f, 0.66f);
+            GUI.Label(new Rect(qBox.x + 12, qBox.y + 12, qBox.width - 24, 28), "[Q] 의뢰인에게 전달", _lightBigCenter);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(qBox.x + 20, qBox.y + 52, qBox.width - 40, 24), $"• ★ 신뢰도 토큰 +{honestTokens} (클리어 후 특전)", _lightLeft);
+            GUI.Label(new Rect(qBox.x + 20, qBox.y + 80, qBox.width - 40, 24), "• 의심도 -25% 즉시 세탁", _lightLeft);
+            GUI.Label(new Rect(qBox.x + 20, qBox.y + 108, qBox.width - 40, 24), $"• 성실 사례금 +${honestTip}", _lightLeft);
+
+            // 우측: [E] 즉시 슈킹
+            Rect eBox = new Rect(card.x + cw - 20 - boxW, boxY, boxW, boxH);
+            DrawBorderedBox(eBox, new Color(0.24f, 0.08f, 0.11f, 0.96f), new Color(1.0f, 0.34f, 0.30f), 2);
+            GUI.color = new Color(1.0f, 0.48f, 0.42f);
+            GUI.Label(new Rect(eBox.x + 12, eBox.y + 12, eBox.width - 24, 28), "[E] 몰래 슈킹", _lightBigCenter);
             GUI.color = Color.white;
             string evTag = manager.EvasionChance > 0f ? $" (회피 {manager.EvasionChance * 100f:0}%)" : "";
-            GUI.Label(new Rect(eBox.x + 12, eBox.y + 40, eBox.width - 24, 66),
-                $"• 현금 ~${stealEst} (감정)\n• ♦ 암시장 +{bmPts}\n• 의심 +{suspAdd:0}%{evTag}", _inkStyle);
+            GUI.Label(new Rect(eBox.x + 20, eBox.y + 52, eBox.width - 40, 24), $"• 고액 현금 ~${stealEst} (진품/가품 감정)", _lightLeft);
+            GUI.Label(new Rect(eBox.x + 20, eBox.y + 80, eBox.width - 40, 24), $"• ♦ 암시장 포인트 +{bmPts} (클리어 후 상점)", _lightLeft);
+            GUI.color = new Color(1f, 0.72f, 0.38f);
+            GUI.Label(new Rect(eBox.x + 20, eBox.y + 108, eBox.width - 40, 24), $"• 의심도 +{suspAdd:0}%{evTag}", _lightLeft);
+            GUI.color = Color.white;
 
             if (manager.TreasureDecisionLockTimer <= 0f)
             {
-                if (GUI.Button(new Rect(qBox.x + 16, qBox.y + 108, qBox.width - 32, 28), "전달 확정 [Q]"))
+                if (GUI.Button(new Rect(qBox.x + 20, qBox.yMax - 48, qBox.width - 40, 36), "전달 확정 [Q]", _btnStyle))
                     manager.ResolveActiveTreasure(false);
-                if (GUI.Button(new Rect(eBox.x + 16, eBox.y + 108, eBox.width - 32, 28), "슈킹 확정 [E]"))
+                if (GUI.Button(new Rect(eBox.x + 20, eBox.yMax - 48, eBox.width - 40, 36), "슈킹 확정 [E]", _btnStyle))
                     manager.ResolveActiveTreasure(true);
             }
         }
 
-        // ===== 24노드 이원화 스킬트리 ($ / ★신뢰도 / ♦암시장) =====
-        private void DrawSkillTreeBoard(float w, float h)
+        // ===== 인게임 [Tab] & 클리어 후 [$ 강화] 공용: 현금($) 전용 19노드 스킬트리 =====
+        private void DrawCashSkillTree(float w, float h, bool embeddedInHub)
         {
-            GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
+            if (!embeddedInHub) GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
 
-            float topY = Mathf.Max(34f, h * 0.055f);
-            float botSafe = Mathf.Max(52f, h * 0.082f);
+            float topY = embeddedInHub ? Mathf.Round(Mathf.Max(92f, h * 0.14f)) : Mathf.Round(Mathf.Max(34f, h * 0.055f));
+            float botReserve = embeddedInHub ? 128f : Mathf.Round(Mathf.Max(56f, h * 0.088f));
 
-            // 상단 영수증 헤더
-            Rect hdr = new Rect(w * 0.5f - 240, topY, 480, 34);
-            DrawReceiptBox(hdr);
-            GUI.color = new Color(0.08f, 0.48f, 0.20f);
-            GUI.Label(new Rect(hdr.x + 14, hdr.y + 6, 110, 22), $"${manager.Money:N0}", _lightBold);
-            GUI.color = new Color(0.10f, 0.38f, 0.78f);
-            GUI.Label(new Rect(hdr.x + 126, hdr.y + 6, 95, 22), $"★ 신뢰도 {manager.TrustTokens}", _lightBold);
-            GUI.color = new Color(0.76f, 0.12f, 0.32f);
-            GUI.Label(new Rect(hdr.x + 226, hdr.y + 6, 115, 22), $"♦ 암시장 {manager.BlackMarketPts}", _lightBold);
-            GUI.color = Color.white;
-            GUI.Label(new Rect(hdr.x + 350, hdr.y + 6, 120, 22), "[Tab] 닫기", _inkCenter);
+            if (!embeddedInHub)
+            {
+                Rect hdr = new Rect(Mathf.Round(w * 0.5f - 190), topY, 380, 38);
+                DrawReceiptBox(hdr);
+                GUI.color = new Color(0.06f, 0.46f, 0.20f);
+                GUI.Label(new Rect(hdr.x + 18, hdr.y + 7, 150, 24), $"보유 현금 ${manager.Money:N0}", _lightBold);
+                GUI.color = Color.white;
+                GUI.Label(new Rect(hdr.x + 210, hdr.y + 7, 154, 24), "강화 트리 · [Tab] 닫기", _inkRight);
+            }
 
-            float scale = Mathf.Clamp(Mathf.Min(w / 1120f, (h - topY - botSafe - 70f) / 600f), 0.68f, 1.0f);
-            Vector2 center = new Vector2(w * 0.5f, (topY + 42f + h - botSafe - 54f) * 0.5f);
+            float availH = h - topY - botReserve - 60f;
+            float scale = Mathf.Clamp(Mathf.Min(w / 1060f, availH / 520f), 0.72f, 1.0f);
+            Vector2 center = new Vector2(Mathf.Round(w * 0.5f), Mathf.Round(topY + 46f + availH * 0.48f));
 
-            Color cTool = new Color(0.95f, 0.76f, 0.22f);
-            Color cBag = new Color(0.32f, 0.76f, 0.98f);
-            Color cSurv = new Color(0.36f, 0.88f, 0.52f);
-            Color cTrust = new Color(0.32f, 0.64f, 1.0f);
-            Color cFist = new Color(0.96f, 0.56f, 0.24f);
-            Color cBlack = new Color(0.94f, 0.24f, 0.46f);
+            Color cTool = new Color(0.95f, 0.78f, 0.24f);
+            Color cBag = new Color(0.32f, 0.78f, 0.98f);
+            Color cSurv = new Color(0.36f, 0.90f, 0.54f);
+            Color cFist = new Color(0.98f, 0.56f, 0.24f);
 
             var nodes = new[]
             {
-                // 좌상: 도구 진화 & 흡입 ($)
-                Node("tool", "▲", "도구 진화", manager.ToolTier == 0 ? "→ 집게/빗자루 (범위↑·3개)" : manager.ToolTier == 1 ? "→ 진공청소기 (광역 회오리)" : "진공청소기 MAX", $"${manager.CostTool}", "", new Vector2(-115, -75), manager.ToolTier, 2, cTool, 0),
-                Node("sweep", "◎", "커서 범위", $"반경 {manager.SweepRadius:0.00}m", $"${manager.CostSweep}", "tool", new Vector2(-215, -75), manager.LvSweepRadius, 5, cTool, 0),
-                Node("fever", "✹", "피버 엔진", "연속 흡입 → 범위+35%·속도+65%·×1.45", $"${manager.CostFever}", "tool", new Vector2(-115, -165), manager.HasFeverEngine ? 1 : 0, 1, cTool, 0),
-                Node("crit", "✦", "크리티컬", $"확률 {manager.CritChance * 100f:0}% · 수익 ×2", $"${manager.CostCrit}", "sweep", new Vector2(-315, -75), manager.LvCrit, 4, cTool, 0),
-                Node("chain", "◈", "연쇄 도미노", $"확률 {manager.ChainChance * 100f:0}% · 주변 +{manager.ChainExtraCount}개", $"${manager.CostChain}", "crit", new Vector2(-415, -75), manager.LvChainPop, 3, cTool, 0),
-                Node("roomba", "◉", "로봇청소기", $"자동 수거 {manager.LvRoomba}대", $"${manager.CostRoomba}", "chain", new Vector2(-415, -165), manager.LvRoomba, 3, cTool, 0),
+                // 좌상: 도구 진화 & 흡입
+                Node("tool", "▲", "도구 진화", manager.ToolTier == 0 ? "→ 집게/빗자루 (0.4초 · 3개)" : manager.ToolTier == 1 ? "→ 진공청소기 (0.1초 · 광역)" : "진공청소기 MAX", $"${manager.CostTool}", "", new Vector2(-120, -76), manager.ToolTier, 2, cTool),
+                Node("sweep", "◎", "커서 범위", $"원 반경 {manager.SweepRadius:0.00}m", $"${manager.CostSweep}", "tool", new Vector2(-225, -76), manager.LvSweepRadius, 5, cTool),
+                Node("fever", "✹", "피버 엔진", "연속 흡입 → 범위+35%·속도+65%·×1.45", $"${manager.CostFever}", "tool", new Vector2(-120, -162), manager.HasFeverEngine ? 1 : 0, 1, cTool),
+                Node("crit", "✦", "크리티컬", $"확률 {manager.CritChance * 100f:0}% · 수익 ×2", $"${manager.CostCrit}", "sweep", new Vector2(-330, -76), manager.LvCrit, 4, cTool),
+                Node("chain", "◈", "연쇄 도미노", $"확률 {manager.ChainChance * 100f:0}% · 주변 +{manager.ChainExtraCount}개", $"${manager.CostChain}", "crit", new Vector2(-435, -76), manager.LvChainPop, 3, cTool),
+                Node("roomba", "◉", "로봇청소기", $"자동 수거 {manager.LvRoomba}대", $"${manager.CostRoomba}", "chain", new Vector2(-435, -162), manager.LvRoomba, 3, cTool),
 
-                // 우상: 운반 & 경제 ($)
-                Node("bag", "▣", "봉투 용량", $"기본 {manager.HandBagCapacity} / 과적 {manager.OverfillCapacity}", $"${manager.CostBag}", "", new Vector2(115, -75), manager.LvBagSize, 4, cBag, 0),
-                Node("throw", "↗", "던지는 힘", $"투척력 Lv.{manager.LvThrowPower}", $"${manager.CostThrowPower}", "bag", new Vector2(215, -75), manager.LvThrowPower, 4, cBag, 0),
-                Node("truck", "▶", "수거함 진화", manager.CurrentVehicleName, $"${manager.CostTruck}", "throw", new Vector2(315, -75), manager.LvTruckSize, 3, cBag, 0),
-                Node("magnet", "Ω", "자석 압축기", "근처 봉투 자동 흡입", $"${manager.CostMagnet}", "truck", new Vector2(415, -75), manager.HasTruckMagnet ? 1 : 0, 1, cBag, 0),
-                Node("price", "◆", "분리수거 단가", $"단가 +{manager.LvTrashPrice * 25}%", $"${manager.CostTrashPrice}", "bag", new Vector2(115, -165), manager.LvTrashPrice, 5, cBag, 0),
-                Node("combo", "»", "투하 콤보", $"콤보 유지 {manager.MaxComboWindow:0.0}초", $"${manager.CostComboTime}", "price", new Vector2(215, -165), manager.LvComboTime, 3, cBag, 0),
+                // 우상: 운반 & 경제
+                Node("bag", "▣", "봉투 용량", $"최대 {manager.HandBagCapacity}개", $"${manager.CostBag}", "", new Vector2(120, -76), manager.LvBagSize, 4, cBag),
+                Node("throw", "↗", "던지는 힘", $"투척력 Lv.{manager.LvThrowPower}", $"${manager.CostThrowPower}", "bag", new Vector2(225, -76), manager.LvThrowPower, 4, cBag),
+                Node("truck", "▶", "수거함 진화", manager.CurrentVehicleName, $"${manager.CostTruck}", "throw", new Vector2(330, -76), manager.LvTruckSize, 3, cBag),
+                Node("magnet", "Ω", "자석 압축기", "근처 봉투 자동 흡입", $"${manager.CostMagnet}", "truck", new Vector2(435, -76), manager.HasTruckMagnet ? 1 : 0, 1, cBag),
+                Node("price", "◆", "분리수거 단가", $"단가 +{manager.LvTrashPrice * 25}%", $"${manager.CostTrashPrice}", "bag", new Vector2(120, -162), manager.LvTrashPrice, 5, cBag),
+                Node("combo", "»", "투하 콤보", $"콤보 유지 {manager.MaxComboWindow:0.0}초", $"${manager.CostComboTime}", "price", new Vector2(225, -162), manager.LvComboTime, 3, cBag),
 
-                // 좌하: 생존/걸레 ($) + 성실 루트 특전 (★)
-                Node("mask", "☣", "방독면", $"악취 -{manager.LvMask * 16}%", $"${manager.CostMask}", "", new Vector2(-115, 75), manager.LvMask, 5, cSurv, 0),
-                Node("speed", "»", "운동화", $"이동속도 +{manager.LvMoveSpeed * 15}%", $"${manager.CostMoveSpeed}", "mask", new Vector2(-215, 75), manager.LvMoveSpeed, 4, cSurv, 0),
-                Node("mop", "┴", "T자 대걸레", "2단계 바닥 닦기 ×2.6", $"${manager.CostMop}", "mask", new Vector2(-115, 165), manager.HasMopUnlocked ? 1 : 0, 1, cSurv, 0),
-                Node("scrub", "✧", "강력 세제", $"세정력 +{manager.LvScrubPower * 45}%", $"${manager.CostScrub}", "mop", new Vector2(-215, 165), manager.LvScrubPower, 3, cSurv, 0),
+                // 좌하: 생존 & 걸레질
+                Node("mask", "☣", "방독면", $"악취 -{manager.LvMask * 16}%", $"${manager.CostMask}", "", new Vector2(-120, 76), manager.LvMask, 5, cSurv),
+                Node("speed", "»", "운동화", $"이동속도 +{manager.LvMoveSpeed * 15}%", $"${manager.CostMoveSpeed}", "mask", new Vector2(-225, 76), manager.LvMoveSpeed, 4, cSurv),
+                Node("mop", "┴", "T자 대걸레", "2단계 바닥 닦기 ×2.6", $"${manager.CostMop}", "mask", new Vector2(-120, 162), manager.HasMopUnlocked ? 1 : 0, 1, cSurv),
+                Node("scrub", "✧", "강력 세제", $"세정력 +{manager.LvScrubPower * 45}%", $"${manager.CostScrub}", "mop", new Vector2(-225, 162), manager.LvScrubPower, 3, cSurv),
 
-                Node("vip", "★", "VIP 고액 의뢰", "전체 단가·보너스 ×1.5 · 막판 ×5", $"★{manager.CostVipTokens}", "", new Vector2(-320, 75), manager.HasVipContract ? 1 : 0, 1, cTrust, 1),
-                Node("detector", "◎", "보물 투시 탐지", "쓰레기 아래 파묻힌 보물 X-Ray", $"★{manager.CostDetectorTokens}", "", new Vector2(-320, 165), manager.HasTreasureDetector ? 1 : 0, 1, cTrust, 1),
-                Node("doublebag", "▣", "이중 바닥 가방", "150% 과적 벽 충돌 폭발 면역!", $"★{manager.CostDoubleBagTokens}", "vip", new Vector2(-425, 120), manager.HasDoubleBottomBag ? 1 : 0, 1, cTrust, 1),
-
-                // 우하: 파괴/탐지 ($) + 암시장 특전 (♦)
-                Node("fist", "❖", "주먹 힘", $"큰 봉투 타격 {manager.FistDamage:0.0}", $"${manager.CostFist}", "", new Vector2(115, 75), manager.LvFistPower, 4, cFist, 0),
-                Node("shock", "✹", "충격파 펀치", $"주변 큰 봉투 동시 타격 Lv.{manager.LvShockwave}", $"${manager.CostShockwave}", "fist", new Vector2(215, 75), manager.LvShockwave, 3, cFist, 0),
-                Node("beacon", "◈", "10% 투시", "잔여 10% 쓰레기 황금 테두리", $"${manager.CostBeacon}", "fist", new Vector2(115, 165), manager.HasBeaconDetect ? 1 : 0, 1, cFist, 0),
-
-                Node("appraisal", "♦", "감정가 조작", $"진품(×1.5) 확률 {25 + manager.LvAppraisal * 20}%", $"♦{manager.CostAppraisalPts}", "", new Vector2(320, 75), manager.LvAppraisal, 2, cBlack, 2),
-                Node("evasion", "✧", "의심도 회피", $"슈킹 시 의심 무효 {manager.EvasionChance * 100f:0}%", $"♦{manager.CostEvasionPts}", "", new Vector2(320, 165), manager.LvEvasion, 3, cBlack, 2),
-                Node("adrenaline", "▲", "아드레날린+", "의심 80~95% 배율 ×2 → ×2.5", $"♦{manager.CostAdrenalinePts}", "appraisal", new Vector2(425, 120), manager.HasAdrenalineAmp ? 1 : 0, 1, cBlack, 2),
+                // 우하: 큰 봉지 파괴 & 10% 투시
+                Node("fist", "❖", "주먹 힘", $"큰 봉투 타격 {manager.FistDamage:0.0}", $"${manager.CostFist}", "", new Vector2(120, 76), manager.LvFistPower, 4, cFist),
+                Node("shock", "✹", "충격파 펀치", $"주변 큰 봉투 동시 타격 Lv.{manager.LvShockwave}", $"${manager.CostShockwave}", "fist", new Vector2(225, 76), manager.LvShockwave, 3, cFist),
+                Node("beacon", "◈", "10% 투시", "잔여 10% 쓰레기 황금 테두리", $"${manager.CostBeacon}", "fist", new Vector2(120, 162), manager.HasBeaconDetect ? 1 : 0, 1, cFist),
             };
 
-            // 연결선 그리기
             foreach (var n in nodes)
             {
                 Vector2 pPos = center;
@@ -582,60 +631,42 @@ namespace TrashCleaner3D
                 {
                     foreach (var p in nodes) if (p.id == n.parentId) { pPos = center + p.offset * scale; break; }
                 }
-                else if (n.currencyType != 0)
-                {
-                    continue; // ★ / ♦ 독립 특전 브랜치는 깔끔하게 구획 박스로 분리!
-                }
                 Vector2 nPos = center + n.offset * scale;
-                DrawLine(pPos, nPos, n.unlocked ? new Color(n.accent.r, n.accent.g, n.accent.b, 0.55f) : new Color(0.28f, 0.30f, 0.34f, 0.35f), 2f);
+                DrawLine(pPos, nPos, n.unlocked ? new Color(n.accent.r, n.accent.g, n.accent.b, 0.58f) : new Color(0.28f, 0.30f, 0.34f, 0.35f), 2f);
             }
 
-            // 성실(★) / 암시장(♦) 구획 프레임
-            Rect trustZone = new Rect(center.x - 472 * scale, center.y + 32 * scale, 200 * scale, 178 * scale);
-            DrawBorderedBox(trustZone, new Color(0.08f, 0.14f, 0.24f, 0.55f), cTrust, 1);
-            GUI.color = cTrust;
-            GUI.Label(new Rect(trustZone.x + 6, trustZone.y + 2, trustZone.width - 12, 18), "★ 성실 루트 특전", _lightSmall);
-
-            Rect blackZone = new Rect(center.x + 272 * scale, center.y + 32 * scale, 200 * scale, 178 * scale);
-            DrawBorderedBox(blackZone, new Color(0.24f, 0.08f, 0.14f, 0.55f), cBlack, 1);
-            GUI.color = cBlack;
-            GUI.Label(new Rect(blackZone.x + 6, blackZone.y + 2, blackZone.width - 12, 18), "♦ 암시장 특전", _lightSmall);
-            GUI.color = Color.white;
-
-            // 중앙 코어 뱃지
-            float coreSz = 48f * scale;
-            DrawBorderedBox(new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz), new Color(0.20f, 0.18f, 0.12f), cTool, 2);
+            float coreSz = Mathf.Round(52f * scale);
+            DrawBorderedBox(new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz), new Color(0.18f, 0.16f, 0.11f), cTool, 2);
             GUI.color = cTool;
-            GUI.Label(new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz), "v0.8", _lightCenter);
+            GUI.Label(new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz), "$ 강화", _lightCenter);
             GUI.color = Color.white;
 
-            // 노드 버튼 렌더 + 호버 카드
             SkillNodeDef? hovered = null;
-            float nW = 72f * scale, nH = 54f * scale;
+            float nW = Mathf.Round(84f * scale), nH = Mathf.Round(58f * scale);
             Vector2 mPos = Event.current.mousePosition;
 
             foreach (var n in nodes)
             {
                 Vector2 p = center + n.offset * scale;
-                Rect r = new Rect(p.x - nW * 0.5f, p.y - nH * 0.5f, nW, nH);
+                Rect r = new Rect(Mathf.Round(p.x - nW * 0.5f), Mathf.Round(p.y - nH * 0.5f), nW, nH);
                 bool isMax = n.level >= n.maxLevel;
-                Color bg = !n.unlocked ? new Color(0.10f, 0.11f, 0.13f, 0.90f)
-                         : isMax ? new Color(0.16f, 0.26f, 0.18f, 0.96f)
-                         : n.affordable ? new Color(0.22f, 0.20f, 0.14f, 0.96f)
-                         : new Color(0.14f, 0.15f, 0.19f, 0.94f);
+                Color bg = !n.unlocked ? new Color(0.10f, 0.11f, 0.13f, 0.92f)
+                         : isMax ? new Color(0.14f, 0.28f, 0.18f, 0.96f)
+                         : n.affordable ? new Color(0.24f, 0.21f, 0.13f, 0.97f)
+                         : new Color(0.14f, 0.15f, 0.19f, 0.95f);
                 Color bd = !n.unlocked ? new Color(0.25f, 0.27f, 0.30f)
-                         : isMax ? new Color(0.38f, 0.92f, 0.52f)
+                         : isMax ? new Color(0.38f, 0.94f, 0.52f)
                          : n.affordable ? n.accent
                          : new Color(n.accent.r * 0.55f, n.accent.g * 0.55f, n.accent.b * 0.55f);
 
                 DrawBorderedBox(r, bg, bd, n.affordable ? 2 : 1);
 
                 _nodeIconStyle.normal.textColor = n.unlocked ? (isMax ? new Color(0.45f, 1f, 0.58f) : n.accent) : new Color(0.42f, 0.44f, 0.48f);
-                GUI.Label(new Rect(r.x, r.y + 2, r.width, r.height * 0.52f), n.unlocked ? n.icon : "×", _nodeIconStyle);
+                GUI.Label(new Rect(r.x, r.y + 4, r.width, r.height * 0.48f), n.unlocked ? n.icon : "×", _nodeIconStyle);
 
-                _nodeSubStyle.normal.textColor = n.unlocked ? Color.white : new Color(0.50f, 0.52f, 0.56f);
+                _nodeSubStyle.normal.textColor = n.unlocked ? Color.white : new Color(0.54f, 0.56f, 0.60f);
                 string sub = !n.unlocked ? "잠김" : isMax ? "MAX" : $"{n.level}/{n.maxLevel} · {n.costTag}";
-                GUI.Label(new Rect(r.x, r.y + r.height * 0.52f, r.width, r.height * 0.44f), sub, _nodeSubStyle);
+                GUI.Label(new Rect(r.x, r.y + r.height * 0.52f, r.width, r.height * 0.42f), sub, _nodeSubStyle);
 
                 if (r.Contains(mPos)) hovered = n;
                 if (GUI.Button(r, GUIContent.none, GUIStyle.none) && n.unlocked && !isMax)
@@ -644,143 +675,241 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 하단 고정 1줄 개조식 상세 영수증 바
-            Rect infoR = new Rect(w * 0.5f - 280, h - botSafe - 44, 560, 40);
+            // 하단 상세 영수증 바 (넉넉한 52px 높이로 글씨 절대 깨짐 없음!)
+            float infoY = embeddedInHub ? (h - 122f) : (h - botReserve - 52f);
+            Rect infoR = new Rect(Mathf.Round(w * 0.5f - 290), Mathf.Round(infoY), 580, 50);
             DrawReceiptBox(infoR);
             if (hovered.HasValue)
             {
                 var hv = hovered.Value;
                 bool isMax = hv.level >= hv.maxLevel;
                 string state = !hv.unlocked ? "[잠김 · 선행 필요]" : isMax ? "[MAX]" : $"[클릭 구매 · {hv.costTag}]";
-                GUI.Label(new Rect(infoR.x + 12, infoR.y + 4, infoR.width - 24, 18), $"{hv.icon} {hv.title} ({hv.level}/{hv.maxLevel})  {state}", _inkBold);
-                GUI.Label(new Rect(infoR.x + 12, infoR.y + 21, infoR.width - 24, 18), $"• {hv.shortStat}", _inkSmall);
+                GUI.Label(new Rect(infoR.x + 14, infoR.y + 5, infoR.width - 28, 22), $"{hv.icon} {hv.title} ({hv.level}/{hv.maxLevel})   {state}", _inkBold);
+                GUI.Label(new Rect(infoR.x + 14, infoR.y + 26, infoR.width - 28, 20), $"• {hv.shortStat}", _inkSmall);
             }
             else
             {
-                GUI.Label(infoR, "노드에 마우스 올리기 · 좌클릭 즉시 구매 · [Tab] 닫기", _inkCenter);
+                GUI.Label(infoR, "노드에 마우스 올리기 · 좌클릭 즉시 구매", _inkCenter);
             }
         }
 
-        private SkillNodeDef Node(string id, string icon, string title, string shortStat, string costTag, string parentId, Vector2 offset, int lv, int maxLv, Color accent, int curType)
+        private SkillNodeDef Node(string id, string icon, string title, string shortStat, string costTag, string parentId, Vector2 offset, int lv, int maxLv, Color accent)
         {
             bool unlocked = manager.IsNodeUnlocked(id);
-            bool afford = false;
-            if (unlocked && lv < maxLv)
+            int c = id switch
             {
-                if (curType == 0)
-                {
-                    int c = id switch
-                    {
-                        "tool" => manager.CostTool, "sweep" => manager.CostSweep, "fever" => manager.CostFever,
-                        "crit" => manager.CostCrit, "chain" => manager.CostChain, "roomba" => manager.CostRoomba,
-                        "bag" => manager.CostBag, "throw" => manager.CostThrowPower, "truck" => manager.CostTruck,
-                        "magnet" => manager.CostMagnet, "price" => manager.CostTrashPrice, "combo" => manager.CostComboTime,
-                        "mask" => manager.CostMask, "speed" => manager.CostMoveSpeed, "mop" => manager.CostMop,
-                        "scrub" => manager.CostScrub, "fist" => manager.CostFist, "shock" => manager.CostShockwave,
-                        "beacon" => manager.CostBeacon, _ => 999999
-                    };
-                    afford = manager.Money >= c;
-                }
-                else if (curType == 1)
-                {
-                    int tc = id == "doublebag" ? manager.CostDoubleBagTokens : 1;
-                    afford = manager.TrustTokens >= tc;
-                }
-                else
-                {
-                    int bc = id == "appraisal" ? manager.CostAppraisalPts : id == "adrenaline" ? manager.CostAdrenalinePts : manager.CostEvasionPts;
-                    afford = manager.BlackMarketPts >= bc;
-                }
-            }
+                "tool" => manager.CostTool, "sweep" => manager.CostSweep, "fever" => manager.CostFever,
+                "crit" => manager.CostCrit, "chain" => manager.CostChain, "roomba" => manager.CostRoomba,
+                "bag" => manager.CostBag, "throw" => manager.CostThrowPower, "truck" => manager.CostTruck,
+                "magnet" => manager.CostMagnet, "price" => manager.CostTrashPrice, "combo" => manager.CostComboTime,
+                "mask" => manager.CostMask, "speed" => manager.CostMoveSpeed, "mop" => manager.CostMop,
+                "scrub" => manager.CostScrub, "fist" => manager.CostFist, "shock" => manager.CostShockwave,
+                "beacon" => manager.CostBeacon, _ => 999999
+            };
+            bool afford = unlocked && lv < maxLv && manager.Money >= c;
             return new SkillNodeDef
             {
                 id = id, icon = icon, title = title, shortStat = shortStat, costTag = costTag,
                 parentId = parentId, offset = offset, level = lv, maxLevel = maxLv,
-                unlocked = unlocked, affordable = afford, accent = accent, currencyType = curType
+                unlocked = unlocked, affordable = afford, accent = accent
             };
+        }
+
+        // ===== 요청 #6: 클리어 후 5버튼 허브 (다시 시작 · 다음 단계 · ♦암시장 · ★특전 · $강화) =====
+        private void DrawPostRoundHub(float w, float h)
+        {
+            GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
+
+            float topY = Mathf.Round(Mathf.Max(30f, h * 0.045f));
+
+            // 상단 통합 재화 영수증 바
+            Rect hdr = new Rect(Mathf.Round(w * 0.5f - 290), topY, 580, 42);
+            DrawReceiptBox(hdr);
+            GUI.Label(new Rect(hdr.x + 16, hdr.y + 9, 100, 24), $"STAGE {manager.CurrentStage}", _inkBold);
+            GUI.color = new Color(0.06f, 0.46f, 0.20f);
+            GUI.Label(new Rect(hdr.x + 125, hdr.y + 9, 125, 24), $"현금 ${manager.Money:N0}", _lightBold);
+            GUI.color = new Color(0.10f, 0.38f, 0.78f);
+            GUI.Label(new Rect(hdr.x + 260, hdr.y + 9, 115, 24), $"★ 신뢰도 {manager.TrustTokens}", _lightBold);
+            GUI.color = new Color(0.76f, 0.12f, 0.32f);
+            GUI.Label(new Rect(hdr.x + 385, hdr.y + 9, 120, 24), $"♦ 암시장 {manager.BlackMarketPts}", _lightBold);
+            GUI.color = Color.white;
+
+            if (_postTab != PostRoundTab.Receipt)
+            {
+                if (GUI.Button(new Rect(hdr.xMax - 76, hdr.y + 7, 68, 28), "영수증", _btnStyle))
+                    _postTab = PostRoundTab.Receipt;
+            }
+
+            // 중앙 컨텐츠 (영수증 / ♦암시장 / ★특전 / $강화)
+            if (_postTab == PostRoundTab.Receipt) DrawReceiptSummaryCard(w, h);
+            else if (_postTab == PostRoundTab.BlackMarket) DrawBlackMarketPanel(w, h);
+            else if (_postTab == PostRoundTab.TrustPerks) DrawTrustPerksPanel(w, h);
+            else if (_postTab == PostRoundTab.CashUpgrades) DrawCashSkillTree(w, h, true);
+
+            // 하단 5버튼 허브 바: [다시 시작] [다음 단계] [♦ 암시장] [★ 특전] [$ 강화]
+            float barW = Mathf.Min(720f, w - 40f);
+            float btnGap = 10f;
+            float btnW = Mathf.Floor((barW - btnGap * 4f) / 5f);
+            float startX = Mathf.Round((w - (btnW * 5f + btnGap * 4f)) * 0.5f);
+            float btnY = Mathf.Round(h - 62f);
+
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * 0, btnY, btnW, 44), "다시 시작", false, new Color(0.28f, 0.32f, 0.38f), () => manager.ReplayRoomKeepUpgrades());
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * 1, btnY, btnW, 44), $"다음 단계 ▶", false, new Color(0.16f, 0.56f, 0.30f), () => manager.StartNextStage());
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * 2, btnY, btnW, 44), $"♦ 암시장 ({manager.BlackMarketPts})", _postTab == PostRoundTab.BlackMarket, new Color(0.72f, 0.14f, 0.32f), () => _postTab = PostRoundTab.BlackMarket);
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * 3, btnY, btnW, 44), $"★ 특전 ({manager.TrustTokens})", _postTab == PostRoundTab.TrustPerks, new Color(0.16f, 0.44f, 0.80f), () => _postTab = PostRoundTab.TrustPerks);
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * 4, btnY, btnW, 44), $"$ 강화", _postTab == PostRoundTab.CashUpgrades, new Color(0.78f, 0.54f, 0.10f), () => _postTab = PostRoundTab.CashUpgrades);
+        }
+
+        private void DrawHubButton(Rect r, string label, bool active, Color accent, System.Action onClick)
+        {
+            Color bg = active ? accent : new Color(0.16f, 0.17f, 0.21f, 0.96f);
+            DrawBorderedBox(r, bg, accent, active ? 3 : 2);
+            GUI.Label(r, label, _lightCenter);
+            if (GUI.Button(r, GUIContent.none, GUIStyle.none)) onClick?.Invoke();
+        }
+
+        private void DrawReceiptSummaryCard(float w, float h)
+        {
+            float rw = 420f, rh = 340f;
+            Rect r = new Rect(Mathf.Round((w - rw) * 0.5f), Mathf.Round((h - rh) * 0.5f - 6f), rw, rh);
+            DrawReceiptBox(r);
+
+            string title = manager.WasEvicted ? "[강제 퇴거 정산 영수증]"
+                         : manager.WasEarlyCheckout ? "[80% 조기 정산 영수증]"
+                         : $"[STAGE {manager.CurrentStage} 청소 완료 영수증]";
+            Color titleCol = manager.WasEvicted ? new Color(0.78f, 0.12f, 0.12f) : new Color(0.08f, 0.46f, 0.20f);
+            GUI.color = titleCol;
+            GUI.Label(new Rect(r.x + 16, r.y + 18, rw - 32, 28), title, new GUIStyle(_lightCenter) { fontSize = 18 });
+            GUI.color = Color.white;
+
+            GUI.Label(new Rect(r.x + 16, r.y + 50, rw - 32, 20), "------------------------------------------------", _inkCenter);
+
+            float y = r.y + 78f;
+            DrawReceiptRow(r, y, "청소 진행률", $"{manager.OverallCleanPercent:0.0}%"); y += 28;
+            DrawReceiptRow(r, y, "동종 연속 압축", $"{manager.TotalCompressionsThisRoom}회"); y += 28;
+            DrawReceiptRow(r, y, "보물 전달 / 슈킹", $"{manager.ReturnedCount}건 / {manager.StolenCount}건"); y += 28;
+            DrawReceiptRow(r, y, "방 클리어 보너스", manager.WasEvicted ? "$0 (몰수)" : $"+${manager.LastClearBonus:N0}"); y += 28;
+            if (manager.WasEvicted)
+            {
+                GUI.color = new Color(0.78f, 0.12f, 0.12f);
+                DrawReceiptRow(r, y, $"압수 ({manager.LastStolenItemName})", $"-${manager.LastConfiscatedValue:N0}", true);
+                GUI.color = Color.white;
+                y += 28;
+            }
+
+            GUI.Label(new Rect(r.x + 16, y + 2, rw - 32, 20), "------------------------------------------------", _inkCenter);
+            y += 28;
+
+            Rect stamp = new Rect(r.x + 28, r.yMax - 54, rw - 56, 32);
+            DrawBorderedBox(stamp, new Color(0.92f, 0.96f, 0.92f), new Color(0.18f, 0.58f, 0.30f), 2);
+            GUI.color = new Color(0.08f, 0.46f, 0.20f);
+            GUI.Label(stamp, "기본 수익 · 토큰 · 모든 강화 100% 유지", _lightCenter);
+            GUI.color = Color.white;
+        }
+
+        private void DrawBlackMarketPanel(float w, float h)
+        {
+            float pw = 640f, ph = 370f;
+            Rect p = new Rect(Mathf.Round((w - pw) * 0.5f), Mathf.Round((h - ph) * 0.5f - 4f), pw, ph);
+            Color accent = new Color(0.92f, 0.24f, 0.44f);
+            DrawBorderedBox(p, new Color(0.12f, 0.08f, 0.11f, 0.96f), accent, 2);
+
+            GUI.color = new Color(1f, 0.48f, 0.62f);
+            GUI.Label(new Rect(p.x + 20, p.y + 14, pw - 40, 28), $"♦ 암시장 상점 · 보유 ♦{manager.BlackMarketPts}", _lightBigCenter);
+            GUI.color = Color.white;
+
+            float cy = p.y + 58f;
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 66), "♦ 장물 감정 조작", $"진품(×1.5) 확률 {25 + manager.LvAppraisal * 25}% · 가품 제거",
+                manager.LvAppraisal >= 2 ? "MAX" : $"♦{manager.CostAppraisalPts} 구매 ({manager.LvAppraisal}/2)",
+                manager.LvAppraisal < 2 && manager.BlackMarketPts >= manager.CostAppraisalPts, accent, () => manager.BuyNode("appraisal"));
+            cy += 76f;
+
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 66), "✧ 의심도 회피", $"슈킹 시 의심도 증가 무효 확률 {manager.EvasionChance * 100f:0}% → +20%",
+                manager.LvEvasion >= 3 ? "MAX" : $"♦{manager.CostEvasionPts} 구매 ({manager.LvEvasion}/3)",
+                manager.LvEvasion < 3 && manager.BlackMarketPts >= manager.CostEvasionPts, accent, () => manager.BuyNode("evasion"));
+            cy += 76f;
+
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 66), "▲ 아드레날린 증폭", "의심 80~95% 스릴 구간 수익 배율 ×2 → ×2.5",
+                manager.HasAdrenalineAmp ? "보유 중" : $"♦{manager.CostAdrenalinePts} 구매",
+                !manager.HasAdrenalineAmp && manager.BlackMarketPts >= manager.CostAdrenalinePts, accent, () => manager.BuyNode("adrenaline"));
+            cy += 76f;
+
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 66), "$ 암시장 현금 세탁", "암시장 포인트 1개를 현금 $250으로 즉시 환전 (반복 가능)",
+                $"♦{manager.CostLaunderPts} → +$250",
+                manager.BlackMarketPts >= manager.CostLaunderPts, new Color(0.95f, 0.72f, 0.22f), () => manager.BuyNode("launder"));
+        }
+
+        private void DrawTrustPerksPanel(float w, float h)
+        {
+            float pw = 640f, ph = 330f;
+            Rect p = new Rect(Mathf.Round((w - pw) * 0.5f), Mathf.Round((h - ph) * 0.5f - 4f), pw, ph);
+            Color accent = new Color(0.32f, 0.68f, 1.0f);
+            DrawBorderedBox(p, new Color(0.08f, 0.11f, 0.17f, 0.96f), accent, 2);
+
+            GUI.color = new Color(0.55f, 0.82f, 1.0f);
+            GUI.Label(new Rect(p.x + 20, p.y + 14, pw - 40, 28), $"★ 성실 특전 상점 · 보유 ★{manager.TrustTokens}", _lightBigCenter);
+            GUI.color = Color.white;
+
+            float cy = p.y + 62f;
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 74), "★ VIP 고액 의뢰 해금", "전체 청소 단가·클리어 보너스 ×1.5 · 막판 10% 잭팟 ×5",
+                manager.HasVipContract ? "보유 중" : $"★{manager.CostVipTokens} 해금",
+                !manager.HasVipContract && manager.TrustTokens >= manager.CostVipTokens, accent, () => manager.BuyNode("vip"));
+            cy += 86f;
+
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 74), "◈ 고속 동종 압축기", "동종 연속 압축 조건 5개 → 3개 단축 (0칸 소모 + 수익 ×2 폭주!)",
+                manager.HasFastCompressor ? "보유 중" : $"★{manager.CostCompressorTokens} 해금",
+                !manager.HasFastCompressor && manager.TrustTokens >= manager.CostCompressorTokens, accent, () => manager.BuyNode("compressor"));
+            cy += 86f;
+
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 74), "✦ 보물 탐지 감각", "보물 자동 발견 확률 ×1.6 · 고가 희귀 보물 등장률 상승",
+                manager.HasTreasureSense ? "보유 중" : $"★{manager.CostTreasureSenseTokens} 해금",
+                !manager.HasTreasureSense && manager.TrustTokens >= manager.CostTreasureSenseTokens, accent, () => manager.BuyNode("sense"));
+        }
+
+        private void DrawShopItemCard(Rect r, string title, string desc, string btnText, bool canBuy, Color accent, System.Action onBuy)
+        {
+            DrawBorderedBox(r, new Color(0.14f, 0.15f, 0.20f, 0.96f), canBuy ? accent : new Color(0.30f, 0.32f, 0.38f), canBuy ? 2 : 1);
+            GUI.color = canBuy ? Color.white : new Color(0.75f, 0.78f, 0.82f);
+            GUI.Label(new Rect(r.x + 16, r.y + 10, r.width - 180, 24), title, _lightBold);
+            GUI.color = new Color(0.80f, 0.84f, 0.90f);
+            GUI.Label(new Rect(r.x + 16, r.y + 36, r.width - 180, 22), $"• {desc}", _lightSmall);
+            GUI.color = Color.white;
+
+            Rect br = new Rect(r.xMax - 148, r.y + (r.height - 36f) * 0.5f, 134, 36);
+            DrawBorderedBox(br, canBuy ? accent : new Color(0.22f, 0.24f, 0.28f), canBuy ? Color.white : new Color(0.36f, 0.38f, 0.42f), 1);
+            GUI.Label(br, btnText, _lightCenter);
+            if (canBuy && GUI.Button(br, GUIContent.none, GUIStyle.none)) onBuy?.Invoke();
         }
 
         private void DrawSettingsMenu(float w, float h)
         {
             GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
-            Rect r = new Rect((w - 340) * 0.5f, (h - 230) * 0.5f, 340, 230);
+            Rect r = new Rect(Mathf.Round((w - 360) * 0.5f), Mathf.Round((h - 240) * 0.5f), 360, 240);
             DrawReceiptBox(r);
 
-            GUI.Label(new Rect(r.x + 16, r.y + 14, 308, 24), "환경 설정 [ESC]", _inkCenter);
+            GUI.Label(new Rect(r.x + 16, r.y + 16, 328, 26), "환경 설정 [ESC]", _inkCenter);
 
-            GUI.Label(new Rect(r.x + 20, r.y + 54, 150, 20), $"마우스 감도  {manager.MouseSensitivity:0.00}", _inkBold);
-            float ns = GUI.HorizontalSlider(new Rect(r.x + 20, r.y + 78, 300, 18), manager.MouseSensitivity, 0.03f, 0.45f);
+            GUI.Label(new Rect(r.x + 22, r.y + 56, 200, 24), $"마우스 감도  {manager.MouseSensitivity:0.00}", _inkBold);
+            float ns = GUI.HorizontalSlider(new Rect(r.x + 22, r.y + 84, 316, 18), manager.MouseSensitivity, 0.03f, 0.45f);
             if (!Mathf.Approximately(ns, manager.MouseSensitivity)) manager.SetMouseSensitivity(ns);
 
-            GUI.Label(new Rect(r.x + 20, r.y + 112, 150, 20), $"전체 볼륨  {manager.MasterVolume * 100f:0}%", _inkBold);
-            float nv = GUI.HorizontalSlider(new Rect(r.x + 20, r.y + 136, 300, 18), manager.MasterVolume, 0f, 1f);
+            GUI.Label(new Rect(r.x + 22, r.y + 116, 200, 24), $"전체 볼륨  {manager.MasterVolume * 100f:0}%", _inkBold);
+            float nv = GUI.HorizontalSlider(new Rect(r.x + 22, r.y + 144, 316, 18), manager.MasterVolume, 0f, 1f);
             if (!Mathf.Approximately(nv, manager.MasterVolume)) manager.SetMasterVolume(nv);
 
-            if (GUI.Button(new Rect(r.x + 90, r.y + 178, 160, 34), "계속하기 [ESC]"))
+            if (GUI.Button(new Rect(r.x + 100, r.y + 186, 160, 36), "계속하기 [ESC]", _btnStyle))
                 manager.ToggleSettingsMenu();
         }
 
-        // ===== 열전사 정산 영수증 (완료 / 조기 정산 / 100% 강제 퇴거) =====
-        private void DrawSettlementReceipt(float w, float h)
+        private void DrawReceiptRow(Rect r, float y, string left, string right, bool lightColorOverride = false)
         {
-            GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
-            float rw = 380f, rh = 365f;
-            Rect r = new Rect((w - rw) * 0.5f, (h - rh) * 0.5f, rw, rh);
-            DrawReceiptBox(r);
-
-            string title = manager.WasEvicted ? "[강제 퇴거 정산 영수증]"
-                         : manager.WasEarlyCheckout ? "[80% 조기 정산 영수증]"
-                         : "[원룸 청소 완료 영수증]";
-            Color titleCol = manager.WasEvicted ? new Color(0.78f, 0.12f, 0.12f) : new Color(0.08f, 0.46f, 0.20f);
-            GUI.color = titleCol;
-            GUI.Label(new Rect(r.x + 16, r.y + 16, rw - 32, 26), title, new GUIStyle(_lightCenter) { fontSize = 17 });
-            GUI.color = Color.white;
-
-            GUI.Label(new Rect(r.x + 16, r.y + 44, rw - 32, 18), "--------------------------------------------", _inkCenter);
-
-            float y = r.y + 68f;
-            DrawReceiptRow(r, y, "청소 진행률", $"{manager.OverallCleanPercent:0.0}%"); y += 24;
-            DrawReceiptRow(r, y, "동종 연속 압축", $"{manager.TotalCompressionsThisRoom}회"); y += 24;
-            DrawReceiptRow(r, y, "보물 전달 / 슈킹", $"{manager.ReturnedCount}건 / {manager.StolenCount}건"); y += 24;
-            DrawReceiptRow(r, y, "방 클리어 보너스", manager.WasEvicted ? "$0 (몰수)" : $"+${manager.LastClearBonus:N0}"); y += 24;
-            if (manager.WasEvicted)
-            {
-                GUI.color = new Color(0.78f, 0.14f, 0.14f);
-                DrawReceiptRow(r, y, $"압수 ({manager.LastStolenItemName})", $"-${manager.LastConfiscatedValue:N0}");
-                GUI.color = Color.white;
-                y += 24;
-            }
-
-            GUI.Label(new Rect(r.x + 16, y, rw - 32, 18), "--------------------------------------------", _inkCenter);
-            y += 22;
-
-            DrawReceiptRow(r, y, "보유 현금 ($)", $"${manager.Money:N0}"); y += 22;
-            DrawReceiptRow(r, y, "★ 신뢰도 / ♦ 암시장", $"★{manager.TrustTokens}  ·  ♦{manager.BlackMarketPts}"); y += 28;
-
-            // 안심 도장 (강제 퇴거여도 게임오버 없음!)
-            Rect stamp = new Rect(r.x + 28, y, rw - 56, 26);
-            DrawBorderedBox(stamp, new Color(0.92f, 0.96f, 0.92f), new Color(0.18f, 0.58f, 0.30f), 1);
-            GUI.color = new Color(0.10f, 0.46f, 0.20f);
-            GUI.Label(stamp, "기본 수익 · 토큰 · 스킬트리 100% 유지", _lightCenter);
-            GUI.color = Color.white;
-
-            if (GUI.Button(new Rect(r.x + 70, r.y + rh - 52, rw - 140, 36), "다음 의뢰 시작 (강화 유지)"))
-            {
-                manager.ReplayRoomKeepUpgrades();
-            }
-        }
-
-        private void DrawReceiptRow(Rect r, float y, string left, string right)
-        {
-            GUI.Label(new Rect(r.x + 22, y, r.width * 0.58f, 20), left, _inkStyle);
-            var rightAlign = new GUIStyle(_inkBold) { alignment = TextAnchor.MiddleRight };
-            GUI.Label(new Rect(r.x + r.width * 0.45f, y, r.width * 0.55f - 22f, 20), right, rightAlign);
+            GUI.Label(new Rect(r.x + 24, y, r.width * 0.58f, 24), left, lightColorOverride ? _lightLeft : _inkLeft);
+            GUI.Label(new Rect(r.x + r.width * 0.42f, y, r.width * 0.58f - 24f, 24), right, lightColorOverride ? _lightRight : _inkRight);
         }
 
         private void DrawReceiptBox(Rect r)
         {
             DrawBorderedBox(r, new Color(0.96f, 0.93f, 0.86f, 0.96f), new Color(0.22f, 0.22f, 0.24f), 2);
-            // 상단 톱니 느낌 얇은 장식선
             DrawRect(new Rect(r.x + 2, r.y + 2, r.width - 4, 2), new Color(0.84f, 0.80f, 0.72f));
         }
 
@@ -788,7 +917,6 @@ namespace TrashCleaner3D
         {
             DrawRect(new Rect(r.x + 3, r.y + 3, r.width, r.height), new Color(0, 0, 0, 0.26f));
             DrawBorderedBox(r, new Color(0.99f, 0.90f, 0.50f, 0.97f), new Color(0.76f, 0.64f, 0.20f), 1);
-            // 상단 반투명 테이프 띠
             DrawRect(new Rect(r.x + r.width * 0.36f, r.y - 3, r.width * 0.28f, 7), new Color(0.92f, 0.86f, 0.62f, 0.85f));
         }
 

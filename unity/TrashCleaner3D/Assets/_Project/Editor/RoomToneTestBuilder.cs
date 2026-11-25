@@ -22,7 +22,7 @@ namespace TrashCleaner3D.Editor
         private const string ArtRoot = "Assets/_Project/Art";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 38;
+        private const int SceneBuildVersion = 39;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -331,35 +331,6 @@ namespace TrashCleaner3D.Editor
             GameObject swarmObj = new GameObject("TrashSwarm_1000");
             var swarm = swarmObj.AddComponent<InstancedTrashSwarm>();
             PopulateSwarmMeshTypes(swarm);
-
-            // 8.5. v0.8 쓰레기 지층 발굴 보물 5종 (쓰레기 더미 아래에 숨겨져 걷어내면 노출!)
-            GameObject buriedRoot = new GameObject("BuriedTreasures_Stratum");
-            Material matCashEnv = CreateSimpleLitMaterial("Mat_Treasure_Envelope", new Color(0.95f, 0.78f, 0.25f), 0.35f);
-            Material matConsole = CreateSimpleLitMaterial("Mat_Treasure_Console", new Color(0.24f, 0.56f, 0.88f), 0.65f);
-            Material matGold = CreateSimpleLitMaterial("Mat_Treasure_Gold", new Color(0.96f, 0.80f, 0.20f), 0.85f);
-            Material matFigure = CreateSimpleLitMaterial("Mat_Treasure_Figure", new Color(0.92f, 0.36f, 0.45f), 0.52f);
-
-            // ① 의뢰인이 언급한 비상금 봉투 (매트리스 옆!) — 슈킹 시 단가 ×2 & 의심 ×2
-            CreateBuriedTreasure("Treasure_SecretCash", "남편의 비밀 비상금 봉투",
-                new Vector3(-1.35f, 0.045f, -1.25f), new Vector3(0.28f, 0.05f, 0.16f),
-                matCashEnv, buriedRoot.transform, 210, TreasureRarity.Legendary, true, 24f);
-
-            // ② 일반 지층 보물 4종 (방 곳곳의 쓰레기 산 아래 매립)
-            CreateBuriedTreasure("Treasure_Handheld", "중고 휴대용 게임기",
-                new Vector3(1.65f, 0.05f, 0.75f), new Vector3(0.26f, 0.05f, 0.14f),
-                matConsole, buriedRoot.transform, 150, TreasureRarity.Rare, false, 15f);
-
-            CreateBuriedTreasure("Treasure_GoldWatch", "빈티지 금시계",
-                new Vector3(2.45f, 0.055f, -0.75f), new Vector3(0.18f, 0.07f, 0.18f),
-                matGold, buriedRoot.transform, 230, TreasureRarity.Rare, false, 18f);
-
-            CreateBuriedTreasure("Treasure_Figure", "한정판 피규어 박스",
-                new Vector3(-0.55f, 0.08f, 1.45f), new Vector3(0.22f, 0.22f, 0.18f),
-                matFigure, buriedRoot.transform, 185, TreasureRarity.Rare, false, 16f);
-
-            CreateBuriedTreasure("Treasure_MiniGoldBar", "24K 미니 골드바",
-                new Vector3(0.35f, 0.055f, -1.95f), new Vector3(0.24f, 0.08f, 0.12f),
-                matGold, buriedRoot.transform, 340, TreasureRarity.Legendary, false, 24f);
 
             // 9. Hidden Runtime Template for Thrown Trash Bag
             GameObject templateRoot = new GameObject("_RuntimeTemplates");
