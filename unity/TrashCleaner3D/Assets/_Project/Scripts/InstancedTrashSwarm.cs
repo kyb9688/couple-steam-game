@@ -249,12 +249,10 @@ namespace TrashCleaner3D
                     pos = new Vector3(Random.Range(-3.22f, 3.22f), 0.06f, Random.Range(-2.65f, 2.55f));
                 }
 
-                // 실제 Apartment Kit 가구 배치와 겹치지 않도록 침대 위 & 주방/벽 가구 앞쪽으로 자연스럽게 배치!
-                if (pos.x < -1.35f && pos.z < -0.65f) pos.y += 0.56f; // 실제 3D 침대 위에도 쓰레기 수북!
-                if (pos.x < 1.25f && pos.z > 1.80f) pos.z = Random.Range(0.90f, 1.72f); // 북쪽 주방 싱크대/냉장고 앞 바닥
-                if (pos.x < -2.65f && pos.z > -0.65f) pos.x = Random.Range(-2.55f, -1.55f); // 서쪽 옷장/협탁 앞
-                if (pos.z < -1.85f && pos.x > -1.35f) pos.z = Random.Range(-1.75f, -0.85f); // 남쪽 PC책상/TV 앞
-                if (pos.x > 2.75f && pos.z < 1.50f) pos.x = Random.Range(1.75f, 2.68f); // 동쪽 책장 앞
+                // 5종 미니멀 원룸 가구(침대·책상·냉장고·전자레인지·싱크대)만 회피해 넓은 바닥에 풍성하게 배치!
+                if (pos.x < -1.35f && pos.z < -0.65f) pos.y += 0.56f; // 침대 위
+                if (pos.x > -1.05f && pos.x < 1.35f && pos.z > 1.88f) pos.z = Random.Range(0.95f, 1.78f); // 냉장고·싱크대 앞
+                if (pos.x > -0.45f && pos.x < 1.35f && pos.z < -1.85f) pos.z = Random.Range(-1.75f, -0.95f); // PC 책상 앞
                 if (pos.x > 1.45f && pos.z > 1.90f) pos.z -= 1.05f; // 현관문 스윙 공간 확보
 
                 int preferredType = (i < count * 0.55f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
@@ -323,10 +321,10 @@ namespace TrashCleaner3D
             }
 
             float rSq = cursorRadius * cursorRadius;
-            // 홀드 중에는 기존 락온 대상이 원을 벗어나지 않으면(약간의 여유 히스테리시스 ×1.12) 끝까지 유지!
+            // 홀드 중에는 기존 락온 대상이 커서 원(수평 XZ 반경) 밖으로 벗어나기 전까지 절대 해제/초기화 X!
             if (isHolding && _lockedIndices.Count > 0)
             {
-                float keepRSq = (cursorRadius * 1.12f) * (cursorRadius * 1.12f);
+                float keepRSq = (cursorRadius * 1.15f) * (cursorRadius * 1.15f);
                 for (int i = _lockedIndices.Count - 1; i >= 0; i--)
                 {
                     int idx = _lockedIndices[i];
@@ -336,7 +334,7 @@ namespace TrashCleaner3D
                         continue;
                     }
                     Vector3 d = _units[idx].pos - aimPoint;
-                    d.y *= 0.65f;
+                    d.y = 0f; // 높이 오차로 락온이 풀리지 않도록 원형 커서와 동일한 순수 수평(XZ) 반경으로 판정!
                     if (d.sqrMagnitude > keepRSq)
                     {
                         _lockedIndices.RemoveAt(i);
@@ -357,7 +355,7 @@ namespace TrashCleaner3D
                 {
                     if (_units[i].state != 0 || _selectedSet.Contains(i)) continue;
                     Vector3 d = _units[i].pos - aimPoint;
-                    d.y *= 0.65f;
+                    d.y = 0f;
                     float dSq = d.sqrMagnitude;
                     if (dSq <= rSq) _candidates.Add((i, dSq));
                 }

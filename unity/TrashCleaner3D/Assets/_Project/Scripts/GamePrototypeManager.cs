@@ -95,7 +95,7 @@ namespace TrashCleaner3D
         public bool IsTooSuffocatedToWork => StenchStage >= 4 && !IsOutsideVentilating;
         public float StenchMoveSpeedMult => StenchStage == 4 ? 0.44f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.72f : StenchStage == 1 ? 0.84f : 1.0f;
         public float StenchWorkSpeedMult => StenchStage == 4 ? 0.0f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.78f : 1.0f;
-        public float StenchGainPerSec => 3.4f * (1f - LvMask * 0.16f);
+        public float StenchGainPerSec => 3.4f * Mathf.Max(0.18f, 1f - LvMask * 0.082f);
 
         // ===== 의심 게이지 (0~100% 확정 발각 · 80~95% 아드레날린 구간!) =====
         public float SuspicionPercent { get; private set; } = 0f;
@@ -104,18 +104,23 @@ namespace TrashCleaner3D
         public float AdrenalineSpeedMult => IsAdrenalineZone ? 1.85f : 1.0f;
         private bool _washed30, _washed60, _washed90;
 
-        // ===== 도구 진화 (0:맨손 1.0s HOLD → 1:집게/빗자루 0.40s → 2:진공청소기 0.10s) =====
-        public int ToolTier { get; private set; } = 0;
+        // ===== 도구 다단계 진화 (총 9단계: 1단계 고무장갑 1→3 · 2단계 집게/빗자루 1→3 · 3단계 진공청소기 1→3!) =====
+        public int ToolStep { get; private set; } = 0; // 0~9
+        public int ToolTier => ToolStep >= 7 ? 2 : ToolStep >= 4 ? 1 : 0;
         public bool HasVacuumUnlocked => ToolTier >= 2;
-        public string CurrentToolName => ToolTier == 0 ? "맨손·고무장갑" : ToolTier == 1 ? "집게·빗자루" : "업소용 진공청소기";
+        public string CurrentToolName =>
+            ToolStep == 0 ? "맨손 (기본)" :
+            ToolStep <= 3 ? $"1단계 고무장갑 ({ToolStep}/3)" :
+            ToolStep <= 6 ? $"2단계 집게·빗자루 ({ToolStep - 3}/3)" :
+            $"3단계 진공청소기 ({ToolStep - 6}/3)";
 
-        // ===== 연속 흡입 피버 게이지 =====
+        // ===== 연속 흡입 피버 게이지 (Lv.0~5) =====
         public float ContinuousFever01 { get; private set; } = 0f;
         private float _feverDecayDelay = 0f;
         public bool IsFeverHot => ContinuousFever01 >= 0.75f;
-        public float FeverRadiusBonus => HasFeverEngine ? ContinuousFever01 * 0.35f : ContinuousFever01 * 0.08f;
-        public float FeverSpeedBonus => HasFeverEngine ? ContinuousFever01 * 0.65f : ContinuousFever01 * 0.15f;
-        public float FeverPriceMult => (HasFeverEngine && IsFeverHot) ? 1.45f : 1.0f;
+        public float FeverRadiusBonus => ContinuousFever01 * (0.06f + LvFever * 0.08f);
+        public float FeverSpeedBonus => ContinuousFever01 * (0.10f + LvFever * 0.14f);
+        public float FeverPriceMult => (LvFever > 0 && IsFeverHot) ? (1.15f + LvFever * 0.10f) : 1.0f;
 
         // ===== 동종 연속 압축 (기본 5개 / 특전 해금 시 3개 → 0칸 + ×2!) =====
         public int CompressionStreakTarget => HasFastCompressor ? 3 : 5;
@@ -124,10 +129,11 @@ namespace TrashCleaner3D
         public int StreakCount { get; private set; } = 0;
         public int TotalCompressionsThisRoom { get; private set; } = 0;
 
-        // ===== 봉투 100% 정직 원복 (과적/폭발 완전 제거!) =====
-        private static readonly int[] BagCapByLv = { 15, 35, 65, 110, 180 };
-        private static readonly float[] FistDmgByLv = { 1.4f, 2.4f, 3.8f, 5.6f, 10.0f };
-        private static readonly string[] VehicleNames = { "공공 쓰레기통", "리어카", "다마스", "1톤 트럭" };
+        // ===== 봉투 100% 정직 원복 (10단계 성장!) =====
+        private static readonly int[] BagCapByLv = { 15, 22, 30, 40, 52, 66, 84, 106, 132, 165, 200 };
+        private static readonly int[] ToolStepCosts = { 20, 30, 45, 75, 110, 160, 240, 350, 500 };
+        private static readonly int[] TruckStepCosts = { 30, 45, 65, 95, 135, 195, 280, 390, 550 };
+        private static readonly float[] ToolHoldDurs = { 1.00f, 0.90f, 0.80f, 0.70f, 0.50f, 0.42f, 0.34f, 0.18f, 0.13f, 0.08f };
 
         public int CollectingCount { get; private set; } = 0;
         public int CollectingPendingValue { get; private set; } = 0;
@@ -157,7 +163,7 @@ namespace TrashCleaner3D
         // ===== 연속 투하 콤보 =====
         public int ThrowComboCount { get; private set; } = 0;
         public float ThrowComboTimer { get; private set; } = 0f;
-        public float MaxComboWindow => 5.0f + LvComboTime * 2.5f;
+        public float MaxComboWindow => 5.0f + LvComboTime * 1.5f;
 
         // ===== 3D 로봇청소기 & 적층 & 월드 팝업 =====
         private readonly List<AutoRoombaCleaner> _roombas = new List<AutoRoombaCleaner>();
@@ -165,27 +171,31 @@ namespace TrashCleaner3D
         private readonly List<GameObject> _stackedVisuals = new List<GameObject>();
         public readonly List<FloatingWorldText> FloatingTexts = new List<FloatingWorldText>();
 
-        // ===== 인게임 스킬트리 레벨 (현금 $ 전용 19노드!) =====
-        public int LvSweepRadius { get; private set; }      // 0~5
-        public bool HasFeverEngine { get; private set; }
-        public int LvCrit { get; private set; }             // 0~4
-        public int LvChainPop { get; private set; }         // 0~3
-        public int LvRoomba { get; private set; }           // 0~3
+        // ===== 인게임 스킬트리 레벨 (저렴한 가격 + 다단계 3~10Lv 성장!) =====
+        public int LvSweepRadius { get; private set; }      // 0~10
+        public int LvFever { get; private set; }            // 0~5
+        public bool HasFeverEngine => LvFever > 0;
+        public int LvCrit { get; private set; }             // 0~10
+        public int LvChainPop { get; private set; }         // 0~8
+        public int LvRoomba { get; private set; }           // 0~6 (1·3·5에 로봇 투입, 2·4·6은 성능↑)
 
-        public int LvBagSize { get; private set; }          // 0~4
-        public int LvThrowPower { get; private set; }       // 0~4
-        public int LvTrashPrice { get; private set; }       // 0~5
-        public int LvTruckSize { get; private set; }        // 0~3
-        public int LvComboTime { get; private set; }        // 0~3
-        public bool HasTruckMagnet { get; private set; }
+        public int LvBagSize { get; private set; }          // 0~10
+        public int LvThrowPower { get; private set; }       // 0~8
+        public int LvTrashPrice { get; private set; }       // 0~10
+        public int LvTruckSize { get; private set; }        // 0~9 (리어카 1→3 · 다마스 1→3 · 1톤트럭 1→3)
+        public int VehicleVisualStage => LvTruckSize >= 7 ? 3 : LvTruckSize >= 4 ? 2 : LvTruckSize >= 1 ? 1 : 0;
+        public int LvComboTime { get; private set; }        // 0~6
+        public int LvMagnet { get; private set; }           // 0~3
+        public bool HasTruckMagnet => LvMagnet > 0;
 
-        public int LvMask { get; private set; }             // 0~5
-        public int LvMoveSpeed { get; private set; }        // 0~4
-        public bool HasMopUnlocked { get; private set; }
-        public int LvScrubPower { get; private set; }       // 0~3
+        public int LvMask { get; private set; }             // 0~10
+        public int LvMoveSpeed { get; private set; }        // 0~8
+        public int LvMop { get; private set; }              // 0~3
+        public bool HasMopUnlocked => LvMop > 0;
+        public int LvScrubPower { get; private set; }       // 0~8
 
-        public int LvFistPower { get; private set; }        // 0~4
-        public int LvShockwave { get; private set; }        // 0~3
+        public int LvFistPower { get; private set; }        // 0~10
+        public int LvShockwave { get; private set; }        // 0~6
         public bool HasBeaconDetect { get; private set; }
 
         // ===== 클리어 후 [★ 특전] (성실 신뢰도 토큰 전용) =====
@@ -203,9 +213,7 @@ namespace TrashCleaner3D
         {
             get
             {
-                float baseR = ToolTier == 0 ? 0.36f + LvSweepRadius * 0.08f
-                            : ToolTier == 1 ? 0.85f + LvSweepRadius * 0.14f
-                            : 1.65f + LvSweepRadius * 0.22f;
+                float baseR = 0.36f + ToolStep * 0.13f + LvSweepRadius * 0.065f;
                 return baseR * (1f + FeverRadiusBonus);
             }
         }
@@ -214,38 +222,35 @@ namespace TrashCleaner3D
         {
             get
             {
-                int baseGrab = ToolTier == 0 ? (1 + LvSweepRadius / 3)
-                             : ToolTier == 1 ? (3 + LvSweepRadius)
-                             : (10 + LvSweepRadius * 2);
+                int baseGrab = ToolStep <= 3 ? (1 + LvSweepRadius / 5)
+                             : ToolStep <= 6 ? ((ToolStep - 2) + LvSweepRadius / 3)
+                             : (5 + (ToolStep - 6) * 3 + LvSweepRadius);
                 if (IsAdrenalineZone) baseGrab = Mathf.CeilToInt(baseGrab * 1.35f);
                 return baseGrab;
             }
         }
 
-        /// <summary>
-        /// 1단계 맨손: 1.0초 HOLD 진동 후 쏙! → 2단계 집게/빗자루: 0.40초 → 3단계 진공청소기: 0.10초
-        /// </summary>
         public float EffectiveHoldDuration
         {
             get
             {
-                float baseDur = ToolTier == 0 ? 1.00f : ToolTier == 1 ? 0.40f : 0.10f;
+                float baseDur = ToolHoldDurs[Mathf.Clamp(ToolStep, 0, ToolHoldDurs.Length - 1)];
                 float workMult = Mathf.Max(0.35f, StenchWorkSpeedMult);
                 float totalSpeed = workMult * (1f + FeverSpeedBonus) * AdrenalineSpeedMult;
                 return Mathf.Clamp(baseDur / totalSpeed, 0.05f, 1.8f);
             }
         }
 
-        public float CritChance => LvCrit * 0.15f;
-        public float ChainChance => LvChainPop * 0.20f;
-        public int ChainExtraCount => LvChainPop == 0 ? 0 : (2 + LvChainPop * 2);
+        public float CritChance => LvCrit * 0.06f;
+        public float ChainChance => LvChainPop * 0.08f;
+        public int ChainExtraCount => LvChainPop == 0 ? 0 : (1 + LvChainPop);
         public float EvasionChance => LvEvasion * 0.20f;
 
         public float MoveSpeedTotalMult
         {
             get
             {
-                float m = StenchMoveSpeedMult * (1f + LvMoveSpeed * 0.15f);
+                float m = StenchMoveSpeedMult * (1f + LvMoveSpeed * 0.08f);
                 if (IsAdrenalineZone) m *= 1.18f;
                 if (HasFeverEngine && IsFeverHot) m *= 1.15f;
                 return m;
@@ -257,18 +262,22 @@ namespace TrashCleaner3D
         public float VipMoneyMult => HasVipContract ? 1.5f : 1.0f;
 
         public float EffectiveTrashPriceMult =>
-            (1f + LvTrashPrice * 0.25f) * StageRewardMult * VipMoneyMult * AdrenalineMult * FeverPriceMult * Last10JackpotMult;
+            (1f + LvTrashPrice * 0.15f) * StageRewardMult * VipMoneyMult * AdrenalineMult * FeverPriceMult * Last10JackpotMult;
 
         public float FistDamage =>
-            (ToolTier >= 2 ? Mathf.Max(4.2f, FistDmgByLv[Mathf.Clamp(LvFistPower, 0, 4)]) : FistDmgByLv[Mathf.Clamp(LvFistPower, 0, 4)])
+            (1.25f + LvFistPower * 0.85f + (ToolTier >= 2 ? 1.5f : 0f))
             * (IsAdrenalineZone ? 1.6f : 1.0f);
 
         public float ScrubSpeedMult =>
-            (HasMopUnlocked ? 2.6f : 1.0f) * (1f + LvScrubPower * 0.45f) * (IsAdrenalineZone ? 1.5f : 1.0f);
+            (1.0f + LvMop * 0.75f) * (1f + LvScrubPower * 0.25f) * (IsAdrenalineZone ? 1.5f : 1.0f);
 
-        public float ThrowForwardForce => 5.8f + LvThrowPower * 1.95f;
-        public float ThrowUpForce => 3.1f + LvThrowPower * 0.48f;
-        public string CurrentVehicleName => VehicleNames[Mathf.Clamp(LvTruckSize, 0, VehicleNames.Length - 1)];
+        public float ThrowForwardForce => 5.8f + LvThrowPower * 1.10f;
+        public float ThrowUpForce => 3.1f + LvThrowPower * 0.28f;
+        public string CurrentVehicleName =>
+            LvTruckSize == 0 ? "공공 쓰레기통" :
+            LvTruckSize <= 3 ? $"리어카 ({LvTruckSize}/3)" :
+            LvTruckSize <= 6 ? $"다마스 ({LvTruckSize - 3}/3)" :
+            $"1톤 트럭 ({LvTruckSize - 6}/3)";
 
         // ===== 진행도 & 80% 조기 정산 =====
         private readonly List<CleanableTarget> _bigPiles = new List<CleanableTarget>();
@@ -374,12 +383,13 @@ namespace TrashCleaner3D
 
         public Vector3 GetGoalOpeningHalfExtents()
         {
-            switch (Mathf.Clamp(LvTruckSize, 0, 3))
+            float sub = (LvTruckSize > 0 ? ((LvTruckSize - 1) % 3) * 0.04f : 0f);
+            switch (VehicleVisualStage)
             {
                 case 0: return new Vector3(0.42f, 0.58f, 0.42f);
-                case 1: return new Vector3(0.70f, 0.58f, 0.64f);
-                case 2: return new Vector3(0.98f, 0.60f, 0.80f);
-                default: return new Vector3(1.32f, 0.65f, 1.10f);
+                case 1: return new Vector3(0.70f + sub, 0.58f, 0.64f + sub);
+                case 2: return new Vector3(0.98f + sub, 0.60f, 0.80f + sub);
+                default: return new Vector3(1.32f + sub, 0.65f, 1.10f + sub);
             }
         }
 
@@ -591,8 +601,8 @@ namespace TrashCleaner3D
         public void ApplyShockwaveToNearbyPiles(CleanableTarget centerPile, float baseDamage)
         {
             if (LvShockwave <= 0 || centerPile == null) return;
-            float splashMult = LvShockwave == 1 ? 0.45f : LvShockwave == 2 ? 0.75f : 1.0f;
-            float radius = 2.6f;
+            float splashMult = Mathf.Min(1.1f, 0.20f + LvShockwave * 0.15f);
+            float radius = 2.2f + LvShockwave * 0.20f;
 
             foreach (var p in _bigPiles)
             {
@@ -873,7 +883,7 @@ namespace TrashCleaner3D
 
             int idx = _stackedBagsInTruck++;
             Vector3 half = GetGoalOpeningHalfExtents();
-            int cols = LvTruckSize == 0 ? 1 : LvTruckSize == 1 ? 2 : 3;
+            int cols = VehicleVisualStage == 0 ? 1 : VehicleVisualStage == 1 ? 2 : 3;
             int perLayer = cols * cols;
             int layer = idx / perLayer;
             int slot = idx % perLayer;
@@ -887,7 +897,7 @@ namespace TrashCleaner3D
             bag.SetActive(true);
             bag.transform.localPosition = new Vector3(rx + Random.Range(-0.04f, 0.04f), sy, rz + Random.Range(-0.04f, 0.04f));
             bag.transform.localRotation = Quaternion.Euler(Random.Range(-14f, 14f), Random.Range(0f, 360f), Random.Range(-14f, 14f));
-            bag.transform.localScale = Vector3.one * (LvTruckSize == 0 ? 0.72f : 0.92f);
+            bag.transform.localScale = Vector3.one * (VehicleVisualStage == 0 ? 0.72f : 0.92f);
             foreach (var col in bag.GetComponentsInChildren<Collider>(true)) Destroy(col);
             foreach (var rb in bag.GetComponentsInChildren<Rigidbody>(true)) Destroy(rb);
             _stackedVisuals.Add(bag);
@@ -933,29 +943,29 @@ namespace TrashCleaner3D
             else { _phaseBeforeOverlay = Phase; Phase = GamePhase.SettingsMenu; UnlockCursor(true); }
         }
 
-        // ===== 인게임 스킬트리 가격 ($ 현금 전용 — 다회차 성장 템포 밸런싱!) =====
-        public int CostTool => ToolTier == 0 ? 180 : 1400;
-        public int CostSweep => Mathf.RoundToInt(60 * Mathf.Pow(2.35f, LvSweepRadius));
-        public int CostFever => 480;
-        public int CostCrit => Mathf.RoundToInt(120 * Mathf.Pow(2.40f, LvCrit));
-        public int CostChain => Mathf.RoundToInt(320 * Mathf.Pow(2.50f, LvChainPop));
-        public int CostRoomba => Mathf.RoundToInt(650 * Mathf.Pow(2.60f, LvRoomba));
+        // ===== 인게임 스킬트리 가격 ($ 현금 전용 — 저렴한 가격 + 다단계 3~10Lv 클릭 손맛!) =====
+        public int CostTool => ToolStepCosts[Mathf.Clamp(ToolStep, 0, ToolStepCosts.Length - 1)];
+        public int CostSweep => Mathf.RoundToInt(15 * Mathf.Pow(1.38f, LvSweepRadius));
+        public int CostFever => Mathf.RoundToInt(35 * Mathf.Pow(1.45f, LvFever));
+        public int CostCrit => Mathf.RoundToInt(20 * Mathf.Pow(1.38f, LvCrit));
+        public int CostChain => Mathf.RoundToInt(35 * Mathf.Pow(1.40f, LvChainPop));
+        public int CostRoomba => Mathf.RoundToInt(70 * Mathf.Pow(1.48f, LvRoomba));
 
-        public int CostBag => Mathf.RoundToInt(65 * Mathf.Pow(2.40f, LvBagSize));
-        public int CostThrowPower => Mathf.RoundToInt(90 * Mathf.Pow(2.30f, LvThrowPower));
-        public int CostTrashPrice => Mathf.RoundToInt(110 * Mathf.Pow(2.45f, LvTrashPrice));
-        public int CostTruck => LvTruckSize == 0 ? 220 : LvTruckSize == 1 ? 780 : 2400;
-        public int CostComboTime => Mathf.RoundToInt(200 * Mathf.Pow(2.40f, LvComboTime));
-        public int CostMagnet => 1200;
+        public int CostBag => Mathf.RoundToInt(15 * Mathf.Pow(1.38f, LvBagSize));
+        public int CostThrowPower => Mathf.RoundToInt(18 * Mathf.Pow(1.36f, LvThrowPower));
+        public int CostTrashPrice => Mathf.RoundToInt(22 * Mathf.Pow(1.38f, LvTrashPrice));
+        public int CostTruck => TruckStepCosts[Mathf.Clamp(LvTruckSize, 0, TruckStepCosts.Length - 1)];
+        public int CostComboTime => Mathf.RoundToInt(28 * Mathf.Pow(1.40f, LvComboTime));
+        public int CostMagnet => Mathf.RoundToInt(85 * Mathf.Pow(1.55f, LvMagnet));
 
-        public int CostMask => Mathf.RoundToInt(70 * Mathf.Pow(2.25f, LvMask));
-        public int CostMoveSpeed => Mathf.RoundToInt(95 * Mathf.Pow(2.35f, LvMoveSpeed));
-        public int CostMop => 280;
-        public int CostScrub => Mathf.RoundToInt(340 * Mathf.Pow(2.35f, LvScrubPower));
+        public int CostMask => Mathf.RoundToInt(15 * Mathf.Pow(1.35f, LvMask));
+        public int CostMoveSpeed => Mathf.RoundToInt(18 * Mathf.Pow(1.38f, LvMoveSpeed));
+        public int CostMop => Mathf.RoundToInt(35 * Mathf.Pow(1.50f, LvMop));
+        public int CostScrub => Mathf.RoundToInt(25 * Mathf.Pow(1.40f, LvScrubPower));
 
-        public int CostFist => Mathf.RoundToInt(85 * Mathf.Pow(2.30f, LvFistPower));
-        public int CostShockwave => Mathf.RoundToInt(260 * Mathf.Pow(2.45f, LvShockwave));
-        public int CostBeacon => 240;
+        public int CostFist => Mathf.RoundToInt(16 * Mathf.Pow(1.38f, LvFistPower));
+        public int CostShockwave => Mathf.RoundToInt(32 * Mathf.Pow(1.42f, LvShockwave));
+        public int CostBeacon => 45;
 
         // ===== 클리어 후 [★ 특전] & [♦ 암시장] 가격 =====
         public int CostVipTokens => 1;
@@ -972,21 +982,20 @@ namespace TrashCleaner3D
             switch (id)
             {
                 case "tool": case "sweep": case "bag": case "mask": case "fist": return true;
-                case "fever": return ToolTier >= 1;
-                case "crit": return LvSweepRadius >= 1;
-                case "chain": return LvCrit >= 1;
-                case "roomba": return LvChainPop >= 1 || ToolTier >= 2;
+                case "fever": return ToolStep >= 2;
+                case "crit": return LvSweepRadius >= 2;
+                case "chain": return LvCrit >= 2;
+                case "roomba": return LvChainPop >= 2 || ToolTier >= 2;
                 case "throw": return LvBagSize >= 1;
                 case "price": return LvBagSize >= 1;
                 case "truck": return LvThrowPower >= 1;
-                case "combo": return LvTrashPrice >= 1;
-                case "magnet": return LvTruckSize >= 2;
+                case "combo": return LvTrashPrice >= 2;
+                case "magnet": return VehicleVisualStage >= 2;
                 case "speed": return LvMask >= 1;
                 case "mop": return LvMask >= 1;
                 case "scrub": return HasMopUnlocked;
-                case "shock": return LvFistPower >= 1;
+                case "shock": return LvFistPower >= 2;
                 case "beacon": return LvFistPower >= 1;
-                // 클리어 후 전용 특전/암시장
                 case "vip": case "compressor": case "sense": return true;
                 case "appraisal": case "evasion": case "adrenaline": case "launder": return true;
                 default: return false;
@@ -996,27 +1005,27 @@ namespace TrashCleaner3D
         public int CountAffordableCashUpgrades()
         {
             int c = 0;
-            if (IsNodeUnlocked("tool") && ToolTier < 2 && Money >= CostTool) c++;
-            if (IsNodeUnlocked("sweep") && LvSweepRadius < 5 && Money >= CostSweep) c++;
-            if (IsNodeUnlocked("fever") && !HasFeverEngine && Money >= CostFever) c++;
-            if (IsNodeUnlocked("crit") && LvCrit < 4 && Money >= CostCrit) c++;
-            if (IsNodeUnlocked("chain") && LvChainPop < 3 && Money >= CostChain) c++;
-            if (IsNodeUnlocked("roomba") && LvRoomba < 3 && Money >= CostRoomba) c++;
+            if (IsNodeUnlocked("tool") && ToolStep < 9 && Money >= CostTool) c++;
+            if (IsNodeUnlocked("sweep") && LvSweepRadius < 10 && Money >= CostSweep) c++;
+            if (IsNodeUnlocked("fever") && LvFever < 5 && Money >= CostFever) c++;
+            if (IsNodeUnlocked("crit") && LvCrit < 10 && Money >= CostCrit) c++;
+            if (IsNodeUnlocked("chain") && LvChainPop < 8 && Money >= CostChain) c++;
+            if (IsNodeUnlocked("roomba") && LvRoomba < 6 && Money >= CostRoomba) c++;
 
-            if (IsNodeUnlocked("bag") && LvBagSize < 4 && Money >= CostBag) c++;
-            if (IsNodeUnlocked("throw") && LvThrowPower < 4 && Money >= CostThrowPower) c++;
-            if (IsNodeUnlocked("price") && LvTrashPrice < 5 && Money >= CostTrashPrice) c++;
-            if (IsNodeUnlocked("truck") && LvTruckSize < 3 && Money >= CostTruck) c++;
-            if (IsNodeUnlocked("combo") && LvComboTime < 3 && Money >= CostComboTime) c++;
-            if (IsNodeUnlocked("magnet") && !HasTruckMagnet && Money >= CostMagnet) c++;
+            if (IsNodeUnlocked("bag") && LvBagSize < 10 && Money >= CostBag) c++;
+            if (IsNodeUnlocked("throw") && LvThrowPower < 8 && Money >= CostThrowPower) c++;
+            if (IsNodeUnlocked("price") && LvTrashPrice < 10 && Money >= CostTrashPrice) c++;
+            if (IsNodeUnlocked("truck") && LvTruckSize < 9 && Money >= CostTruck) c++;
+            if (IsNodeUnlocked("combo") && LvComboTime < 6 && Money >= CostComboTime) c++;
+            if (IsNodeUnlocked("magnet") && LvMagnet < 3 && Money >= CostMagnet) c++;
 
-            if (IsNodeUnlocked("mask") && LvMask < 5 && Money >= CostMask) c++;
-            if (IsNodeUnlocked("speed") && LvMoveSpeed < 4 && Money >= CostMoveSpeed) c++;
-            if (IsNodeUnlocked("mop") && !HasMopUnlocked && Money >= CostMop) c++;
-            if (IsNodeUnlocked("scrub") && LvScrubPower < 3 && Money >= CostScrub) c++;
+            if (IsNodeUnlocked("mask") && LvMask < 10 && Money >= CostMask) c++;
+            if (IsNodeUnlocked("speed") && LvMoveSpeed < 8 && Money >= CostMoveSpeed) c++;
+            if (IsNodeUnlocked("mop") && LvMop < 3 && Money >= CostMop) c++;
+            if (IsNodeUnlocked("scrub") && LvScrubPower < 8 && Money >= CostScrub) c++;
 
-            if (IsNodeUnlocked("fist") && LvFistPower < 4 && Money >= CostFist) c++;
-            if (IsNodeUnlocked("shock") && LvShockwave < 3 && Money >= CostShockwave) c++;
+            if (IsNodeUnlocked("fist") && LvFistPower < 10 && Money >= CostFist) c++;
+            if (IsNodeUnlocked("shock") && LvShockwave < 6 && Money >= CostShockwave) c++;
             if (IsNodeUnlocked("beacon") && !HasBeaconDetect && Money >= CostBeacon) c++;
             return c;
         }
@@ -1027,39 +1036,43 @@ namespace TrashCleaner3D
             switch (id)
             {
                 case "tool":
-                    if (ToolTier >= 2 || Money < CostTool) return false;
-                    Money -= CostTool; ToolTier++;
-                    ShowToast($"도구 진화 → {CurrentToolName}");
+                    if (ToolStep >= 9 || Money < CostTool) return false;
+                    Money -= CostTool; ToolStep++;
+                    ShowToast($"도구 강화 → {CurrentToolName}");
                     break;
-                case "sweep": if (LvSweepRadius >= 5 || Money < CostSweep) return false; Money -= CostSweep; LvSweepRadius++; break;
-                case "fever": if (HasFeverEngine || Money < CostFever) return false; Money -= CostFever; HasFeverEngine = true; break;
-                case "crit": if (LvCrit >= 4 || Money < CostCrit) return false; Money -= CostCrit; LvCrit++; break;
-                case "chain": if (LvChainPop >= 3 || Money < CostChain) return false; Money -= CostChain; LvChainPop++; break;
+                case "sweep": if (LvSweepRadius >= 10 || Money < CostSweep) return false; Money -= CostSweep; LvSweepRadius++; break;
+                case "fever": if (LvFever >= 5 || Money < CostFever) return false; Money -= CostFever; LvFever++; break;
+                case "crit": if (LvCrit >= 10 || Money < CostCrit) return false; Money -= CostCrit; LvCrit++; break;
+                case "chain": if (LvChainPop >= 8 || Money < CostChain) return false; Money -= CostChain; LvChainPop++; break;
                 case "roomba":
-                    if (LvRoomba >= 3 || Money < CostRoomba) return false;
+                    if (LvRoomba >= 6 || Money < CostRoomba) return false;
                     Money -= CostRoomba; LvRoomba++;
-                    _roombas.Add(AutoRoombaCleaner.Spawn(this, new Vector3(Random.Range(-1.2f, 1.2f), 0.05f, Random.Range(-0.8f, 1.0f)), _roombas.Count));
-                    ShowToast($"로봇청소기 {_roombas.Count}호 투입");
+                    if (LvRoomba == 1 || LvRoomba == 3 || LvRoomba == 5)
+                    {
+                        _roombas.Add(AutoRoombaCleaner.Spawn(this, new Vector3(Random.Range(-1.2f, 1.2f), 0.05f, Random.Range(-0.8f, 1.0f)), _roombas.Count));
+                        ShowToast($"로봇청소기 {_roombas.Count}호 투입!");
+                    }
+                    else ShowToast($"로봇청소기 성능 강화 Lv.{LvRoomba}");
                     break;
 
-                case "bag": if (LvBagSize >= 4 || Money < CostBag) return false; Money -= CostBag; LvBagSize++; break;
-                case "throw": if (LvThrowPower >= 4 || Money < CostThrowPower) return false; Money -= CostThrowPower; LvThrowPower++; break;
-                case "price": if (LvTrashPrice >= 5 || Money < CostTrashPrice) return false; Money -= CostTrashPrice; LvTrashPrice++; break;
+                case "bag": if (LvBagSize >= 10 || Money < CostBag) return false; Money -= CostBag; LvBagSize++; break;
+                case "throw": if (LvThrowPower >= 8 || Money < CostThrowPower) return false; Money -= CostThrowPower; LvThrowPower++; break;
+                case "price": if (LvTrashPrice >= 10 || Money < CostTrashPrice) return false; Money -= CostTrashPrice; LvTrashPrice++; break;
                 case "truck":
-                    if (LvTruckSize >= 3 || Money < CostTruck) return false;
+                    if (LvTruckSize >= 9 || Money < CostTruck) return false;
                     Money -= CostTruck; LvTruckSize++; UpdateVehicleStageVisuals();
                     ShowToast($"수거함 → {CurrentVehicleName}");
                     break;
-                case "combo": if (LvComboTime >= 3 || Money < CostComboTime) return false; Money -= CostComboTime; LvComboTime++; break;
-                case "magnet": if (HasTruckMagnet || Money < CostMagnet) return false; Money -= CostMagnet; HasTruckMagnet = true; break;
+                case "combo": if (LvComboTime >= 6 || Money < CostComboTime) return false; Money -= CostComboTime; LvComboTime++; break;
+                case "magnet": if (LvMagnet >= 3 || Money < CostMagnet) return false; Money -= CostMagnet; LvMagnet++; break;
 
-                case "mask": if (LvMask >= 5 || Money < CostMask) return false; Money -= CostMask; LvMask++; break;
-                case "speed": if (LvMoveSpeed >= 4 || Money < CostMoveSpeed) return false; Money -= CostMoveSpeed; LvMoveSpeed++; break;
-                case "mop": if (HasMopUnlocked || Money < CostMop) return false; Money -= CostMop; HasMopUnlocked = true; break;
-                case "scrub": if (LvScrubPower >= 3 || Money < CostScrub) return false; Money -= CostScrub; LvScrubPower++; break;
+                case "mask": if (LvMask >= 10 || Money < CostMask) return false; Money -= CostMask; LvMask++; break;
+                case "speed": if (LvMoveSpeed >= 8 || Money < CostMoveSpeed) return false; Money -= CostMoveSpeed; LvMoveSpeed++; break;
+                case "mop": if (LvMop >= 3 || Money < CostMop) return false; Money -= CostMop; LvMop++; break;
+                case "scrub": if (LvScrubPower >= 8 || Money < CostScrub) return false; Money -= CostScrub; LvScrubPower++; break;
 
-                case "fist": if (LvFistPower >= 4 || Money < CostFist) return false; Money -= CostFist; LvFistPower++; break;
-                case "shock": if (LvShockwave >= 3 || Money < CostShockwave) return false; Money -= CostShockwave; LvShockwave++; break;
+                case "fist": if (LvFistPower >= 10 || Money < CostFist) return false; Money -= CostFist; LvFistPower++; break;
+                case "shock": if (LvShockwave >= 6 || Money < CostShockwave) return false; Money -= CostShockwave; LvShockwave++; break;
                 case "beacon": if (HasBeaconDetect || Money < CostBeacon) return false; Money -= CostBeacon; HasBeaconDetect = true; break;
 
                 // 클리어 후 [★ 특전]
@@ -1082,7 +1095,7 @@ namespace TrashCleaner3D
         private void UpdateVehicleStageVisuals()
         {
             if (vehicleStageObjects == null || vehicleStageObjects.Length == 0) return;
-            int idx = Mathf.Clamp(LvTruckSize, 0, vehicleStageObjects.Length - 1);
+            int idx = Mathf.Clamp(VehicleVisualStage, 0, vehicleStageObjects.Length - 1);
             for (int i = 0; i < vehicleStageObjects.Length; i++)
             {
                 if (vehicleStageObjects[i] != null) vehicleStageObjects[i].SetActive(i == idx);

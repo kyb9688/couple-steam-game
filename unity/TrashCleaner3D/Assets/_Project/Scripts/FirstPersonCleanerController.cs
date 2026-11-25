@@ -278,7 +278,8 @@ namespace TrashCleaner3D
             if (_scrubSoundCooldown > 0f) _scrubSoundCooldown -= Time.deltaTime;
             if (_holdVibeSfxTimer > 0f) _holdVibeSfxTimer -= Time.deltaTime;
 
-            ClearHighlight();
+            // 주의: 매 프레임 스웜 락온을 지우지 않음! (clearSwarmLock: false)
+            ClearHighlight(false);
             AimIsPile = false;
             AimIsSwarmNear = false;
             AimIsStain = false;
@@ -288,7 +289,11 @@ namespace TrashCleaner3D
             AimProgress01 = -1f;
             _scrubMotionWeight = Mathf.MoveTowards(_scrubMotionWeight, 0f, 6f * Time.deltaTime);
 
-            if (cameraTransform == null || Cursor.lockState != CursorLockMode.Locked) return;
+            if (cameraTransform == null || Cursor.lockState != CursorLockMode.Locked)
+            {
+                ClearSwarmSelection();
+                return;
+            }
 
             bool lmbHeld = false, lmbDown = false, rmbDown = false, fDown = false;
 #if ENABLE_INPUT_SYSTEM
@@ -406,10 +411,11 @@ namespace TrashCleaner3D
                 if (fDown) { hitDoor.ToggleDoor(manager.sfx); return; }
             }
 
-            if (blockedByDoor) return;
+            if (blockedByDoor) { ClearSwarmSelection(); return; }
 
             if (manager.IsTooSuffocatedToWork)
             {
+                ClearSwarmSelection();
                 if (lmbDown) { manager.sfx.PlayAlert(); manager.ShowToast("☣ 작업 불가 · 문 밖 환기"); }
                 return;
             }
@@ -417,6 +423,7 @@ namespace TrashCleaner3D
             // 손에 완성 봉지 1개 쥐고 있으면 바닥 작업 차단
             if (manager.HasCarriedBag)
             {
+                ClearSwarmSelection();
                 if (lmbDown) manager.ShowToast("보유 봉지 [RMB] 투하");
                 return;
             }
@@ -443,11 +450,12 @@ namespace TrashCleaner3D
                         manager.ApplyShockwaveToNearbyPiles(hitPile, dmg);
                         if (hitPile.ApplyCleanDamage(dmg, null)) manager.OnBigPileBurst(hitPile);
                         else manager.sfx.PlayScrub();
+                        ClearSwarmSelection();
                         return;
                     }
                 }
 
-                // 요청 #1 & #4: [LMB 꾹(HOLD)] = 원형 커서 안의 바닥 쓰레기 락온 진동 차징 후 쏙 흡입!
+                // 요청 #1: [LMB 꾹(HOLD)] = 한번 락온된 쓰레기는 커서 원 반경 밖으로 나가기 전까지 절대 초기화 X!
                 if (manager.trashSwarm != null && hasWorldPoint && Vector3.Distance(cameraTransform.position, worldAimPoint) <= 4.6f)
                 {
                     float r = manager.SweepRadius;
@@ -493,26 +501,34 @@ namespace TrashCleaner3D
                         _grabSwingTimer = manager.ToolTier == 1 ? 0.14f : 0.18f;
                     }
                 }
+                else
+                {
+                    ClearSwarmSelection();
+                }
             }
             // ===== PHASE 2: 밀대/걸레 바닥 닦기 =====
-            else if (manager.Phase == GamePhase.Phase2_FloorMopping && hitStain != null)
+            else if (manager.Phase == GamePhase.Phase2_FloorMopping)
             {
-                _lastTarget = hitStain;
-                hitStain.SetHighlighted(true);
-                AimIsStain = true;
-                AimProgress01 = hitStain.CleanProgress01;
-
-                if (lmbHeld)
+                ClearSwarmSelection();
+                if (hitStain != null)
                 {
-                    float shake = mouseDelta.magnitude;
-                    if (shake < 1.8f) NeedMouseShakeHint = true;
-                    else
+                    _lastTarget = hitStain;
+                    hitStain.SetHighlighted(true);
+                    AimIsStain = true;
+                    AimProgress01 = hitStain.CleanProgress01;
+
+                    if (lmbHeld)
                     {
-                        float power = Mathf.Min(shake, 50f) * 0.145f * manager.ScrubSpeedMult * workMult;
-                        _scrubMotionWeight = 1f;
-                        _scrubPhase += (6f + Mathf.Min(shake, 32f) * 0.9f) * Time.deltaTime;
-                        if (_scrubSoundCooldown <= 0f) { _scrubSoundCooldown = 0.18f; manager.sfx.PlayScrub(); }
-                        if (hitStain.ApplyCleanDamage(power * Time.deltaTime, null)) manager.OnStainCleaned(hitStain);
+                        float shake = mouseDelta.magnitude;
+                        if (shake < 1.8f) NeedMouseShakeHint = true;
+                        else
+                        {
+                            float power = Mathf.Min(shake, 50f) * 0.145f * manager.ScrubSpeedMult * workMult;
+                            _scrubMotionWeight = 1f;
+                            _scrubPhase += (6f + Mathf.Min(shake, 32f) * 0.9f) * Time.deltaTime;
+                            if (_scrubSoundCooldown <= 0f) { _scrubSoundCooldown = 0.18f; manager.sfx.PlayScrub(); }
+                            if (hitStain.ApplyCleanDamage(power * Time.deltaTime, null)) manager.OnStainCleaned(hitStain);
+                        }
                     }
                 }
             }
@@ -583,12 +599,18 @@ namespace TrashCleaner3D
             }
         }
 
-        private void ClearHighlight()
+        private void ClearHighlight(bool clearSwarmLock = true)
         {
             if (_lastTarget != null) { _lastTarget.SetHighlighted(false); _lastTarget = null; }
             if (_lastDoor != null) { _lastDoor.SetHighlighted(false); _lastDoor = null; }
             if (_lastDroppedBag != null) { _lastDroppedBag.SetHighlighted(false); _lastDroppedBag = null; }
-            if (manager != null && manager.trashSwarm != null) manager.trashSwarm.UpdateHoverSelection(false, false, Vector3.zero, 0f, 0);
+            if (clearSwarmLock) ClearSwarmSelection();
+        }
+
+        private void ClearSwarmSelection()
+        {
+            if (manager != null && manager.trashSwarm != null)
+                manager.trashSwarm.UpdateHoverSelection(false, false, Vector3.zero, 0f, 0);
         }
     }
 }

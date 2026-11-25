@@ -656,33 +656,50 @@ namespace TrashCleaner3D
             Color cSurv = new Color(0.36f, 0.90f, 0.54f);
             Color cFist = new Color(0.98f, 0.56f, 0.24f);
 
+            string toolNextHint =
+                manager.ToolStep < 3 ? $"현재: {manager.CurrentToolName} · 다음: 1단계 고무장갑 ({manager.ToolStep + 1}/3) · 홀드 {manager.EffectiveHoldDuration:0.00}초" :
+                manager.ToolStep == 3 ? "다음: ★ 2단계 [집게·빗자루] 해금 (1/3)" :
+                manager.ToolStep < 6 ? $"현재: {manager.CurrentToolName} · 다음: 2단계 ({manager.ToolStep - 2}/3) · 홀드 {manager.EffectiveHoldDuration:0.00}초" :
+                manager.ToolStep == 6 ? "다음: ★ 3단계 [진공청소기] 해금 (1/3)" :
+                manager.ToolStep < 9 ? $"현재: {manager.CurrentToolName} · 다음: 3단계 ({manager.ToolStep - 5}/3) · 홀드 {manager.EffectiveHoldDuration:0.00}초" :
+                "3단계 진공청소기 (3/3) MAX";
+
+            string truckNextHint =
+                manager.LvTruckSize == 0 ? "다음: ★ 1단계 [리어카] 해금 (1/3)" :
+                manager.LvTruckSize < 3 ? $"현재: {manager.CurrentVehicleName} · 다음: 리어카 ({manager.LvTruckSize + 1}/3)" :
+                manager.LvTruckSize == 3 ? "다음: ★ 2단계 [다마스] 해금 (1/3)" :
+                manager.LvTruckSize < 6 ? $"현재: {manager.CurrentVehicleName} · 다음: 다마스 ({manager.LvTruckSize - 2}/3)" :
+                manager.LvTruckSize == 6 ? "다음: ★ 3단계 [1톤 트럭] 해금 (1/3)" :
+                manager.LvTruckSize < 9 ? $"현재: {manager.CurrentVehicleName} · 다음: 1톤 트럭 ({manager.LvTruckSize - 5}/3)" :
+                "3단계 1톤 트럭 (3/3) MAX";
+
             var nodes = new[]
             {
-                // 좌상: 도구 진화 & 흡입
-                Node("tool", "▲", "도구 진화", manager.ToolTier == 0 ? "→ 집게/빗자루 (0.4초 · 3개)" : manager.ToolTier == 1 ? "→ 진공청소기 (0.1초 · 광역)" : "진공청소기 MAX", $"${manager.CostTool}", "", new Vector2(-120, -76), manager.ToolTier, 2, cTool),
-                Node("sweep", "◎", "커서 범위", $"원 반경 {manager.SweepRadius:0.00}m", $"${manager.CostSweep}", "tool", new Vector2(-225, -76), manager.LvSweepRadius, 5, cTool),
-                Node("fever", "✹", "피버 엔진", "연속 흡입 → 범위+35%·속도+65%·×1.45", $"${manager.CostFever}", "tool", new Vector2(-120, -162), manager.HasFeverEngine ? 1 : 0, 1, cTool),
-                Node("crit", "✦", "크리티컬", $"확률 {manager.CritChance * 100f:0}% · 수익 ×2", $"${manager.CostCrit}", "sweep", new Vector2(-330, -76), manager.LvCrit, 4, cTool),
-                Node("chain", "◈", "연쇄 도미노", $"확률 {manager.ChainChance * 100f:0}% · 주변 +{manager.ChainExtraCount}개", $"${manager.CostChain}", "crit", new Vector2(-435, -76), manager.LvChainPop, 3, cTool),
-                Node("roomba", "◉", "로봇청소기", $"자동 수거 {manager.LvRoomba}대", $"${manager.CostRoomba}", "chain", new Vector2(-435, -162), manager.LvRoomba, 3, cTool),
+                // 좌상: 도구 다단계 진화 & 흡입
+                Node("tool", "▲", "도구 진화", toolNextHint, $"${manager.CostTool}", "", new Vector2(-120, -76), manager.ToolStep, 9, cTool),
+                Node("sweep", "◎", "커서 범위", $"원 반경 {manager.SweepRadius:0.00}m · 동시 {manager.AutoGrabPerTick}개", $"${manager.CostSweep}", "tool", new Vector2(-225, -76), manager.LvSweepRadius, 10, cTool),
+                Node("fever", "✹", "피버 엔진", $"연속 흡입 → 범위+{manager.LvFever * 8}% · 속도+{manager.LvFever * 14}% · 수익×{1.15f + manager.LvFever * 0.10f:0.00}", $"${manager.CostFever}", "tool", new Vector2(-120, -162), manager.LvFever, 5, cTool),
+                Node("crit", "✦", "크리티컬", $"확률 {manager.CritChance * 100f:0}% · 수익 ×2", $"${manager.CostCrit}", "sweep", new Vector2(-330, -76), manager.LvCrit, 10, cTool),
+                Node("chain", "◈", "연쇄 도미노", $"확률 {manager.ChainChance * 100f:0}% · 주변 +{manager.ChainExtraCount}개", $"${manager.CostChain}", "crit", new Vector2(-435, -76), manager.LvChainPop, 8, cTool),
+                Node("roomba", "◉", "로봇청소기", $"Lv.1·3·5 새 로봇 투입 (현재 {(manager.LvRoomba + 1) / 2}대 · 성능 Lv.{manager.LvRoomba})", $"${manager.CostRoomba}", "chain", new Vector2(-435, -162), manager.LvRoomba, 6, cTool),
 
                 // 우상: 운반 & 경제
-                Node("bag", "▣", "봉투 용량", $"최대 {manager.HandBagCapacity}개", $"${manager.CostBag}", "", new Vector2(120, -76), manager.LvBagSize, 4, cBag),
-                Node("throw", "↗", "던지는 힘", $"투척력 Lv.{manager.LvThrowPower}", $"${manager.CostThrowPower}", "bag", new Vector2(225, -76), manager.LvThrowPower, 4, cBag),
-                Node("truck", "▶", "수거함 진화", manager.CurrentVehicleName, $"${manager.CostTruck}", "throw", new Vector2(330, -76), manager.LvTruckSize, 3, cBag),
-                Node("magnet", "Ω", "자석 압축기", "근처 봉투 자동 흡입", $"${manager.CostMagnet}", "truck", new Vector2(435, -76), manager.HasTruckMagnet ? 1 : 0, 1, cBag),
-                Node("price", "◆", "분리수거 단가", $"단가 +{manager.LvTrashPrice * 25}%", $"${manager.CostTrashPrice}", "bag", new Vector2(120, -162), manager.LvTrashPrice, 5, cBag),
-                Node("combo", "»", "투하 콤보", $"콤보 유지 {manager.MaxComboWindow:0.0}초", $"${manager.CostComboTime}", "price", new Vector2(225, -162), manager.LvComboTime, 3, cBag),
+                Node("bag", "▣", "봉투 용량", $"최대 {manager.HandBagCapacity}개 (절반 {manager.HalfBagThreshold}개부터 묶기)", $"${manager.CostBag}", "", new Vector2(120, -76), manager.LvBagSize, 10, cBag),
+                Node("throw", "↗", "던지는 힘", $"투척력 Lv.{manager.LvThrowPower}/8", $"${manager.CostThrowPower}", "bag", new Vector2(225, -76), manager.LvThrowPower, 8, cBag),
+                Node("truck", "▶", "수거함 진화", truckNextHint, $"${manager.CostTruck}", "throw", new Vector2(330, -76), manager.LvTruckSize, 9, cBag),
+                Node("magnet", "Ω", "자석 압축기", $"근처 봉투 자동 흡입 Lv.{manager.LvMagnet}/3", $"${manager.CostMagnet}", "truck", new Vector2(435, -76), manager.LvMagnet, 3, cBag),
+                Node("price", "◆", "분리수거 단가", $"단가 +{manager.LvTrashPrice * 15}%", $"${manager.CostTrashPrice}", "bag", new Vector2(120, -162), manager.LvTrashPrice, 10, cBag),
+                Node("combo", "»", "투하 콤보", $"콤보 유지 {manager.MaxComboWindow:0.0}초", $"${manager.CostComboTime}", "price", new Vector2(225, -162), manager.LvComboTime, 6, cBag),
 
                 // 좌하: 생존 & 걸레질
-                Node("mask", "☣", "방독면", $"악취 -{manager.LvMask * 16}%", $"${manager.CostMask}", "", new Vector2(-120, 76), manager.LvMask, 5, cSurv),
-                Node("speed", "»", "운동화", $"이동속도 +{manager.LvMoveSpeed * 15}%", $"${manager.CostMoveSpeed}", "mask", new Vector2(-225, 76), manager.LvMoveSpeed, 4, cSurv),
-                Node("mop", "┴", "T자 대걸레", "2단계 바닥 닦기 ×2.6", $"${manager.CostMop}", "mask", new Vector2(-120, 162), manager.HasMopUnlocked ? 1 : 0, 1, cSurv),
-                Node("scrub", "✧", "강력 세제", $"세정력 +{manager.LvScrubPower * 45}%", $"${manager.CostScrub}", "mop", new Vector2(-225, 162), manager.LvScrubPower, 3, cSurv),
+                Node("mask", "☣", "방독면", $"악취 -{Mathf.Min(82, manager.LvMask * 8)}%", $"${manager.CostMask}", "", new Vector2(-120, 76), manager.LvMask, 10, cSurv),
+                Node("speed", "»", "운동화", $"이동속도 +{manager.LvMoveSpeed * 8}%", $"${manager.CostMoveSpeed}", "mask", new Vector2(-225, 76), manager.LvMoveSpeed, 8, cSurv),
+                Node("mop", "┴", "T자 대걸레", $"2단계 바닥 닦기 ×{1f + manager.LvMop * 0.75f:0.00} ({manager.LvMop}/3)", $"${manager.CostMop}", "mask", new Vector2(-120, 162), manager.LvMop, 3, cSurv),
+                Node("scrub", "✧", "강력 세제", $"세정력 +{manager.LvScrubPower * 25}%", $"${manager.CostScrub}", "mop", new Vector2(-225, 162), manager.LvScrubPower, 8, cSurv),
 
                 // 우하: 큰 봉지 파괴 & 10% 투시
-                Node("fist", "❖", "주먹 힘", $"큰 봉투 타격 {manager.FistDamage:0.0}", $"${manager.CostFist}", "", new Vector2(120, 76), manager.LvFistPower, 4, cFist),
-                Node("shock", "✹", "충격파 펀치", $"주변 큰 봉투 동시 타격 Lv.{manager.LvShockwave}", $"${manager.CostShockwave}", "fist", new Vector2(225, 76), manager.LvShockwave, 3, cFist),
+                Node("fist", "❖", "주먹 힘", $"큰 봉투 타격 {manager.FistDamage:0.0}", $"${manager.CostFist}", "", new Vector2(120, 76), manager.LvFistPower, 10, cFist),
+                Node("shock", "✹", "충격파 펀치", $"주변 큰 봉투 동시 타격 Lv.{manager.LvShockwave}/6", $"${manager.CostShockwave}", "fist", new Vector2(225, 76), manager.LvShockwave, 6, cFist),
                 Node("beacon", "◈", "10% 투시", "잔여 10% 쓰레기 황금 테두리", $"${manager.CostBeacon}", "fist", new Vector2(120, 162), manager.HasBeaconDetect ? 1 : 0, 1, cFist),
             };
 
