@@ -294,9 +294,11 @@ namespace TrashCleaner3D
 
             if (toggleFlash && flashlight != null) flashlight.enabled = !flashlight.enabled;
 
-            // v1.1.2: Phase 2 걸레질 중 LMB를 쥐고 있으면 시점은 고정(!) — 멀미 방지.
+            // v1.1.2: Phase 2 걸레질(얼룩을 실제로 닦는 중)에 LMB를 쥐고 있으면 시점은 고정(!) — 멀미 방지.
             // 마우스 이동은 카메라가 아니라 걸레 닦기 파워/모션에만 쓰인다 (LMB를 떼면 즉시 정상 회전).
-            bool mopCameraLock = lmbHeldNow && manager.Phase == GamePhase.Phase2_FloorMopping;
+            // 닦을 얼룩이 없을 때는 LMB를 쥐고 걸어다녀도 시점이 돌아간다(Phase 1 습관 보호).
+            bool mopCameraLock = lmbHeldNow && manager.Phase == GamePhase.Phase2_FloorMopping &&
+                                 (AimIsStain || _scrubMotionWeight > 0.01f);
             Vector2 cameraLook = mopCameraLock ? Vector2.zero : lookDelta;
 
             float activeSens = manager.MouseSensitivity;
