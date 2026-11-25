@@ -384,9 +384,16 @@ namespace TrashCleaner3D
                     _grabSwingTimer = 0.16f;
                     return;
                 }
+                else if (manager.CanTieBagEarly)
+                {
+                    // 요청 #5: 쓰레기 절반(50%) 이상 모으면 [RMB]로 즉시 봉지 묶기!
+                    manager.TieBagEarlyIntoHand();
+                    _grabSwingTimer = 0.18f;
+                    return;
+                }
                 else if (manager.CollectingCount > 0)
                 {
-                    manager.ShowToast($"봉투 미달 ({manager.CollectingCount}/{manager.HandBagCapacity})");
+                    manager.ShowToast($"절반 이상 필요 ({manager.CollectingCount}/{manager.HalfBagThreshold})");
                 }
             }
 
@@ -440,12 +447,12 @@ namespace TrashCleaner3D
                     }
                 }
 
-                // 요청 #1 & #4: [LMB 꾹(HOLD)] = 원형 커서 안의 바닥 쓰레기만 진동 차징 후 쏙 흡입!
+                // 요청 #1 & #4: [LMB 꾹(HOLD)] = 원형 커서 안의 바닥 쓰레기 락온 진동 차징 후 쏙 흡입!
                 if (manager.trashSwarm != null && hasWorldPoint && Vector3.Distance(cameraTransform.position, worldAimPoint) <= 4.6f)
                 {
                     float r = manager.SweepRadius;
                     int grabLimit = manager.AutoGrabPerTick;
-                    manager.trashSwarm.UpdateHoverSelection(true, worldAimPoint, r, grabLimit);
+                    manager.trashSwarm.UpdateHoverSelection(true, lmbHeld, worldAimPoint, r, grabLimit);
                     AimIsSwarmNear = manager.trashSwarm.HoveredCount > 0;
 
                     Transform dest = manager.ToolTier >= 2 ? rightToolPivot : (leftBagPivot != null ? leftBagPivot : rightToolPivot);
@@ -581,7 +588,7 @@ namespace TrashCleaner3D
             if (_lastTarget != null) { _lastTarget.SetHighlighted(false); _lastTarget = null; }
             if (_lastDoor != null) { _lastDoor.SetHighlighted(false); _lastDoor = null; }
             if (_lastDroppedBag != null) { _lastDroppedBag.SetHighlighted(false); _lastDroppedBag = null; }
-            if (manager != null && manager.trashSwarm != null) manager.trashSwarm.UpdateHoverSelection(false, Vector3.zero, 0f, 0);
+            if (manager != null && manager.trashSwarm != null) manager.trashSwarm.UpdateHoverSelection(false, false, Vector3.zero, 0f, 0);
         }
     }
 }

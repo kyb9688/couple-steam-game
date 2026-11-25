@@ -55,7 +55,7 @@ namespace TrashCleaner3D
         public GameObject thrownBagPrefab;
 
         [Header("Room Config")]
-        public int baseCleanReward = 450;
+        public int baseCleanReward = 260;
 
         public GamePhase Phase { get; private set; } = GamePhase.Phase1_TrashRemoval;
         private GamePhase _phaseBeforeOverlay = GamePhase.Phase1_TrashRemoval;
@@ -66,10 +66,10 @@ namespace TrashCleaner3D
 
         private static readonly (string hint, string itemName, int val)[] StageClientHints =
         {
-            ("와이프 몰래 숨긴 비상금 · 나오면 연락!", "남편의 비밀 비상금 봉투", 220),
-            ("엄마가 준 순금 반지 · 버리지 마세요!", "어머니의 순금 가락지", 260),
-            ("전 남친 명품 시계 · 꼭 돌려주세요!", "스위스 명품 손목시계", 300),
-            ("월세 보증금 봉투 · 라면박스 안에 있어요!", "현금 보증금 돈봉투", 350)
+            ("와이프 몰래 숨긴 비상금 · 나오면 연락!", "남편의 비밀 비상금 봉투", 115),
+            ("엄마가 준 순금 반지 · 버리지 마세요!", "어머니의 순금 가락지", 140),
+            ("전 남친 명품 시계 · 꼭 돌려주세요!", "스위스 명품 손목시계", 165),
+            ("월세 보증금 봉투 · 라면박스 안에 있어요!", "현금 보증금 돈봉투", 195)
         };
 
         public string CurrentClientHint => StageClientHints[(CurrentStage - 1) % StageClientHints.Length].hint;
@@ -132,12 +132,27 @@ namespace TrashCleaner3D
         public int CollectingCount { get; private set; } = 0;
         public int CollectingPendingValue { get; private set; } = 0;
         public int HandBagCapacity => BagCapByLv[Mathf.Clamp(LvBagSize, 0, BagCapByLv.Length - 1)] * (ToolTier >= 2 ? 2 : 1);
+        public int HalfBagThreshold => Mathf.Max(1, Mathf.CeilToInt(HandBagCapacity * 0.5f));
+        public bool CanTieBagEarly => !HasCarriedBag && CollectingCount >= HalfBagThreshold;
 
         // 손에 쥔 완성 봉지 1개
         public bool HasCarriedBag { get; private set; } = false;
         public int CarriedBagCount { get; private set; } = 0;
         public int CarriedBagValue { get; private set; } = 0;
         public bool CanPickUpDroppedBag => !HasCarriedBag;
+
+        // ===== 슈킹 감정 결과 대형 배너 & 동종 보너스 배너 =====
+        public float AppraisalBannerTimer { get; private set; }
+        public float AppraisalBannerAge { get; private set; }
+        public int AppraisalGrade { get; private set; } // 0:가품, 1:보통, 2:진품
+        public string AppraisalBannerTitle { get; private set; } = "";
+        public string AppraisalBannerSub { get; private set; } = "";
+
+        public float CompressionBannerTimer { get; private set; }
+        public string CompressionBannerText { get; private set; } = "";
+
+        private int _bmPtsEarnedThisRoom;
+        public int LastForfeitedBmPts { get; private set; }
 
         // ===== 연속 투하 콤보 =====
         public int ThrowComboCount { get; private set; } = 0;
@@ -301,11 +316,11 @@ namespace TrashCleaner3D
 
         private static readonly (string name, int val, TreasureRarity rarity, float susp)[] RandomTreasurePool =
         {
-            ("구겨진 5만 원권 뭉치", 130, TreasureRarity.Common, 14f),
-            ("중고 휴대용 게임기", 175, TreasureRarity.Rare, 16f),
-            ("한정판 피규어 세트", 210, TreasureRarity.Rare, 17f),
-            ("빈티지 금시계", 260, TreasureRarity.Rare, 19f),
-            ("24K 미니 골드바", 380, TreasureRarity.Legendary, 24f)
+            ("구겨진 5만 원권 뭉치", 65, TreasureRarity.Common, 15f),
+            ("중고 휴대용 게임기", 90, TreasureRarity.Rare, 17f),
+            ("한정판 피규어 세트", 110, TreasureRarity.Rare, 18f),
+            ("빈티지 금시계", 140, TreasureRarity.Rare, 20f),
+            ("24K 미니 골드바", 195, TreasureRarity.Legendary, 25f)
         };
 
         // ===== 정산 기록 =====
@@ -385,6 +400,8 @@ namespace TrashCleaner3D
             float dt = Time.deltaTime;
 
             if (_toastTimer > 0f) { _toastTimer -= dt; if (_toastTimer <= 0f) ToastMessage = ""; }
+            if (AppraisalBannerTimer > 0f) { AppraisalBannerTimer -= dt; AppraisalBannerAge += dt; }
+            if (CompressionBannerTimer > 0f) { CompressionBannerTimer -= dt; }
             if (_pitchResetTimer > 0f) { _pitchResetTimer -= dt; if (_pitchResetTimer <= 0f) _pitchCombo = 0f; }
             if (_treasureCooldown > 0f) _treasureCooldown -= dt;
             if (TreasureFlash01 > 0f) TreasureFlash01 = Mathf.MoveTowards(TreasureFlash01, 0f, dt * 1.1f);
@@ -499,9 +516,10 @@ namespace TrashCleaner3D
                     if (player != null)
                     {
                         Vector3 fxPos = player.transform.position + player.transform.forward * 1.4f + Vector3.up * 0.9f;
-                        SpawnFloatingText(fxPos, $"★ {typeLabel} 압축! 0칸 · +${bonus}", new Color(0.35f, 1f, 0.72f), 1.35f);
+                        SpawnFloatingText(fxPos, $"★ {typeLabel} {targetStreak}연속! 봉투 비움 · +${bonus}", new Color(0.35f, 1f, 0.72f), 1.5f);
                     }
-                    ShowToast($"★ {typeLabel} 압축 · 0칸 · ×2");
+                    CompressionBannerText = $"★ [{typeLabel}] {targetStreak}연속 보너스! · 봉투 -{targetStreak}칸 비움 · 보너스 +${bonus}";
+                    CompressionBannerTimer = 2.2f;
                 }
             }
             else
@@ -529,9 +547,16 @@ namespace TrashCleaner3D
             CheckPhase1Complete();
         }
 
+        public bool TieBagEarlyIntoHand()
+        {
+            if (!CanTieBagEarly) return false;
+            PackageCollectingIntoBag();
+            return true;
+        }
+
         public void OnRobotAutoCleaned(int eatenCount, Vector3 botPos)
         {
-            int pay = Mathf.Max(1, Mathf.RoundToInt(eatenCount * 3 * EffectiveTrashPriceMult));
+            int pay = Mathf.Max(1, Mathf.RoundToInt(eatenCount * 2 * EffectiveTrashPriceMult));
             Money += pay;
             SpawnFloatingText(botPos + Vector3.up * 0.38f, $"[BOT] +${pay}", new Color(0.35f, 0.94f, 1f), 1.0f);
             UpdateAtmosphere();
@@ -682,36 +707,64 @@ namespace TrashCleaner3D
             float genuineChance = 0.25f + LvAppraisal * 0.25f; // 25% → 50% → 75%
             float fakeChance = Mathf.Max(0f, 0.25f - LvAppraisal * 0.13f);
             float appraisalMult = 1.0f;
-            string gradeLabel = "보통";
-            if (roll < genuineChance) { appraisalMult = 1.5f; gradeLabel = "진품 ×1.5"; }
-            else if (roll > 1f - fakeChance) { appraisalMult = 0.6f; gradeLabel = "가품 ×0.6"; }
+            int grade = 1; // 0:가품, 1:보통, 2:진품
+            if (roll < genuineChance) { appraisalMult = 1.5f; grade = 2; }
+            else if (roll > 1f - fakeChance) { appraisalMult = 0.6f; grade = 0; }
 
             float mentionMult = item.isMentionedByClient ? 2.0f : 1.0f;
             int cash = Mathf.RoundToInt(item.value * mentionMult * appraisalMult * AdrenalineMult);
             int bmPts = item.isMentionedByClient ? 2 : 1;
 
+            bool evaded = EvasionChance > 0f && Random.value < EvasionChance;
+            float suspGain = evaded ? 0f : item.baseSuspicionGain * mentionMult;
+
+            // 요청 #3: 의심 100% 강제 퇴거 시 이번 슈킹 및 이번 판 암시장 포인트 적립 금지/몰수!
+            if (SuspicionPercent + suspGain >= 100f)
+            {
+                SuspicionPercent = 100f;
+                StealAlertFlash01 = 1.0f;
+                LastStolenItemName = item.itemName;
+                LastStolenValue = cash;
+                LastForfeitedBmPts = _bmPtsEarnedThisRoom;
+                BlackMarketPts = Mathf.Max(0, BlackMarketPts - _bmPtsEarnedThisRoom);
+                _bmPtsEarnedThisRoom = 0;
+                TriggerForcedEviction();
+                return;
+            }
+
             Money += cash;
             BlackMarketPts += bmPts;
+            _bmPtsEarnedThisRoom += bmPts;
             StolenCount++;
             StolenCashTotal += cash;
             LastStolenItemName = item.itemName;
             LastStolenValue = cash;
-            sfx.PlaySteal();
+            SuspicionPercent = Mathf.Min(99.9f, SuspicionPercent + suspGain);
+            if (suspGain > 0f) StealAlertFlash01 = SuspicionPercent >= 80f ? 0.85f : 0.35f;
 
-            bool evaded = EvasionChance > 0f && Random.value < EvasionChance;
-            if (evaded)
+            // 요청 #4: 슈킹 직후 진품/보통/가품 가시성 대폭 강화 대형 배너 + 차별화 사운드!
+            AppraisalGrade = grade;
+            AppraisalBannerTimer = 3.2f;
+            AppraisalBannerAge = 0f;
+            if (grade == 2)
             {
-                ShowToast($"슈킹({gradeLabel}) · +${cash} · +♦{bmPts} · 의심 회피!");
-                return;
+                AppraisalBannerTitle = "★ 진품 대박 감정! (×1.5) ★";
+                TreasureFlash01 = 0.85f;
+                sfx.PlayFanfare();
+            }
+            else if (grade == 0)
+            {
+                AppraisalBannerTitle = "× 가품 판정... (×0.6)";
+                sfx.PlayPop(0.42f);
+            }
+            else
+            {
+                AppraisalBannerTitle = "◆ 보통 감정 (×1.0)";
+                sfx.PlaySteal();
             }
 
-            float suspGain = item.baseSuspicionGain * mentionMult;
-            SuspicionPercent = Mathf.Min(100f, SuspicionPercent + suspGain);
-            StealAlertFlash01 = SuspicionPercent >= 80f ? 0.9f : 0.45f;
-
-            if (SuspicionPercent >= 100f) TriggerForcedEviction();
-            else if (IsAdrenalineZone) ShowToast($"★ 아드레날린! ({SuspicionPercent:0}%) · 수익 ×{AdrenalineMult:0.#}");
-            else ShowToast($"슈킹({gradeLabel}) · +${cash} · +♦{bmPts} · 의심 +{suspGain:0}%");
+            string suspStr = evaded ? "의심 회피 성공!" : (IsAdrenalineZone ? $"아드레날린 발동! ({SuspicionPercent:0}%)" : $"의심 +{suspGain:0}%");
+            AppraisalBannerSub = $"{item.itemName}  ·  +${cash}  ·  ♦+{bmPts}  ·  {suspStr}";
         }
 
         private void TriggerForcedEviction()
@@ -793,7 +846,7 @@ namespace TrashCleaner3D
             else ThrowComboCount = 1;
             ThrowComboTimer = MaxComboWindow;
 
-            int rawBase = Mathf.Max(bagValue, count * 3);
+            int rawBase = Mathf.Max(bagValue, count * 2);
             float comboStep = 0.25f + LvComboTime * 0.10f;
             float comboMult = 1f + (ThrowComboCount - 1) * comboStep;
             int distBonus = distance >= 6.8f ? 35 : distance >= 4.5f ? 15 : 0;
@@ -880,29 +933,29 @@ namespace TrashCleaner3D
             else { _phaseBeforeOverlay = Phase; Phase = GamePhase.SettingsMenu; UnlockCursor(true); }
         }
 
-        // ===== 인게임 스킬트리 가격 ($ 현금 전용) =====
-        public int CostTool => ToolTier == 0 ? 55 : 220;
-        public int CostSweep => Mathf.RoundToInt(25 * Mathf.Pow(1.85f, LvSweepRadius));
-        public int CostFever => 95;
-        public int CostCrit => Mathf.RoundToInt(40 * Mathf.Pow(1.85f, LvCrit));
-        public int CostChain => Mathf.RoundToInt(75 * Mathf.Pow(1.95f, LvChainPop));
-        public int CostRoomba => Mathf.RoundToInt(150 * Mathf.Pow(2.0f, LvRoomba));
+        // ===== 인게임 스킬트리 가격 ($ 현금 전용 — 다회차 성장 템포 밸런싱!) =====
+        public int CostTool => ToolTier == 0 ? 180 : 1400;
+        public int CostSweep => Mathf.RoundToInt(60 * Mathf.Pow(2.35f, LvSweepRadius));
+        public int CostFever => 480;
+        public int CostCrit => Mathf.RoundToInt(120 * Mathf.Pow(2.40f, LvCrit));
+        public int CostChain => Mathf.RoundToInt(320 * Mathf.Pow(2.50f, LvChainPop));
+        public int CostRoomba => Mathf.RoundToInt(650 * Mathf.Pow(2.60f, LvRoomba));
 
-        public int CostBag => Mathf.RoundToInt(25 * Mathf.Pow(1.85f, LvBagSize));
-        public int CostThrowPower => Mathf.RoundToInt(35 * Mathf.Pow(1.8f, LvThrowPower));
-        public int CostTrashPrice => Mathf.RoundToInt(45 * Mathf.Pow(1.85f, LvTrashPrice));
-        public int CostTruck => LvTruckSize == 0 ? 60 : LvTruckSize == 1 ? 150 : 300;
-        public int CostComboTime => Mathf.RoundToInt(65 * Mathf.Pow(1.9f, LvComboTime));
-        public int CostMagnet => 180;
+        public int CostBag => Mathf.RoundToInt(65 * Mathf.Pow(2.40f, LvBagSize));
+        public int CostThrowPower => Mathf.RoundToInt(90 * Mathf.Pow(2.30f, LvThrowPower));
+        public int CostTrashPrice => Mathf.RoundToInt(110 * Mathf.Pow(2.45f, LvTrashPrice));
+        public int CostTruck => LvTruckSize == 0 ? 220 : LvTruckSize == 1 ? 780 : 2400;
+        public int CostComboTime => Mathf.RoundToInt(200 * Mathf.Pow(2.40f, LvComboTime));
+        public int CostMagnet => 1200;
 
-        public int CostMask => Mathf.RoundToInt(30 * Mathf.Pow(1.75f, LvMask));
-        public int CostMoveSpeed => Mathf.RoundToInt(35 * Mathf.Pow(1.8f, LvMoveSpeed));
-        public int CostMop => 70;
-        public int CostScrub => Mathf.RoundToInt(90 * Mathf.Pow(1.85f, LvScrubPower));
+        public int CostMask => Mathf.RoundToInt(70 * Mathf.Pow(2.25f, LvMask));
+        public int CostMoveSpeed => Mathf.RoundToInt(95 * Mathf.Pow(2.35f, LvMoveSpeed));
+        public int CostMop => 280;
+        public int CostScrub => Mathf.RoundToInt(340 * Mathf.Pow(2.35f, LvScrubPower));
 
-        public int CostFist => Mathf.RoundToInt(35 * Mathf.Pow(1.8f, LvFistPower));
-        public int CostShockwave => Mathf.RoundToInt(70 * Mathf.Pow(1.9f, LvShockwave));
-        public int CostBeacon => 60;
+        public int CostFist => Mathf.RoundToInt(85 * Mathf.Pow(2.30f, LvFistPower));
+        public int CostShockwave => Mathf.RoundToInt(260 * Mathf.Pow(2.45f, LvShockwave));
+        public int CostBeacon => 240;
 
         // ===== 클리어 후 [★ 특전] & [♦ 암시장] 가격 =====
         public int CostVipTokens => 1;
@@ -1018,7 +1071,7 @@ namespace TrashCleaner3D
                 case "appraisal": if (LvAppraisal >= 2 || BlackMarketPts < CostAppraisalPts) return false; BlackMarketPts -= CostAppraisalPts; LvAppraisal++; break;
                 case "evasion": if (LvEvasion >= 3 || BlackMarketPts < CostEvasionPts) return false; BlackMarketPts -= CostEvasionPts; LvEvasion++; break;
                 case "adrenaline": if (HasAdrenalineAmp || BlackMarketPts < CostAdrenalinePts) return false; BlackMarketPts -= CostAdrenalinePts; HasAdrenalineAmp = true; break;
-                case "launder": if (BlackMarketPts < CostLaunderPts) return false; BlackMarketPts -= CostLaunderPts; Money += 250; break;
+                case "launder": if (BlackMarketPts < CostLaunderPts) return false; BlackMarketPts -= CostLaunderPts; Money += 180; break;
 
                 default: return false;
             }
@@ -1108,6 +1161,10 @@ namespace TrashCleaner3D
             WasEarlyCheckout = false;
             LastClearBonus = 0;
             LastConfiscatedValue = 0;
+            _bmPtsEarnedThisRoom = 0;
+            LastForfeitedBmPts = 0;
+            AppraisalBannerTimer = 0f;
+            CompressionBannerTimer = 0f;
             Phase = GamePhase.Phase1_TrashRemoval;
 
             UpdateAtmosphere();

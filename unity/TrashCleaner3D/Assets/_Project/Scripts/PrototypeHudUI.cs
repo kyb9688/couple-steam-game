@@ -352,12 +352,18 @@ namespace TrashCleaner3D
                 GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 30, postItRect.width - 20, 38), manager.CurrentClientHint, _inkWrap);
             }
 
-            // ===== 4. 중앙 하단: 100% 정직 봉투 바 + 동종 압축 칩 =====
+            // ===== 4. 중앙 하단: 100% 봉투 바 (50% 이상 [RMB] 묶기) + 같은 쓰레기 연속 보너스 =====
             DrawBottomBagAndStreakBar(w, h, botSafe);
+
+            // ===== 5. 슈킹 직후 진품/보통/가품 대형 결과 배너 (요청 #4) =====
+            if (manager.AppraisalBannerTimer > 0f)
+            {
+                DrawAppraisalResultBanner(w, h, topY);
+            }
 
             if (!string.IsNullOrEmpty(manager.ToastMessage))
             {
-                Rect toastR = new Rect(Mathf.Round(w * 0.5f - 185), h - botSafe - 114, 370, 30);
+                Rect toastR = new Rect(Mathf.Round(w * 0.5f - 185), h - botSafe - 118, 370, 30);
                 DrawBorderedBox(toastR, new Color(0.10f, 0.11f, 0.14f, 0.92f), new Color(0.95f, 0.80f, 0.26f), 1);
                 GUI.color = new Color(1f, 0.92f, 0.55f);
                 GUI.Label(toastR, manager.ToastMessage, _lightCenter);
@@ -365,19 +371,69 @@ namespace TrashCleaner3D
             }
         }
 
+        private void DrawAppraisalResultBanner(float w, float h, float topY)
+        {
+            float alpha = Mathf.Clamp01(manager.AppraisalBannerTimer / 0.5f);
+            float pop = Mathf.Lerp(0.86f, 1.0f, Mathf.Clamp01(manager.AppraisalBannerAge / 0.16f));
+            float bw = Mathf.Round(490f * pop);
+            float bh = Mathf.Round(86f * pop);
+            Rect r = new Rect(Mathf.Round((w - bw) * 0.5f), Mathf.Round(topY + 86f), bw, bh);
+
+            Color bg, border, titleCol;
+            if (manager.AppraisalGrade == 2) // 진품 대박!
+            {
+                float pulse = 0.78f + 0.22f * Mathf.Sin(Time.time * 10f);
+                bg = new Color(0.24f, 0.17f, 0.03f, 0.96f * alpha);
+                border = new Color(1.0f, 0.84f, 0.18f, pulse * alpha);
+                titleCol = new Color(1.0f, 0.92f, 0.34f, alpha);
+            }
+            else if (manager.AppraisalGrade == 0) // 가품 판정!
+            {
+                bg = new Color(0.18f, 0.12f, 0.10f, 0.96f * alpha);
+                border = new Color(0.90f, 0.42f, 0.24f, alpha);
+                titleCol = new Color(1.0f, 0.56f, 0.36f, alpha);
+            }
+            else // 보통 감정
+            {
+                bg = new Color(0.12f, 0.16f, 0.22f, 0.95f * alpha);
+                border = new Color(0.68f, 0.84f, 0.98f, alpha);
+                titleCol = new Color(0.88f, 0.95f, 1.0f, alpha);
+            }
+
+            DrawRect(new Rect(r.x - 5, r.y - 5, r.width + 10, r.height + 10), new Color(border.r, border.g, border.b, 0.25f * alpha));
+            DrawBorderedBox(r, bg, border, 3);
+
+            GUI.color = titleCol;
+            GUI.Label(new Rect(r.x + 12, r.y + 10, r.width - 24, 34), manager.AppraisalBannerTitle, _lightBigCenter);
+            GUI.color = new Color(0.95f, 0.96f, 0.98f, alpha);
+            GUI.Label(new Rect(r.x + 12, r.y + 48, r.width - 24, 26), manager.AppraisalBannerSub, _lightCenter);
+            GUI.color = Color.white;
+        }
+
         private void DrawBottomBagAndStreakBar(float w, float h, float botSafe)
         {
-            float bw = 290f;
+            float bw = 316f;
             float bx = Mathf.Round((w - bw) * 0.5f);
             float by = Mathf.Round(h - botSafe - 48f);
 
-            // 동종 연속 압축 칩
-            if (manager.StreakCount >= 2 && manager.Phase == GamePhase.Phase1_TrashRemoval)
+            // 요청 #2: '압축' 대신 직관적인 [같은 쓰레기 연속 보너스] (동그라미 게이지 ●●●○○ + 효과 명시!)
+            if (manager.CompressionBannerTimer > 0f)
             {
-                Rect sChip = new Rect(Mathf.Round(w * 0.5f - 125), by - 30, 250, 26);
-                DrawBorderedBox(sChip, new Color(0.08f, 0.26f, 0.20f, 0.94f), new Color(0.32f, 0.96f, 0.65f), 1);
-                GUI.color = new Color(0.45f, 1f, 0.72f);
-                GUI.Label(sChip, $"◈ {manager.StreakTypeLabel} {manager.StreakCount}/{manager.CompressionStreakTarget} → 압축(0칸·×2)", _lightCenter);
+                Rect cBan = new Rect(Mathf.Round(w * 0.5f - 210), by - 34, 420, 28);
+                DrawBorderedBox(cBan, new Color(0.06f, 0.30f, 0.20f, 0.96f), new Color(0.36f, 1f, 0.68f), 2);
+                GUI.color = new Color(0.60f, 1f, 0.78f);
+                GUI.Label(cBan, manager.CompressionBannerText, _lightCenter);
+                GUI.color = Color.white;
+            }
+            else if (manager.StreakCount >= 2 && manager.Phase == GamePhase.Phase1_TrashRemoval)
+            {
+                int target = manager.CompressionStreakTarget;
+                string dots = "";
+                for (int i = 0; i < target; i++) dots += (i < manager.StreakCount ? "●" : "○");
+                Rect sChip = new Rect(Mathf.Round(w * 0.5f - 190), by - 32, 380, 26);
+                DrawBorderedBox(sChip, new Color(0.08f, 0.22f, 0.18f, 0.93f), new Color(0.34f, 0.94f, 0.64f), 1);
+                GUI.color = new Color(0.55f, 1f, 0.76f);
+                GUI.Label(sChip, $"같은 쓰레기 [{manager.StreakTypeLabel}] {dots}  → 봉투 비움 + ×2", _lightCenter);
                 GUI.color = Color.white;
             }
 
@@ -391,18 +447,24 @@ namespace TrashCleaner3D
             }
             else if (manager.Phase == GamePhase.Phase1_TrashRemoval)
             {
+                bool canTie = manager.CanTieBagEarly;
+                Color bd = canTie ? new Color(0.36f, 0.94f, 0.52f) : new Color(0.34f, 0.37f, 0.44f);
                 Rect card = new Rect(bx, by, bw, 46);
-                DrawBorderedBox(card, new Color(0.11f, 0.12f, 0.15f, 0.93f), new Color(0.34f, 0.37f, 0.44f), 1);
+                DrawBorderedBox(card, new Color(0.11f, 0.12f, 0.15f, 0.93f), bd, canTie ? 2 : 1);
 
-                GUI.Label(new Rect(card.x + 12, card.y + 5, 145, 22), $"▣ 봉투 {manager.CollectingCount} / {manager.HandBagCapacity}", _lightSmall);
-                GUI.color = new Color(0.45f, 0.96f, 0.56f);
-                GUI.Label(new Rect(card.x + bw - 120, card.y + 5, 108, 22), $"${manager.CollectingPendingValue}", _lightRight);
+                GUI.color = canTie ? new Color(0.52f, 1f, 0.66f) : Color.white;
+                GUI.Label(new Rect(card.x + 12, card.y + 5, 130, 22), $"▣ 봉투 {manager.CollectingCount} / {manager.HandBagCapacity}", _lightSmall);
+                string rightStr = canTie ? $"[RMB] 봉지 묶기 · ${manager.CollectingPendingValue}" : $"${manager.CollectingPendingValue}";
+                GUI.Label(new Rect(card.x + bw - 180, card.y + 5, 168, 22), rightStr, _lightRight);
                 GUI.color = Color.white;
 
                 Rect track = new Rect(card.x + 12, card.y + 30, bw - 24, 9);
                 DrawRect(track, new Color(0.22f, 0.24f, 0.28f));
                 float ratio = Mathf.Clamp01(manager.CollectingCount / (float)Mathf.Max(1, manager.HandBagCapacity));
-                DrawRect(new Rect(track.x, track.y, track.width * ratio, track.height), new Color(0.38f, 0.84f, 0.98f));
+                Color fillC = canTie ? new Color(0.34f, 0.92f, 0.52f) : new Color(0.38f, 0.84f, 0.98f);
+                DrawRect(new Rect(track.x, track.y, track.width * ratio, track.height), fillC);
+                // 50% 봉지 묶기 가능 기준선 표시!
+                DrawRect(new Rect(Mathf.Round(track.x + track.width * 0.5f), track.y - 2, 2, track.height + 4), new Color(1f, 1f, 1f, 0.85f));
             }
         }
 
@@ -785,16 +847,16 @@ namespace TrashCleaner3D
             GUI.Label(new Rect(r.x + 16, r.y + 50, rw - 32, 20), "------------------------------------------------", _inkCenter);
 
             float y = r.y + 78f;
-            DrawReceiptRow(r, y, "청소 진행률", $"{manager.OverallCleanPercent:0.0}%"); y += 28;
-            DrawReceiptRow(r, y, "동종 연속 압축", $"{manager.TotalCompressionsThisRoom}회"); y += 28;
-            DrawReceiptRow(r, y, "보물 전달 / 슈킹", $"{manager.ReturnedCount}건 / {manager.StolenCount}건"); y += 28;
-            DrawReceiptRow(r, y, "방 클리어 보너스", manager.WasEvicted ? "$0 (몰수)" : $"+${manager.LastClearBonus:N0}"); y += 28;
+            DrawReceiptRow(r, y, "청소 진행률", $"{manager.OverallCleanPercent:0.0}%"); y += 26;
+            DrawReceiptRow(r, y, "같은 쓰레기 보너스", $"{manager.TotalCompressionsThisRoom}회"); y += 26;
+            DrawReceiptRow(r, y, "보물 전달 / 슈킹", $"{manager.ReturnedCount}건 / {manager.StolenCount}건"); y += 26;
+            DrawReceiptRow(r, y, "방 클리어 보너스", manager.WasEvicted ? "$0 (몰수)" : $"+${manager.LastClearBonus:N0}"); y += 26;
             if (manager.WasEvicted)
             {
                 GUI.color = new Color(0.78f, 0.12f, 0.12f);
-                DrawReceiptRow(r, y, $"압수 ({manager.LastStolenItemName})", $"-${manager.LastConfiscatedValue:N0}", true);
+                DrawReceiptRow(r, y, $"압수 ({manager.LastStolenItemName})", $"-${manager.LastConfiscatedValue:N0}", true); y += 26;
+                DrawReceiptRow(r, y, "이번 판 ♦ 암시장 포인트", manager.LastForfeitedBmPts > 0 ? $"♦0 (-{manager.LastForfeitedBmPts} 몰수)" : "♦0 (미적립)", true); y += 26;
                 GUI.color = Color.white;
-                y += 28;
             }
 
             GUI.Label(new Rect(r.x + 16, y + 2, rw - 32, 20), "------------------------------------------------", _inkCenter);
@@ -834,8 +896,8 @@ namespace TrashCleaner3D
                 !manager.HasAdrenalineAmp && manager.BlackMarketPts >= manager.CostAdrenalinePts, accent, () => manager.BuyNode("adrenaline"));
             cy += 76f;
 
-            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 66), "$ 암시장 현금 세탁", "암시장 포인트 1개를 현금 $250으로 즉시 환전 (반복 가능)",
-                $"♦{manager.CostLaunderPts} → +$250",
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 66), "$ 암시장 현금 세탁", "암시장 포인트 1개를 현금 $180으로 즉시 환전 (반복 가능)",
+                $"♦{manager.CostLaunderPts} → +$180",
                 manager.BlackMarketPts >= manager.CostLaunderPts, new Color(0.95f, 0.72f, 0.22f), () => manager.BuyNode("launder"));
         }
 
@@ -856,7 +918,7 @@ namespace TrashCleaner3D
                 !manager.HasVipContract && manager.TrustTokens >= manager.CostVipTokens, accent, () => manager.BuyNode("vip"));
             cy += 86f;
 
-            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 74), "◈ 고속 동종 압축기", "동종 연속 압축 조건 5개 → 3개 단축 (0칸 소모 + 수익 ×2 폭주!)",
+            DrawShopItemCard(new Rect(p.x + 20, cy, pw - 40, 74), "◈ 같은 쓰레기 보너스 가속", "같은 종류 연속 보너스 조건 5개 → 3개 (봉투 비움 + 수익 2배!)",
                 manager.HasFastCompressor ? "보유 중" : $"★{manager.CostCompressorTokens} 해금",
                 !manager.HasFastCompressor && manager.TrustTokens >= manager.CostCompressorTokens, accent, () => manager.BuyNode("compressor"));
             cy += 86f;

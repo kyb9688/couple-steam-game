@@ -74,6 +74,7 @@ namespace TrashCleaner3D
 
         private readonly List<int> _selectedIndices = new List<int>(64);
         private readonly HashSet<int> _selectedSet = new HashSet<int>();
+        private readonly List<int> _lockedIndices = new List<int>(64);
         private readonly List<(int idx, float distSq)> _candidates = new List<(int, float)>(256);
 
         public int HoveredCount => _selectedIndices.Count;
@@ -104,6 +105,7 @@ namespace TrashCleaner3D
             _cleanedCount = 0;
             _selectedIndices.Clear();
             _selectedSet.Clear();
+            _lockedIndices.Clear();
             MaxSelectedCharge01 = 0f;
             EnsureRenderBuffers();
         }
@@ -290,20 +292,24 @@ namespace TrashCleaner3D
                 timer = 0f,
                 startPos = startPos,
                 endPos = endPos,
-                value = 3,
+                value = 2,
                 isCritBonus = false,
                 holdCharge = 0f
             };
         }
 
-        public void UpdateHoverSelection(bool active, Vector3 aimPoint, float cursorRadius, int maxSelectCount)
+        public void UpdateHoverSelection(bool active, bool isHolding, Vector3 aimPoint, float cursorRadius, int maxSelectCount)
         {
             _selectedIndices.Clear();
             _selectedSet.Clear();
             _auraVisible = active;
             _auraCenter = aimPoint;
             _auraRadius = cursorRadius;
-            if (!active) _isHoldingNow = false;
+            if (!active || !isHolding)
+            {
+                _isHoldingNow = false;
+                _lockedIndices.Clear();
+            }
 
             if (!active || maxSelectCount <= 0 || _unitCount == 0)
             {
@@ -311,33 +317,65 @@ namespace TrashCleaner3D
                 return;
             }
 
-            _candidates.Clear();
             float rSq = cursorRadius * cursorRadius;
-
-            for (int i = 0; i < _unitCount; i++)
+            // 홀드 중에는 기존 락온 대상이 원을 벗어나지 않으면(약간의 여유 히스테리시스 ×1.12) 끝까지 유지!
+            if (isHolding && _lockedIndices.Count > 0)
             {
-                if (_units[i].state != 0) continue;
-                Vector3 d = _units[i].pos - aimPoint;
-                d.y *= 0.65f;
-                float dSq = d.sqrMagnitude;
-                if (dSq <= rSq) _candidates.Add((i, dSq));
+                float keepRSq = (cursorRadius * 1.12f) * (cursorRadius * 1.12f);
+                for (int i = _lockedIndices.Count - 1; i >= 0; i--)
+                {
+                    int idx = _lockedIndices[i];
+                    if (idx < 0 || idx >= _unitCount || _units[idx].state != 0)
+                    {
+                        _lockedIndices.RemoveAt(i);
+                        continue;
+                    }
+                    Vector3 d = _units[idx].pos - aimPoint;
+                    d.y *= 0.65f;
+                    if (d.sqrMagnitude > keepRSq)
+                    {
+                        _lockedIndices.RemoveAt(i);
+                        continue;
+                    }
+                    if (_selectedIndices.Count < maxSelectCount && _selectedSet.Add(idx))
+                    {
+                        _selectedIndices.Add(idx);
+                    }
+                }
             }
 
-            if (_candidates.Count == 0)
+            // 남은 슬롯이 있으면 원 안의 가장 가까운 후보로 채움
+            if (_selectedIndices.Count < maxSelectCount)
             {
-                MaxSelectedCharge01 = 0f;
-                return;
+                _candidates.Clear();
+                for (int i = 0; i < _unitCount; i++)
+                {
+                    if (_units[i].state != 0 || _selectedSet.Contains(i)) continue;
+                    Vector3 d = _units[i].pos - aimPoint;
+                    d.y *= 0.65f;
+                    float dSq = d.sqrMagnitude;
+                    if (dSq <= rSq) _candidates.Add((i, dSq));
+                }
+
+                if (_candidates.Count > 0)
+                {
+                    _candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
+                    int need = Mathf.Min(maxSelectCount - _selectedIndices.Count, _candidates.Count);
+                    for (int k = 0; k < need; k++)
+                    {
+                        int idx = _candidates[k].idx;
+                        _selectedIndices.Add(idx);
+                        _selectedSet.Add(idx);
+                        if (isHolding) _lockedIndices.Add(idx);
+                    }
+                }
             }
 
-            _candidates.Sort((a, b) => a.distSq.CompareTo(b.distSq));
-            int take = Mathf.Min(maxSelectCount, _candidates.Count);
             float maxC = 0f;
-            for (int k = 0; k < take; k++)
+            for (int k = 0; k < _selectedIndices.Count; k++)
             {
-                int idx = _candidates[k].idx;
-                _selectedIndices.Add(idx);
-                _selectedSet.Add(idx);
-                if (_units[idx].holdCharge > maxC) maxC = _units[idx].holdCharge;
+                float c = _units[_selectedIndices[k]].holdCharge;
+                if (c > maxC) maxC = c;
             }
             MaxSelectedCharge01 = maxC;
         }
