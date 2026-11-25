@@ -902,13 +902,21 @@ namespace TrashCleaner3D
             DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), $"$ 강화", _postTab == PostRoundTab.CashUpgrades, new Color(0.78f, 0.54f, 0.10f), () => _postTab = PostRoundTab.CashUpgrades);
         }
 
+        /// <summary>밝은 배경에는 먹색, 어두운 배경에는 흰색 글자를 골라 대비를 지킨다.</summary>
+        private static Color ReadableOn(Color bg)
+        {
+            float lum = bg.r * 0.299f + bg.g * 0.587f + bg.b * 0.114f;
+            return lum > 0.60f ? new Color(0.22f, 0.17f, 0.10f) : Color.white;
+        }
+
         private void DrawHubButton(Rect r, string label, bool active, Color accent, System.Action onClick)
         {
             if (active)
             {
                 DrawBorderedBox(r, accent, new Color(0.24f, 0.19f, 0.13f), 3);
-                GUI.color = Color.white;
+                GUI.color = ReadableOn(accent);
                 GUI.Label(r, label, _lightCenter);
+                GUI.color = Color.white;
             }
             else
             {
@@ -1037,7 +1045,9 @@ namespace TrashCleaner3D
             DrawBorderedBox(br, canBuy ? accent : new Color(0.82f, 0.79f, 0.72f), canBuy ? new Color(0.26f, 0.20f, 0.14f) : new Color(0.62f, 0.58f, 0.52f), 1);
             if (canBuy)
             {
+                GUI.color = ReadableOn(accent);
                 GUI.Label(br, btnText, _lightCenter);
+                GUI.color = Color.white;
             }
             else
             {
