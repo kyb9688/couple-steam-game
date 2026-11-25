@@ -20,9 +20,10 @@ namespace TrashCleaner3D.Editor
     public static class RoomToneTestBuilder
     {
         private const string ArtRoot = "Assets/_Project/Art";
+        private const string AptKitRoot = "Assets/Brick Project Studio/Apartment Kit/_Prefabs";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 39;
+        private const int SceneBuildVersion = 40;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -142,10 +143,10 @@ namespace TrashCleaner3D.Editor
             CreateWorldBox("Wall_East", new Vector3(w / 2f + 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
             CreateWorldBox("Wall_West", new Vector3(-w / 2f - 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
 
-            // Basic Korean Studio Furniture (scaled to larger room!)
-            CreateWorldBox("Fridge", new Vector3(0.78f, 0.78f, d / 2f - 0.40f), new Vector3(0.70f, 1.56f, 0.70f), matAppliance, roomRoot.transform, true);
-            CreateWorldBox("Microwave", new Vector3(0.78f, 1.72f, d / 2f - 0.40f), new Vector3(0.52f, 0.32f, 0.42f), matCeiling, roomRoot.transform, true);
-            CreateWorldBox("Mattress", new Vector3(-2.45f, 0.16f, -1.75f), new Vector3(1.75f, 0.32f, 2.25f), matMattress, roomRoot.transform, true);
+            // 3.5. Brick Project Studio Apartment Kit 실제 3D 원룸 인테리어 가구 & 소품 배치!
+            GameObject furnRoot = new GameObject("ApartmentKit_InteriorDesign");
+            furnRoot.transform.SetParent(roomRoot.transform, false);
+            BuildApartmentKitInterior(furnRoot.transform, matAppliance, matCeiling, matMattress);
 
             // 4. Outside Yard (z: 3.0 ~ 16.8) + 4-Stage Evolving Vehicle at z = 10.60
             // * 앞벽 버그 완전 수정: 북쪽 경계 펜스를 쓰레기통 훨씬 뒤(z=16.5)로 이동 → 뒤로 날아가도 벽에 안 막히고 직접 걸어가 회수 가능!
@@ -285,26 +286,26 @@ namespace TrashCleaner3D.Editor
             GameObject trashRoot = new GameObject("Phase1_BigBreakablePiles");
             Vector3[] pilePositions = new[]
             {
-                new Vector3(2.35f, 0f, 0.72f),
-                new Vector3(1.25f, 0f, 0.65f),
-                new Vector3(2.70f, 0f, -0.55f),
-                new Vector3(2.55f, 0f, -1.75f),
-                new Vector3(1.70f, 0f, -0.25f),
-                new Vector3(1.65f, 0f, -1.25f),
-                new Vector3(0.65f, 0f, 1.05f),
-                new Vector3(-0.55f, 0f, 1.95f),
-                new Vector3(-1.75f, 0f, 1.85f),
-                new Vector3(-0.45f, 0f, 0.55f),
-                new Vector3(0.65f, 0f, -0.95f),
-                new Vector3(-2.55f, 0f, 1.05f),
-                new Vector3(1.45f, 0f, -2.15f),
-                new Vector3(0.05f, 0f, -1.95f),
-                new Vector3(-1.25f, 0f, -0.55f),
-                new Vector3(-2.80f, 0f, 0.05f),
-                new Vector3(0.10f, 0f, 1.75f),
-                new Vector3(2.90f, 0f, -2.25f),
-                new Vector3(-0.85f, 0f, -2.10f),
-                new Vector3(-2.65f, 0f, 2.10f),
+                new Vector3(2.25f, 0f, 0.85f),
+                new Vector3(1.25f, 0f, 0.72f),
+                new Vector3(2.35f, 0f, -0.45f),
+                new Vector3(2.15f, 0f, -1.35f),
+                new Vector3(1.55f, 0f, -0.25f),
+                new Vector3(1.45f, 0f, -1.15f),
+                new Vector3(0.55f, 0f, 1.15f),
+                new Vector3(-0.55f, 0f, 1.45f),
+                new Vector3(-1.65f, 0f, 1.40f),
+                new Vector3(-0.45f, 0f, 0.45f),
+                new Vector3(0.55f, 0f, -0.85f),
+                new Vector3(-2.25f, 0f, 0.85f),
+                new Vector3(1.25f, 0f, -1.55f),
+                new Vector3(0.05f, 0f, -1.45f),
+                new Vector3(-1.10f, 0f, -0.55f),
+                new Vector3(-2.35f, 0f, 0.10f),
+                new Vector3(0.10f, 0f, 1.45f),
+                new Vector3(2.45f, 0f, -1.55f),
+                new Vector3(-0.85f, 0f, -1.65f),
+                new Vector3(-2.15f, 0f, 1.45f),
             };
 
             for (int i = 0; i < pilePositions.Length; i++)
@@ -377,7 +378,129 @@ namespace TrashCleaner3D.Editor
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
-            Debug.Log("[TrashCleaner3D v0.8] 도구 진화(3단계) + 지층 보물 5종 + 이원화 슈킹/성실 루트 + 4대 기믹 빌드 완료!");
+            Debug.Log("[TrashCleaner3D v0.9.2] Brick Project Studio Apartment Kit 3D 원룸 인테리어 + v0.9.1 게임플레이 통합 빌드 완료!");
+        }
+
+        private static void BuildApartmentKitInterior(Transform parent, Material fallbackAppliance, Material fallbackCeiling, Material fallbackMattress)
+        {
+            // 1) 북쪽 주방 라인 (현관문 x: 1.55~2.65 왼쪽으로 깔끔하게 일자 주방 배치!)
+            bool hasFridge = PlaceAptPrefab("Furniture/Kitchen/Appliances/Fridge_01.prefab", "Apt_Fridge", new Vector3(0.82f, 0f, 2.52f), 180f, parent, true, true);
+            if (!hasFridge)
+            {
+                CreateWorldBox("Fridge", new Vector3(0.78f, 0.78f, 2.60f), new Vector3(0.70f, 1.56f, 0.70f), fallbackAppliance, parent, true);
+                CreateWorldBox("Microwave", new Vector3(0.78f, 1.72f, 2.60f), new Vector3(0.52f, 0.32f, 0.42f), fallbackCeiling, parent, true);
+            }
+
+            PlaceAptPrefab("Furniture/Kitchen/Cabinets/Cabinet_Base_Sink_01.prefab", "Apt_KitchenSink", new Vector3(-0.22f, 0f, 2.58f), 180f, parent, true, true);
+            PlaceAptPrefab("Furniture/Kitchen/Appliances/Stove_01.prefab", "Apt_Stove", new Vector3(-1.26f, 0f, 2.58f), 180f, parent, true, true);
+            PlaceAptPrefab("Furniture/Kitchen/Appliances/Range_Hood.prefab", "Apt_RangeHood", new Vector3(-1.26f, 1.62f, 2.68f), 180f, parent, false, true);
+            PlaceAptPrefab("Furniture/Kitchen/Cabinets/Cabinet_Base_DD_01.prefab", "Apt_KitchenCabinet", new Vector3(-2.26f, 0f, 2.58f), 180f, parent, true, true);
+            PlaceAptPrefab("Furniture/Kitchen/Cabinets/Cabinet_Wall_DD_01.prefab", "Apt_WallCab_1", new Vector3(-0.22f, 1.62f, 2.75f), 180f, parent, false, true);
+            PlaceAptPrefab("Furniture/Kitchen/Cabinets/Cabinet_Wall_DD_02.prefab", "Apt_WallCab_2", new Vector3(-2.26f, 1.62f, 2.75f), 180f, parent, false, true);
+            PlaceAptPrefab("Props/Kitchen/CoffeeMaker_Apt_01.prefab", "Apt_CoffeeMaker", new Vector3(-2.05f, 0.90f, 2.54f), 180f, parent, false, true);
+            PlaceAptPrefab("Props/Kitchen/Toaster_Apt_01.prefab", "Apt_Toaster", new Vector3(-2.48f, 0.90f, 2.54f), 180f, parent, false, true);
+
+            // 2) 서남쪽 침실 코너 (실제 3D 침대 + 협탁 + 스탠드 + 옷장!)
+            bool hasBed = PlaceAptPrefab("Furniture/Bedroom/Bed_Apt_01_01.prefab", "Apt_Bed", new Vector3(-2.35f, 0f, -1.78f), 90f, parent, true, true);
+            if (!hasBed)
+            {
+                CreateWorldBox("Mattress", new Vector3(-2.45f, 0.16f, -1.75f), new Vector3(1.75f, 0.32f, 2.25f), fallbackMattress, parent, true);
+            }
+            PlaceAptPrefab("Furniture/Bedroom/Table_End_01.prefab", "Apt_BedsideTable", new Vector3(-3.16f, 0f, -0.35f), 90f, parent, true, true);
+            PlaceAptPrefab("Props/Lighting/Lamp_Table_Apt_01.prefab", "Apt_BedsideLamp", new Vector3(-3.16f, 0.56f, -0.35f), 90f, parent, false, true);
+            PlaceAptPrefab("Furniture/Bedroom/Dresser Closet_01.prefab", "Apt_Closet", new Vector3(-3.20f, 0f, 1.08f), 90f, parent, true, true);
+
+            // 3) 남쪽 벽 컴퓨터 책상 풀세트 + TV 장식장!
+            PlaceAptPrefab("Furniture/Living Room/Table_Computer_01_Setup.prefab", "Apt_ComputerDesk", new Vector3(0.45f, 0f, -2.42f), 0f, parent, true, true);
+            PlaceAptPrefab("Furniture/Living Room/Table_Media_01.prefab", "Apt_MediaTable", new Vector3(2.42f, 0f, -2.58f), 0f, parent, true, true);
+            PlaceAptPrefab("Props/Electronics/TV_Apt_01.prefab", "Apt_TV", new Vector3(2.42f, 0.52f, -2.58f), 0f, parent, false, true);
+            PlaceAptPrefab("Props/Misc/Trash_apt_01.prefab", "Apt_DeskTrashBin", new Vector3(1.28f, 0f, -2.48f), 0f, parent, false, true);
+
+            // 4) 동쪽 벽 책장 + 플로어 스탠드
+            PlaceAptPrefab("Furniture/Living Room/Shelf_Apt_01.prefab", "Apt_Bookshelf", new Vector3(3.26f, 0f, 0.25f), -90f, parent, true, true);
+            PlaceAptPrefab("Props/Lighting/Lamp_Floor_Apt_01.prefab", "Apt_FloorLamp", new Vector3(3.22f, 0f, -1.35f), -90f, parent, false, true);
+
+            // 5) 천장 조명, 창문 프레임, 액자, 벽거울, 러그, 현관 매트!
+            PlaceAptPrefab("Props/Lighting/Lamp_Ceiling_Apt_01.prefab", "Apt_CeilingLamp", new Vector3(0f, 2.45f, 0f), 0f, parent, false, false);
+            PlaceAptPrefab("Apt Build Kit/Interiors/Frames Windows Stairs & Doors/Window_Frame_Apt_01.prefab", "Apt_WindowSouth", new Vector3(-0.35f, 1.05f, -2.92f), 0f, parent, false, false);
+            PlaceAptPrefab("Props/Art/Canvas_Painting_01.prefab", "Apt_Painting_East", new Vector3(3.52f, 1.48f, -0.95f), -90f, parent, false, false);
+            PlaceAptPrefab("Props/Art/Canvas_Nat_01.prefab", "Apt_Painting_West", new Vector3(-3.52f, 1.52f, -1.65f), 90f, parent, false, false);
+            PlaceAptPrefab("Props/Misc/Wall_Mirror_01.prefab", "Apt_WallMirror", new Vector3(3.52f, 1.38f, 1.65f), -90f, parent, false, false);
+            PlaceAptPrefab("Props/Art/Rug_Apt_01.prefab", "Apt_CenterRug", new Vector3(-0.15f, 0.004f, -0.25f), 0f, parent, false, false);
+            PlaceAptPrefab("Props/Misc/WelcomeMat_01.prefab", "Apt_WelcomeMat", new Vector3(2.10f, 0.004f, 3.55f), 0f, parent, false, false);
+        }
+
+        private static bool PlaceAptPrefab(
+            string relPath, string objName, Vector3 anchorPos, float yawDeg,
+            Transform parent, bool addSimpleBoxCollider, bool clampInsideRoom)
+        {
+            string fullPath = $"{AptKitRoot}/{relPath}";
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(fullPath);
+            if (prefab == null) return false;
+
+            GameObject go = Object.Instantiate(prefab);
+            go.name = objName;
+            go.transform.SetParent(parent, true);
+            go.transform.position = anchorPos;
+            go.transform.rotation = Quaternion.Euler(0f, yawDeg, 0f);
+
+            // Unity 6 New Input System 충돌 방지: Brick Project Studio 레거시 Input 스크립트 제거!
+            foreach (var mb in go.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (mb != null) Object.DestroyImmediate(mb);
+            }
+            // 불규칙한 자식 콜라이더 정리 (CharacterController 걸림 방지)
+            foreach (var col in go.GetComponentsInChildren<Collider>(true))
+            {
+                Object.DestroyImmediate(col);
+            }
+
+            // 실제 메쉬 바운즈로 바닥 밀착 + 방 내부 벽 안쪽으로 안전 클램프!
+            var rends = go.GetComponentsInChildren<Renderer>(true);
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+
+                Vector3 shift = new Vector3(
+                    anchorPos.x - b.center.x,
+                    anchorPos.y - b.min.y,
+                    anchorPos.z - b.center.z
+                );
+                go.transform.position += shift;
+
+                // 재계산 후 방 안쪽 클램프 (벽 뚫림 & 현관문 침범 0%!)
+                if (clampInsideRoom)
+                {
+                    b = rends[0].bounds;
+                    for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+
+                    Vector3 clampShift = Vector3.zero;
+                    if (b.min.x < -3.54f) clampShift.x = -3.54f - b.min.x;
+                    else if (b.max.x > 3.54f) clampShift.x = 3.54f - b.max.x;
+                    if (b.min.z < -2.94f) clampShift.z = -2.94f - b.min.z;
+                    else if (b.max.z > 2.94f) clampShift.z = 2.94f - b.max.z;
+                    // 현관문 통로(x > 1.48 && z > 1.95) 침범 방지
+                    if (b.max.x > 1.46f && b.max.z > 1.95f && anchorPos.x < 1.50f)
+                    {
+                        clampShift.x = Mathf.Min(clampShift.x, 1.44f - b.max.x);
+                    }
+                    go.transform.position += clampShift;
+                }
+
+                if (addSimpleBoxCollider)
+                {
+                    b = rends[0].bounds;
+                    for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                    GameObject colObj = new GameObject("_BoundsCollider");
+                    colObj.transform.SetParent(go.transform, true);
+                    colObj.transform.position = b.center;
+                    colObj.transform.rotation = Quaternion.identity;
+                    var bc = colObj.AddComponent<BoxCollider>();
+                    bc.size = new Vector3(Mathf.Max(0.15f, b.size.x * 0.94f), Mathf.Max(0.15f, b.size.y * 0.96f), Mathf.Max(0.15f, b.size.z * 0.94f));
+                }
+            }
+            return true;
         }
 
         private static void CreateBuriedTreasure(

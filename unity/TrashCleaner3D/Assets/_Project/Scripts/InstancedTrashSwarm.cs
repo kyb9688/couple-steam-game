@@ -249,8 +249,13 @@ namespace TrashCleaner3D
                     pos = new Vector3(Random.Range(-3.22f, 3.22f), 0.06f, Random.Range(-2.65f, 2.55f));
                 }
 
-                if (pos.x < -1.55f && pos.z < -0.55f) pos.y += 0.32f;
-                if (pos.x > 1.50f && pos.z > 1.90f) pos.z -= 1.05f;
+                // 실제 Apartment Kit 가구 배치와 겹치지 않도록 침대 위 & 주방/벽 가구 앞쪽으로 자연스럽게 배치!
+                if (pos.x < -1.35f && pos.z < -0.65f) pos.y += 0.56f; // 실제 3D 침대 위에도 쓰레기 수북!
+                if (pos.x < 1.25f && pos.z > 1.80f) pos.z = Random.Range(0.90f, 1.72f); // 북쪽 주방 싱크대/냉장고 앞 바닥
+                if (pos.x < -2.65f && pos.z > -0.65f) pos.x = Random.Range(-2.55f, -1.55f); // 서쪽 옷장/협탁 앞
+                if (pos.z < -1.85f && pos.x > -1.35f) pos.z = Random.Range(-1.75f, -0.85f); // 남쪽 PC책상/TV 앞
+                if (pos.x > 2.75f && pos.z < 1.50f) pos.x = Random.Range(1.75f, 2.68f); // 동쪽 책장 앞
+                if (pos.x > 1.45f && pos.z > 1.90f) pos.z -= 1.05f; // 현관문 스윙 공간 확보
 
                 int preferredType = (i < count * 0.55f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
                 AddUnit(pos, pos, false, preferredType);
@@ -265,11 +270,11 @@ namespace TrashCleaner3D
                 if (_unitCount >= _units.Length) break;
                 Vector2 off = Random.insideUnitCircle.normalized * Random.Range(0.25f, 1.35f);
                 Vector3 land = new Vector3(
-                    Mathf.Clamp(origin.x + off.x, -3.15f, 3.15f),
+                    Mathf.Clamp(origin.x + off.x, -2.60f, 2.68f),
                     0.07f,
-                    Mathf.Clamp(origin.z + off.y, -2.60f, 2.45f)
+                    Mathf.Clamp(origin.z + off.y, -1.78f, 1.72f)
                 );
-                if (land.x < -1.55f && land.z < -0.55f) land.y += 0.32f;
+                if (land.x < -1.35f && land.z < -0.65f) land.y += 0.56f;
                 AddUnit(origin + Vector3.up * 0.35f, land, true, Random.Range(0, meshTypes.Count));
             }
         }

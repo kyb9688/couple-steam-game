@@ -86,7 +86,7 @@ namespace TrashCleaner3D.Editor
                 }
             }
 
-            GameObject player = GameObject.Find("Player") ?? GameObject.Find("FirstPersonCleaner");
+            GameObject player = GameObject.Find("Player_FPS") ?? GameObject.Find("Player") ?? GameObject.Find("FirstPersonCleaner");
             if (player != null && apt01 != null)
             {
                 Renderer[] rends = apt01.GetComponentsInChildren<Renderer>();
