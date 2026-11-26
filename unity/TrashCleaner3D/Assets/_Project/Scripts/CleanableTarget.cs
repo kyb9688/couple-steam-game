@@ -43,6 +43,8 @@ namespace TrashCleaner3D
 
         public bool IsCleaned => _isCleaned || _isSuckingAway;
         public float CleanProgress01 => maxHp > 0.001f ? Mathf.Clamp01(1f - (_hp / maxHp)) : 0f;
+        /// <summary>남아 있는 체력 비율(1 → 0). HUD 체력바가 이 값에서 '깎여 내려'간다.</summary>
+        public float HpRatio01 => maxHp > 0.001f ? Mathf.Clamp01(_hp / maxHp) : 0f;
 
         private void Awake()
         {

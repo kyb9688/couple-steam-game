@@ -7,13 +7,13 @@ using UnityEngine.InputSystem;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v1.0 1인칭 컨트롤러:
-    /// - [LMB 꾹(HOLD)] = 바닥 쓰레기 전용! (맨손 0.22초 진동 차징 후 쏙 / 집게 0.15초 / 진공 0.07초 — 큰 쓰레기 봉지에는 데미지 X!)
-    /// - [E] = 트럭 옆 '현장 강화' 발판 위에서 범위·흡입·용량 강화 구매
-    /// - [LMB 단타 클릭] = 큰 쓰레기 봉투/박스 타격 전용!
-    /// - 봉투 100% 정직 원복 (벽 충돌 과적 폭발 제거), 완성 시 [RMB] 투하 / 바닥 봉지 [RMB] 회수 통일!
-    /// - [F] 현관문 / [K] 80% 조기 정산 / [Space] 점프 / [Tab] 스킬트리 / [ESC] 설정
-    /// - v1.2: 진공 단계 흡입 소용돌이 연출 + 트럭 정산·봉투 폭발·구역 클리어의 짧은 카메라 흔들림
+    /// v1.3 1인칭 컨트롤러:
+    /// - [LMB 꾹(HOLD)] = 바닥 쓰레기 전용! (1단계 맨손 1.00초 진동 차징 → 강화할수록 0.25 → 0.07초)
+    /// - [LMB 단타 클릭] = 큰 쓰레기 봉투/박스 타격 전용
+    /// - [RMB] = 트럭 정산 구역에서 담긴 쓰레기 전부 쏟아 정산 (봉투 만들기/던지기 없음 — 요청 #4·#12)
+    /// - [E] = 트럭 옆 '통합 강화소' 키오스크 열기/닫기 (엣 상시 [Tab] 트리는 삭제 — 요청 #5·#10)
+    /// - [F] 현관문 / [K] 80% 조기 정산 / [Space] 점프 / [ESC] 설정
+    /// - v1.3: 닦기 모션은 화면 중앙으로(요청 #13), 쓰레기는 도구/손 끝으로 빨려온다(요청 #9)
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
     public class FirstPersonCleanerController : MonoBehaviour
@@ -21,7 +21,6 @@ namespace TrashCleaner3D
         public GamePrototypeManager manager;
         public Transform cameraTransform;
         public Transform rightToolPivot;
-        public Transform leftBagPivot;
         public GameObject fistHandVisual;
         public GameObject tongsBroomVisual;
         public GameObject vacuumVisual;
@@ -37,18 +36,21 @@ namespace TrashCleaner3D
         public bool AimIsSwarmNear { get; private set; }
         public bool AimIsStain { get; private set; }
         public InteractiveDoor AimDoor { get; private set; }
-        public ThrownTrashBag AimDroppedBag { get; private set; }
         public bool NeedMouseShakeHint { get; private set; }
         public float AimProgress01 { get; private set; } = -1f;
         public bool ShowHelp { get; private set; }
+        /// <summary>조준 중인 큰 쓰레기 봉투의 '남은 체력 비율'(0~1). HUD 체력바가 이 값을 부드럽게 따라간다.</summary>
+        public float AimPileHp01 { get; private set; } = 1f;
 
-        // ===== v1.0 트럭 옆 '현장 강화' 발판 상태 (HUD 표시용) =====
-        public bool FieldPadActive { get; private set; }
-        public bool FieldPadCanBuy { get; private set; }
-        public bool FieldPadMaxed { get; private set; }
-        public string FieldPadTitle { get; private set; } = "";
-        public string FieldPadDetail { get; private set; } = "";
-        public Color FieldPadColor { get; private set; } = Color.white;
+        /// <summary>트럭 정산 구역 안에 서 있는지 (HUD 프롬프트용)</summary>
+        public bool SettlementZoneActive { get; private set; }
+        public int SettlementReadyCount { get; private set; }
+
+        // ===== v1.3 트럭 옆 '통합 강화소' 키오스크 상태 (HUD 표시용) =====
+        public bool KioskActive { get; private set; }
+        public string KioskTitle { get; private set; } = "";
+        public string KioskDetail { get; private set; } = "";
+        public Color KioskColor { get; private set; } = Color.white;
 
         private CharacterController _cc;
         private Camera _cam;
@@ -56,13 +58,15 @@ namespace TrashCleaner3D
         private float _verticalVel;
         private CleanableTarget _lastTarget;
         private InteractiveDoor _lastDoor;
-        private ThrownTrashBag _lastDroppedBag;
         private float _punchCooldown;
-        private float _bagHintCooldown;
+        private float _binHintCooldown;
 
         private Vector3 _rightBasePos;
         private Quaternion _rightBaseRot;
-        private Vector3 _leftBasePos;
+
+        // v1.3 (요청 #9): 쓰레기가 빨려 들어올 목적지 = 실제 1인칭 손/노즐 끝.
+        //   우측 도구 피벗의 자식으로 두어 수납·흡입 애니메이션을 그대로 따라간다.
+        private Transform _suckTarget;
 
         // v1.2: 카메라 흔들림은 '로컬 포지션 오프셋'만 쓴다 (회전 멀미 없이 짧고 묵직하게)
         private Vector3 _camBaseLocalPos;
@@ -91,8 +95,21 @@ namespace TrashCleaner3D
             if (cameraTransform == null && Camera.main != null) cameraTransform = Camera.main.transform;
             if (cameraTransform != null) _cam = cameraTransform.GetComponent<Camera>();
             if (rightToolPivot != null) { _rightBasePos = rightToolPivot.localPosition; _rightBaseRot = rightToolPivot.localRotation; }
-            if (leftBagPivot != null) _leftBasePos = leftBagPivot.localPosition;
             if (cameraTransform != null) _camBaseLocalPos = cameraTransform.localPosition;
+            EnsureSuckTarget();
+        }
+
+        /// <summary>손/노즐 끝에 흡입 도착점을 만든다(없을 때만).</summary>
+        private void EnsureSuckTarget()
+        {
+            if (_suckTarget != null) return;
+            if (rightToolPivot == null) return;
+
+            GameObject t = new GameObject("SuckTarget_HandTip");
+            t.transform.SetParent(rightToolPivot, false);
+            t.transform.localPosition = new Vector3(0f, -0.02f, 0.16f);
+            t.transform.localRotation = Quaternion.identity;
+            _suckTarget = t.transform;
         }
 
         private void Start()
@@ -195,7 +212,14 @@ namespace TrashCleaner3D
             // 흡입 연출은 1단계 청소 중에만 — 보물 팝업·설정·정산 화면에서는 즉시 끈다
             if (_vacuumVortex != null && manager.Phase != GamePhase.Phase1_TrashRemoval) _vacuumVortex.SetIntensity(0f);
 
-            if (WasEscPressed()) { manager.ToggleSettingsMenu(); ClearHighlight(); return; }
+            if (WasEscPressed())
+            {
+                // 키오스크가 열려 있을 때의 ESC는 '강화 창 닫기'가 먼저다.
+                if (manager.KioskOpen) manager.CloseUpgradeKiosk();
+                else manager.ToggleSettingsMenu();
+                ClearHighlight();
+                return;
+            }
 
             if (manager.Phase == GamePhase.TreasureDecision)
             {
@@ -204,7 +228,12 @@ namespace TrashCleaner3D
                 return;
             }
 
-            if (WasTabPressed()) { manager.ToggleMindMap(); ClearHighlight(); return; }
+            if (WasTabPressed())
+            {
+                // v1.3 (요청 #5·#10): [Tab] 상시 강화 트리는 삭제. 강화는 트럭 옆 통합 강화소에서만.
+                manager.ShowToast("강화는 트럭 옆 통합 강화소 [E]에서만 가능");
+                return;
+            }
 
             if (manager.Phase != GamePhase.Phase1_TrashRemoval && manager.Phase != GamePhase.Phase2_FloorMopping)
             {
@@ -240,9 +269,9 @@ namespace TrashCleaner3D
             UpdateToolVisuals();
             UpdateCameraEffects();
             Vector2 mouseDelta = HandleMovementAndLook();
-            HandleFieldStation();
+            HandleKiosk();
             HandleInteraction(mouseDelta);
-            AnimateHandsAndBag();
+            AnimateHands();
         }
 
         private void HandleTreasureDecisionHotkeys()
@@ -297,27 +326,23 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// 트럭 옆 '현장 강화' 발판 위에 서 있으면 HUD 안내를 켜고, [E]로 그 자리에서 바로 강화를 산다.
+        /// v1.3 (요청 #5·#10): 트럭 옆 통합 강화소(키오스크) 앞에 서 있을 때 안내를 띄우고,
+        /// [E]로 강화 창을 연다. 발판 3개·상시 [Tab] 트리는 제거되어 이 한 곳이 유일한 강화 경로다.
         /// </summary>
-        private void HandleFieldStation()
+        private void HandleKiosk()
         {
-            FieldPadActive = false;
+            KioskActive = false;
             if (manager == null || manager.fieldStation == null) return;
 
             FieldUpgradeStation station = manager.fieldStation;
-            FieldUpgradeStation.PadInfo info;
-            if (!station.TryGetStandingPad(transform.position, out info)) return;
+            if (!station.IsPlayerInRange(transform.position)) return;
 
-            FieldPadActive = true;
-            FieldPadCanBuy = info.affordable;
-            FieldPadMaxed = info.maxed;
-            FieldPadTitle = info.title;
-            FieldPadDetail = info.maxed
-                ? info.stat
-                : $"{info.stat}   ·   보유 ${manager.Money}";
-            FieldPadColor = info.color;
+            KioskActive = true;
+            KioskTitle = "[E] 통합 강화소 열기";
+            KioskDetail = $"로봇청소기 {manager.RoombaCount}대 · 수거통 {manager.CollectingCount}/{manager.BinCapacity} · 보유 ${manager.Money:N0}";
+            KioskColor = new Color(0.95f, 0.78f, 0.24f);
 
-            if (WasKeyEPressed()) station.TryBuy(info);
+            if (WasKeyEPressed()) manager.OpenUpgradeKiosk();
         }
 
         private void UpdateToolVisuals()
@@ -330,8 +355,6 @@ namespace TrashCleaner3D
             if (vacuumVisual != null) vacuumVisual.SetActive(!isP2 && tier >= 2);
             if (tissueVisual != null) tissueVisual.SetActive(isP2 && !manager.HasMopUnlocked);
             if (mopVisual != null) mopVisual.SetActive(isP2 && manager.HasMopUnlocked);
-
-            if (leftBagPivot != null) leftBagPivot.gameObject.SetActive(manager.HasCarriedBag);
         }
 
         private void UpdateCameraEffects()
@@ -428,7 +451,7 @@ namespace TrashCleaner3D
         {
             if (_punchCooldown > 0f) _punchCooldown -= Time.deltaTime;
             if (_scrubSoundCooldown > 0f) _scrubSoundCooldown -= Time.deltaTime;
-            if (_bagHintCooldown > 0f) _bagHintCooldown -= Time.deltaTime;
+            if (_binHintCooldown > 0f) _binHintCooldown -= Time.deltaTime;
 
             // 주의: 매 프레임 스웜 락온을 지우지 않음! (clearSwarmLock: false)
             ClearHighlight(false);
@@ -436,7 +459,6 @@ namespace TrashCleaner3D
             AimIsSwarmNear = false;
             AimIsStain = false;
             AimDoor = null;
-            AimDroppedBag = null;
             NeedMouseShakeHint = false;
             AimProgress01 = -1f;
             _scrubMotionWeight = Mathf.MoveTowards(_scrubMotionWeight, 0f, 6f * Time.deltaTime);
@@ -466,34 +488,36 @@ namespace TrashCleaner3D
             fDown = Input.GetKeyDown(KeyCode.F);
 #endif
 
-            Ray ray = new Ray(cameraTransform.position, cameraTransform.forward);
-            RaycastHit[] hits = Physics.RaycastAll(ray, 5.8f);
-            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            // ===== 바닥 조준점(링·흡입 선택 공용) — v1.3 요청 #6 =====
+            // 예전에는 레이캐스트가 쓰레기/가구 표면을 맞은 그 높이를 그대로 링 중심으로 써서
+            // 링이 바닥에서 위아래로 튀고(흔들림) 반경도 홀드 중에 줄었다 늘었다 했다.
+            // 이제 카메라 광선을 바닥 평면(y=0)에 고정 투영하고, 벽/문에 가로막히면 그 앞에서 멈춘다.
+            Ray aimRay = new Ray(cameraTransform.position, cameraTransform.forward);
+            float planeT = aimRay.direction.y < -0.02f ? -aimRay.origin.y / aimRay.direction.y : -1f;
 
             CleanableTarget hitPile = null;
             CleanableTarget hitStain = null;
             InteractiveDoor hitDoor = null;
-            ThrownTrashBag hitDroppedBag = null;
-            Vector3 worldAimPoint = Vector3.zero;
-            bool hasWorldPoint = false;
             bool blockedByDoor = false;
+            float blockerDist = float.MaxValue;
+
+            RaycastHit[] hits = Physics.RaycastAll(aimRay, 5.8f);
+            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
             foreach (var h in hits)
             {
                 if (h.collider.GetComponentInParent<FirstPersonCleanerController>() != null) continue;
 
-                var dropped = h.collider.GetComponentInParent<ThrownTrashBag>();
-                if (dropped != null && dropped.IsRetrievable && hitDroppedBag == null && h.distance <= 4.0f)
-                {
-                    hitDroppedBag = dropped;
-                    continue;
-                }
-
                 var door = h.collider.GetComponentInParent<InteractiveDoor>();
                 if (door != null)
                 {
                     if (hitDoor == null && h.distance <= 3.0f) hitDoor = door;
-                    if (!door.IsOpen) { blockedByDoor = true; break; }
+                    if (!door.IsOpen)
+                    {
+                        blockedByDoor = true;
+                        if (h.distance < blockerDist) blockerDist = h.distance;
+                        break;
+                    }
                     continue;
                 }
 
@@ -502,68 +526,52 @@ namespace TrashCleaner3D
                 {
                     if (c.kind == CleanableKind.TrashPile && hitPile == null) hitPile = c;
                     else if (c.kind == CleanableKind.FloorStain && hitStain == null) hitStain = c;
+                    continue;   // 쓰레기/얼룩은 '장애물'이 아니다
                 }
 
-                // 바닥 쓰레기 오라용 월드 포인트: 큰 봉투에 가려지지 않고 실제 바닥/환경 좌표도 잡도록 우선 기록
-                if (!hasWorldPoint && (c == null || c.kind != CleanableKind.TrashPile))
-                {
-                    worldAimPoint = h.point;
-                    hasWorldPoint = true;
-                }
+                // 벽·가구 등 실제 장애물: 바닥 조준점이 이 뒤로 넘어가지 않게 자른다
+                if (h.distance < blockerDist) blockerDist = h.distance;
             }
 
-            // 큰 봉투만 맞았다면 그 지점이라도 기준점으로 사용
-            if (!hasWorldPoint && hitPile != null)
+            Vector3 aimPoint = Vector3.zero;
+            bool hasAimPoint = false;
+            if (planeT > 0.05f)
             {
-                worldAimPoint = hitPile.transform.position;
-                hasWorldPoint = true;
+                float useT = Mathf.Min(planeT, Mathf.Min(blockerDist - 0.05f, 5.2f));
+                if (useT > 0.25f)
+                {
+                    aimPoint = aimRay.GetPoint(useT);
+                    aimPoint.y = 0f;
+                    hasAimPoint = true;
+                }
             }
 
-            // v1.1.2 디자인: 바닥을 조준하면 흡입 반경(SweepRadius)을 원형 링으로 항상 보여준다.
-            // (쓰레기가 반경 밖에 있어도 보여서 "어디까지 빨려오는지"가 한눈에 읽힌다)
             if (manager.trashSwarm != null)
             {
-                bool showRing = hasWorldPoint &&
+                bool showRing = hasAimPoint &&
                                 manager.Phase == GamePhase.Phase1_TrashRemoval &&
-                                worldAimPoint.y <= 0.95f &&
-                                Vector3.Distance(cameraTransform.position, worldAimPoint) <= 5.8f &&
-                                !manager.HasCarriedBag;
-                manager.trashSwarm.SetCursorRing(showRing, worldAimPoint, manager.SweepRadius);
+                                Vector3.Distance(cameraTransform.position, aimPoint) <= 5.4f;
+                manager.trashSwarm.SetCursorRing(showRing, aimPoint, manager.SweepRadius);
             }
 
-            // 0) [RMB] 통일: 손에 쥔 봉지 투하 / 바닥 봉지 회수
-            if (hitDroppedBag != null)
-            {
-                _lastDroppedBag = hitDroppedBag;
-                hitDroppedBag.SetHighlighted(true);
-                AimDroppedBag = hitDroppedBag;
-            }
+            // ===== 트럭 정산 구역 (요청 #4·#12) =====
+            SettlementZoneActive = manager.IsNearTruckSettlement(transform.position);
+            SettlementReadyCount = manager.CollectingCount;
 
             if (rmbDown)
             {
-                Vector3 origin = cameraTransform.position + cameraTransform.forward * 0.55f - cameraTransform.right * 0.14f;
-                if (manager.HasCarriedBag)
+                if (SettlementZoneActive && manager.CanSettle)
                 {
-                    manager.ThrowCarriedBag(origin, cameraTransform.forward);
+                    // 담긴 만큼(1개라도) 낱개로 우루루 트럭에 쏟아 정산
+                    Vector3 origin = cameraTransform.position + cameraTransform.forward * 0.30f - cameraTransform.up * 0.18f;
+                    manager.SettleCollectingAtTruck(origin);
                     _grabSwingTimer = 0.22f;
                     return;
                 }
-                else if (hitDroppedBag != null)
+                if (manager.CanSettle && !SettlementZoneActive && _binHintCooldown <= 0f)
                 {
-                    hitDroppedBag.RetrieveIntoHand();
-                    _grabSwingTimer = 0.16f;
-                    return;
-                }
-                else if (manager.CanTieBagEarly)
-                {
-                    // 요청 #5: 쓰레기 절반(50%) 이상 모으면 [RMB]로 즉시 봉지 묶기!
-                    manager.TieBagEarlyIntoHand();
-                    _grabSwingTimer = 0.18f;
-                    return;
-                }
-                else if (manager.CollectingCount > 0)
-                {
-                    manager.ShowToast($"절반 이상 필요 ({manager.CollectingCount}/{manager.HalfBagThreshold})");
+                    _binHintCooldown = 1.6f;
+                    manager.ShowToast($"트럭 정산 구역에서 [RMB] · 담긴 {manager.CollectingCount}개");
                 }
             }
 
@@ -578,24 +586,12 @@ namespace TrashCleaner3D
 
             if (blockedByDoor) { ClearSwarmSelection(); return; }
 
-            if (manager.IsTooSuffocatedToWork)
+            // 수거통이 가득 차면 '바닥 흡입'만 막는다 — 큰 봉투 타격·문 열기는 그대로 가능(요청 #12).
+            bool binBlocked = manager.IsBinFull;
+            if (binBlocked && lmbHeld && _binHintCooldown <= 0f)
             {
-                ClearSwarmSelection();
-                if (lmbDown) { manager.sfx.PlayAlert(); manager.ShowToast("☣ 작업 불가 · 문 밖 환기"); }
-                return;
-            }
-
-            // 손에 완성 봉지 1개 쥐고 있으면 바닥 작업 차단
-            if (manager.HasCarriedBag)
-            {
-                ClearSwarmSelection();
-                // v1.1 UX: 봉투가 차서 쓸기가 막힌 이유를 알 수 있게, 꾹 누르고 있는 동안에도 안내(1.4초 간격)
-                if (lmbHeld && _bagHintCooldown <= 0f)
-                {
-                    _bagHintCooldown = 1.4f;
-                    manager.ShowToast($"봉투 가득 (${manager.CarriedBagValue}) · [RMB] {manager.CurrentVehicleName}에 투하");
-                }
-                return;
+                _binHintCooldown = 1.4f;
+                manager.ShowToast($"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · [RMB] 트럭 정산");
             }
 
             float workMult = Mathf.Max(0.35f, manager.StenchWorkSpeedMult);
@@ -611,6 +607,7 @@ namespace TrashCleaner3D
                     hitPile.SetHighlighted(true);
                     AimIsPile = true;
                     AimProgress01 = hitPile.CleanProgress01;
+                    AimPileHp01 = hitPile.HpRatio01;   // 요청 #8: 체력바는 '남은 체력'을 그대로 따라간다
 
                     if (lmbDown && _punchCooldown <= 0f)
                     {
@@ -626,14 +623,17 @@ namespace TrashCleaner3D
                 }
 
                 // 요청 #1: [LMB 꾹(HOLD)] = 한번 락온된 쓰레기는 커서 원 반경 밖으로 나가기 전까지 절대 초기화 X!
-                if (manager.trashSwarm != null && hasWorldPoint && Vector3.Distance(cameraTransform.position, worldAimPoint) <= 5.0f)
+                if (manager.trashSwarm != null && hasAimPoint && !binBlocked &&
+                    Vector3.Distance(cameraTransform.position, aimPoint) <= 5.4f)
                 {
                     float r = manager.SweepRadius;
                     int grabLimit = manager.AutoGrabPerTick;
-                    manager.trashSwarm.UpdateHoverSelection(true, lmbHeld, worldAimPoint, r, grabLimit);
+                    manager.trashSwarm.UpdateHoverSelection(true, lmbHeld, aimPoint, r, grabLimit);
                     AimIsSwarmNear = manager.trashSwarm.HoveredCount > 0;
 
-                    Transform dest = manager.ToolTier >= 2 ? rightToolPivot : (leftBagPivot != null ? leftBagPivot : rightToolPivot);
+                    // v1.3 (요청 #9): 화면 중앙이 아니라 실제 손/노즐 끝으로 빨려 들어간다.
+                    EnsureSuckTarget();
+                    Transform dest = _suckTarget != null ? _suckTarget : rightToolPivot;
                     int picked = manager.trashSwarm.TickHoldChargeAndPull(
                         lmbHeld && AimIsSwarmNear,
                         Time.deltaTime,
@@ -697,7 +697,7 @@ namespace TrashCleaner3D
             }
         }
 
-        private void AnimateHandsAndBag()
+        private void AnimateHands()
         {
             if (rightToolPivot == null) return;
             Vector3 targetPos = _rightBasePos;
@@ -706,28 +706,32 @@ namespace TrashCleaner3D
             // v1.2: 진공 단계에서만 노즐 앞 소용돌이가 보이도록 (차징이 오를수록 조금 더 세짐)
             if (_vacuumVortex != null)
             {
-                bool sucking = _isVacuumingNow && manager.ToolTier >= 2 && !manager.HasCarriedBag;
+                bool sucking = _isVacuumingNow && manager.ToolTier >= 2;
                 float charge = manager.trashSwarm != null ? Mathf.Clamp01(manager.trashSwarm.MaxSelectedCharge01) : 0f;
                 _vacuumVortex.SetIntensity(sucking ? 0.75f + charge * 0.25f : 0f);
             }
 
             if (_scrubMotionWeight > 0.05f && manager.Phase == GamePhase.Phase2_FloorMopping)
             {
-                // v1.1.2: 마우스로 문지르는 방향(좌우/앞뒤)이 손에 든 걸레에 그대로 실리게 한다 (카메라는 고정)
-                float swayX = Mathf.Clamp(_scrubSway.x * 0.010f, -0.10f, 0.10f);
-                float swayZ = Mathf.Clamp(-_scrubSway.y * 0.006f, -0.06f, 0.06f);
+                // v1.3 (요청 #13): 행주질은 화면 구석이 아니라 '화면 중앙 앞쪽'에서 좌우/앞뒤로 문지른다.
+                //   피벗 기본 위치(0.32, -0.26, 0.52)를 중앙(0, -0.16, 0.60)으로 끌어와 걸레가 시야 가운데를 쓴다.
+                float swayX = Mathf.Clamp(_scrubSway.x * 0.012f, -0.11f, 0.11f);
+                float swayZ = Mathf.Clamp(-_scrubSway.y * 0.007f, -0.07f, 0.07f);
+                float centerX = -_rightBasePos.x;          // 피벗 기본 X를 화면 중앙(0)으로 되돌린다
+                float centerY = -_rightBasePos.y + 0.08f;  // 조금 위로 올려 손이 화면 가운데를 쓴다
                 if (manager.HasMopUnlocked)
                 {
-                    float s = Mathf.Sin(_scrubPhase * 1.4f);
-                    targetPos += new Vector3(s * 0.20f - 0.12f + swayX, -0.05f, 0.16f + Mathf.Cos(_scrubPhase * 1.4f) * 0.05f + swayZ);
-                    targetRot = Quaternion.Euler(18f, s * 22f + swayX * 130f, -s * 16f + swayZ * 70f);
+                    float s = Mathf.Sin(_scrubPhase * 1.6f);
+                    float c = Mathf.Cos(_scrubPhase * 1.6f);
+                    targetPos = new Vector3(centerX + s * 0.17f + swayX, centerY - 0.05f, 0.62f + c * 0.09f + swayZ);
+                    targetRot = Quaternion.Euler(54f, s * 10f + swayX * 90f, -s * 8f + swayZ * 60f);
                 }
                 else
                 {
-                    float cx = Mathf.Cos(_scrubPhase * 2.4f) * 0.09f;
-                    float cz = Mathf.Sin(_scrubPhase * 2.4f) * 0.07f;
-                    targetPos += new Vector3(cx - 0.10f + swayX, -0.11f, 0.18f + cz + swayZ);
-                    targetRot = Quaternion.Euler(42f, cx * 80f + swayX * 130f, -cx * 90f + swayZ * 70f);
+                    float s = Mathf.Cos(_scrubPhase * 2.6f) * 0.13f;
+                    float c = Mathf.Sin(_scrubPhase * 2.6f) * 0.10f;
+                    targetPos = new Vector3(centerX + s + swayX, centerY - 0.08f, 0.56f + c + swayZ);
+                    targetRot = Quaternion.Euler(64f, s * 60f + swayX * 110f, -c * 70f + swayZ * 60f);
                 }
             }
             else if (_isVacuumingNow)
@@ -782,19 +786,12 @@ namespace TrashCleaner3D
 
             rightToolPivot.localPosition = Vector3.Lerp(rightToolPivot.localPosition, targetPos, 22f * Time.deltaTime);
             rightToolPivot.localRotation = Quaternion.Slerp(rightToolPivot.localRotation, targetRot, 22f * Time.deltaTime);
-
-            if (leftBagPivot != null && leftBagPivot.gameObject.activeSelf)
-            {
-                float bounce = Mathf.Abs(Mathf.Sin(Time.time * 5.2f)) * 0.018f;
-                leftBagPivot.localPosition = _leftBasePos + new Vector3(0f, bounce, 0f);
-            }
         }
 
         private void ClearHighlight(bool clearSwarmLock = true)
         {
             if (_lastTarget != null) { _lastTarget.SetHighlighted(false); _lastTarget = null; }
             if (_lastDoor != null) { _lastDoor.SetHighlighted(false); _lastDoor = null; }
-            if (_lastDroppedBag != null) { _lastDroppedBag.SetHighlighted(false); _lastDroppedBag = null; }
             if (clearSwarmLock) ClearSwarmSelection();
         }
 
