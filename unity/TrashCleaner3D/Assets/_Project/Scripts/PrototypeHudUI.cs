@@ -817,7 +817,8 @@ namespace TrashCleaner3D
                     Mathf.Round(gridY + rIdx * (ch2 + gap)),
                     Mathf.Round(cw2), Mathf.Round(ch2));
 
-                Color border = item.maxed ? new Color(0.34f, 0.62f, 0.40f)
+                Color border = !item.unlocked ? new Color(0.55f, 0.55f, 0.55f)
+                             : item.maxed ? new Color(0.34f, 0.62f, 0.40f)
                              : item.affordable ? item.color
                              : new Color(0.52f, 0.48f, 0.40f);
                 DrawPaperCard(card, border, item.affordable ? 2 : 1);
@@ -827,7 +828,7 @@ namespace TrashCleaner3D
                 GUI.Label(new Rect(card.x + 10, card.y + 6, 30, 26), item.icon, _kioskIconStyle);
                 GUI.Label(new Rect(card.x + 40, card.y + 6, card.width - 50, 22), item.title, _inkBold);
                 GUI.Label(new Rect(card.x + card.width - 66, card.y + 6, 56, 22),
-                    item.maxed ? "MAX" : $"{item.level}/{item.maxLevel}", _inkRight);
+                    !item.unlocked ? "잠김" : item.maxed ? "MAX" : $"{item.level}/{item.maxLevel}", _inkRight);
 
                 // 현재 → 다음 스탯
                 GUI.color = new Color(0.32f, 0.28f, 0.22f);
@@ -835,18 +836,19 @@ namespace TrashCleaner3D
 
                 // 구매 스트립
                 Rect buy = new Rect(card.x + 8, card.yMax - 30, card.width - 16, 24);
-                Color buyBg = item.maxed ? new Color(0.86f, 0.88f, 0.84f)
+                Color buyBg = !item.unlocked ? new Color(0.86f, 0.86f, 0.84f)
+                            : item.maxed ? new Color(0.86f, 0.88f, 0.84f)
                             : item.affordable ? item.color
                             : new Color(0.88f, 0.86f, 0.80f);
                 DrawBorderedBox(buy, buyBg, new Color(0.30f, 0.26f, 0.18f), 1);
-                string buyText = item.maxed ? "강화 완료" : $"+${item.cost:N0}";
-                GUI.color = item.maxed ? new Color(0.38f, 0.46f, 0.36f)
+                string buyText = !item.unlocked ? "선행 강화 필요" : item.maxed ? "강화 완료" : $"+${item.cost:N0}";
+                GUI.color = (!item.unlocked || item.maxed) ? new Color(0.38f, 0.46f, 0.36f)
                           : item.affordable ? ReadableOn(item.color)
                           : new Color(0.52f, 0.48f, 0.42f);
                 GUI.Label(buy, buyText, _lightCenter);
                 GUI.color = Color.white;
 
-                if (!item.maxed && GUI.Button(card, GUIContent.none, GUIStyle.none))
+                if (item.unlocked && !item.maxed && GUI.Button(card, GUIContent.none, GUIStyle.none))
                 {
                     station.TryBuy(item.nodeId);
                 }
@@ -911,7 +913,10 @@ namespace TrashCleaner3D
                 Node("fever", "✹", "피버 엔진", $"연속 흡입 → 범위+{manager.LvFever * 8}% · 속도+{manager.LvFever * 14}% · 수익×{1.15f + manager.LvFever * 0.10f:0.00}", $"${manager.CostFever}", "tool", new Vector2(-120, -162), manager.LvFever, 5, cTool),
                 Node("crit", "✦", "크리티컬", $"확률 {manager.CritChance * 100f:0}% · 수익 ×2", $"${manager.CostCrit}", "sweep", new Vector2(-330, -76), manager.LvCrit, 10, cTool),
                 Node("chain", "◈", "연쇄 도미노", $"확률 {manager.ChainChance * 100f:0}% · 주변 +{manager.ChainExtraCount}개", $"${manager.CostChain}", "crit", new Vector2(-435, -76), manager.LvChainPop, 8, cTool),
-                Node("roomba", "◉", "로봇청소기", $"현재 {manager.RoombaCount}대 · {manager.RoombaEatInterval:0.00}초/개 (서브 자동화)", $"${manager.CostRoomba}", "chain", new Vector2(-435, -162), manager.LvRoomba, 2, cTool),
+                Node("roomba", "◉", "로봇청소기", manager.RoombaCount == 0
+                        ? "아직 없음 · 구매 시 1대 배치 (서브 자동화)"
+                        : $"현재 {manager.RoombaCount}대 · {manager.RoombaEatInterval:0.00}초/개 (서브 자동화)",
+                    $"${manager.CostRoomba}", "chain", new Vector2(-435, -162), manager.LvRoomba, 3, cTool),
 
                 // 우상: 운반 & 경제
                 Node("bag", "▣", "수거통 용량", $"최대 {manager.BinCapacity}개 담기 (언제든 트럭 정산)", $"${manager.CostBag}", "", new Vector2(120, -76), manager.LvBagSize, 10, cBag),

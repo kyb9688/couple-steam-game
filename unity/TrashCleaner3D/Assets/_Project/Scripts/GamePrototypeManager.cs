@@ -194,10 +194,11 @@ namespace TrashCleaner3D
         public bool HasFeverEngine => LvFever > 0;
         public int LvCrit { get; private set; }             // 0~10
         public int LvChainPop { get; private set; }         // 0~8
-        // v1.3 (요청 #14): 로봇청소기는 '서브'. 시작 1대(초당 1개)에서 대수(최대 3대)와 속도만 따로 올린다.
-        public int LvRoomba { get; private set; }           // 0~2 (추가 대수: 1대 → 2대 → 3대)
+        // v1.3.1: 로봇청소기는 '서브'. 시작 0대(바닥에 없음) → 강화소에서 대수를 처음 사면 1대 등장,
+        // 이후 같은 항목으로 대수(최대 3대)와 속도만 따로 올린다.
+        public int LvRoomba { get; private set; }           // 0~3 (로봇 대수 = 레벨: 0대 → 1대 → 2대 → 3대)
         public int LvRoombaSpeed { get; private set; }      // 0~6 (수거 간격 1.00초 → 0.55초)
-        public int RoombaCount => 1 + LvRoomba;
+        public int RoombaCount => LvRoomba;                 // v1.3.1: 시작 0대 — 첫 구매가 곧 1대
         public float RoombaEatInterval => Mathf.Max(0.55f, 1.00f - LvRoombaSpeed * 0.075f);
         public float RoombaMoveSpeed => 1.85f + LvRoombaSpeed * 0.10f;
 
@@ -451,10 +452,11 @@ namespace TrashCleaner3D
             UpdateAtmosphere();
             UpdateVehicleStageVisuals();
             if (spawnFieldUpgradeStation) EnsureFieldUpgradeStation();
-            EnsureRoombaCount();   // v1.3: 초반에도 서브 로봇청소기 1대는 바닥에 있다.
+            EnsureRoombaCount();   // v1.3.1: 시작 0대 — 이 시점엔 아무것도 안 깔린다(첫 구매 때 1대).
         }
 
-        /// <summary>대수 강화에 맞춰 로봇청소기를 필요한 만큼만 바닥에 내려놓는다(요청 #14).</summary>
+        /// <summary>대수 강화에 맞춰 로봇청소기를 필요한 만큼만 바닥에 내려놓는다(요청 #14).
+        /// v1.3.1: 대수 0대(시작 상태)면 아무것도 만들지 않고, 대수를 사는 순간 1대씩 내려놓는다.</summary>
         public void EnsureRoombaCount()
         {
             while (_roombas.Count < RoombaCount)
@@ -1335,7 +1337,8 @@ namespace TrashCleaner3D
                 case "crit": return ToolStep >= 2;
                 case "chain": return LvCrit >= 2;
                 case "roomba": return true;
-                case "roombaspeed": return true;
+                // v1.3.1: 로봇 속도는 로봇을 최소 1대 보유한 뒤에 열린다.
+                case "roombaspeed": return LvRoomba >= 1;
                 case "throw": return true;
                 case "price": return true;
                 case "truck": return true;
@@ -1360,7 +1363,7 @@ namespace TrashCleaner3D
             if (IsNodeUnlocked("fever") && LvFever < 5 && Money >= CostFever) c++;
             if (IsNodeUnlocked("crit") && LvCrit < 10 && Money >= CostCrit) c++;
             if (IsNodeUnlocked("chain") && LvChainPop < 8 && Money >= CostChain) c++;
-            if (IsNodeUnlocked("roomba") && LvRoomba < 2 && Money >= CostRoomba) c++;
+            if (IsNodeUnlocked("roomba") && LvRoomba < 3 && Money >= CostRoomba) c++;
             if (IsNodeUnlocked("roombaspeed") && LvRoombaSpeed < 6 && Money >= CostRoombaSpeed) c++;
 
             if (IsNodeUnlocked("bag") && LvBagSize < 10 && Money >= CostBag) c++;
@@ -1396,11 +1399,11 @@ namespace TrashCleaner3D
                 case "crit": if (LvCrit >= 10 || Money < CostCrit) return false; Money -= CostCrit; LvCrit++; break;
                 case "chain": if (LvChainPop >= 8 || Money < CostChain) return false; Money -= CostChain; LvChainPop++; break;
                 case "roomba":
-                    // v1.3 (요청 #14): 대수만 늘린다(시작 1대 → 최대 3대). 속도는 아래 별도 항목.
-                    if (LvRoomba >= 2 || Money < CostRoomba) return false;
+                    // v1.3.1: 대수만 늘린다(시작 0대 — 첫 구매가 1대, 이후 최대 3대). 속도는 아래 별도 항목.
+                    if (LvRoomba >= 3 || Money < CostRoomba) return false;
                     Money -= CostRoomba; LvRoomba++;
                     EnsureRoombaCount();
-                    ShowToast($"로봇청소기 {RoombaCount}대 배치!");
+                    ShowToast(RoombaCount <= 1 ? "로봇청소기 첫 1대 배치!" : $"로봇청소기 {RoombaCount}대 배치!");
                     break;
                 case "roombaspeed":
                     if (LvRoombaSpeed >= 6 || Money < CostRoombaSpeed) return false;

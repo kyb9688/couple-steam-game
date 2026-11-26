@@ -28,6 +28,7 @@ namespace TrashCleaner3D
             public int cost;
             public bool maxed;
             public bool affordable;
+            public bool unlocked;
             public Color color;
         }
 
@@ -154,9 +155,11 @@ namespace TrashCleaner3D
                 color = ItemColors[i],
                 level = 0,
                 maxLevel = 1,
-                cost = 0
+                cost = 0,
+                unlocked = true
             };
             if (manager == null) return info;
+            info.unlocked = manager.IsNodeUnlocked(id);
 
             switch (id)
             {
@@ -201,12 +204,16 @@ namespace TrashCleaner3D
                     info.stat = $"세정력 +{manager.LvScrubPower * 25}%";
                     break;
                 case "roomba":
-                    info.level = manager.LvRoomba; info.maxLevel = 2; info.cost = manager.CostRoomba;
-                    info.stat = $"로봇청소기 {manager.RoombaCount}대 (최대 3대)";
+                    info.level = manager.LvRoomba; info.maxLevel = 3; info.cost = manager.CostRoomba;
+                    info.stat = manager.RoombaCount == 0
+                        ? "아직 없음 · 첫 구매 시 1대 배치"
+                        : $"로봇청소기 {manager.RoombaCount}대 (최대 3대)";
                     break;
                 case "roombaspeed":
                     info.level = manager.LvRoombaSpeed; info.maxLevel = 6; info.cost = manager.CostRoombaSpeed;
-                    info.stat = $"{manager.RoombaEatInterval:0.00}초에 1개";
+                    info.stat = manager.LvRoomba < 1
+                        ? "로봇 대수를 먼저 구매하면 해금"
+                        : $"{manager.RoombaEatInterval:0.00}초에 1개";
                     break;
                 case "truck":
                     info.level = manager.LvTruckSize; info.maxLevel = 9; info.cost = manager.CostTruck;
@@ -238,6 +245,12 @@ namespace TrashCleaner3D
             if (info.maxed)
             {
                 manager.ShowToast($"{info.title} 강화는 이미 MAX");
+                return false;
+            }
+            if (!info.unlocked)
+            {
+                if (manager.sfx != null) manager.sfx.PlayAlert();
+                manager.ShowToast($"{info.title}은(는) 선행 강화가 필요합니다");
                 return false;
             }
             if (manager.Money < info.cost)
