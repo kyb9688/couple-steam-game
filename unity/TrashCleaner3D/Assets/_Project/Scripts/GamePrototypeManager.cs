@@ -367,19 +367,23 @@ namespace TrashCleaner3D
             {
                 door.manager = this;
                 door.ForceCloseImmediate();
+                Physics.SyncTransforms(); // 문 각도/콜라이더 즉시 물리 동기화
 
-                // 모든 스테이지(Stage 1~7)에서 무조건 닫힌 노란 현관문 정면 1.15m 앞에서 시작!
+                // 모든 스테이지(Stage 1~7)에서 무조건 닫힌 노란 현관문 정면 1.25m 앞에서 시작!
                 if (player != null)
                 {
                     Vector3 doorCenter = door.doorCollider != null
-                        ? door.doorCollider.bounds.center
+                        ? door.doorCollider.transform.position
                         : door.transform.position;
-                    float floorY = door.doorCollider != null ? door.doorCollider.bounds.min.y : 0f;
-                    Vector3 frontPos = new Vector3(doorCenter.x, floorY + 0.12f, doorCenter.z + 1.15f);
+                    float floorY = door.doorCollider != null
+                        ? door.doorCollider.transform.position.y - door.doorCollider.transform.lossyScale.y * 0.5f
+                        : 0f;
+                    Vector3 frontPos = new Vector3(doorCenter.x, Mathf.Max(0.05f, floorY + 0.08f), doorCenter.z + 1.25f);
                     Quaternion faceDoor = Quaternion.Euler(0f, 180f, 0f);
                     player.TeleportTo(frontPos, faceDoor);
                     if (playerSpawnPoint != null)
                         playerSpawnPoint.SetPositionAndRotation(frontPos, faceDoor);
+                    Physics.SyncTransforms();
                 }
             }
         }

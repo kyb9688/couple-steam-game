@@ -332,14 +332,18 @@ namespace TrashCleaner3D.Editor
                 EditorSceneManager.OpenScene(BaseScenePath, OpenSceneMode.Single);
             scene = SceneManager.GetActiveScene();
 
-            // 기존 Stage 1/2 방과 공유 현관문은 깔끔히 비활성화해 새 방과 절대 겹치지 않게 처리!
+            // 기존 Stage 1/2 방·공유 현관문·옛 쓰레기 무더기 깔끔히 비활성화 (벽 뚫림/겹침 방지)
             foreach (GameObject go in scene.GetRootGameObjects())
             {
                 if (go.name == "Stage1_OneRoom_Container" ||
                     go.name == "Stage2_Apartment_Container" ||
                     go.name == "Shared_EntranceDoor" ||
                     go.name == "Room01_KoreanStudio" ||
-                    go.name == "Imported_Apartment_Scene01")
+                    go.name == "Imported_Apartment_Scene01" ||
+                    go.name == "Phase1_BigBreakablePiles_Stage1" ||
+                    go.name == "Phase1_BigBreakablePiles_Stage2" ||
+                    go.name == "Phase2_FloorStains_Stage1" ||
+                    go.name == "Phase2_FloorStains_Stage2")
                 {
                     go.SetActive(false);
                 }
@@ -356,30 +360,31 @@ namespace TrashCleaner3D.Editor
 
         private static void BuildShell(Transform root, float w, float d, float h, float doorCenterX, Material wall, Material floor, Material ceil)
         {
-            CreateBox("Floor_Main", new Vector3(0f, -0.15f, 0f), new Vector3(w + 0.4f, 0.3f, d + 0.4f), floor, root);
-            CreateBox("Ceiling_Main", new Vector3(0f, h + 0.15f, 0f), new Vector3(w + 0.4f, 0.3f, d + 0.4f), ceil, root);
-            CreateBox("Wall_South", new Vector3(0f, h / 2f, -d / 2f - 0.15f), new Vector3(w + 0.4f, h, 0.3f), wall, root);
-            CreateBox("Wall_East", new Vector3(w / 2f + 0.15f, h / 2f, 0f), new Vector3(0.3f, h, d + 0.4f), wall, root);
-            CreateBox("Wall_West", new Vector3(-w / 2f - 0.15f, h / 2f, 0f), new Vector3(0.3f, h, d + 0.4f), wall, root);
+            // 벽 두께를 0.40m로 넉넉히 잡아 1인칭 캐릭터가 절대 벽을 통과하거나 시야가 뚫리지 않게 보장
+            CreateBox("Floor_Main", new Vector3(0f, -0.20f, 0f), new Vector3(w + 0.8f, 0.4f, d + 0.8f), floor, root);
+            CreateBox("Ceiling_Main", new Vector3(0f, h + 0.20f, 0f), new Vector3(w + 0.8f, 0.4f, d + 0.8f), ceil, root);
+            CreateBox("Wall_South", new Vector3(0f, h / 2f, -d / 2f - 0.20f), new Vector3(w + 0.8f, h, 0.4f), wall, root);
+            CreateBox("Wall_East", new Vector3(w / 2f + 0.20f, h / 2f, 0f), new Vector3(0.4f, h, d + 0.8f), wall, root);
+            CreateBox("Wall_West", new Vector3(-w / 2f - 0.20f, h / 2f, 0f), new Vector3(0.4f, h, d + 0.8f), wall, root);
 
-            float doorHalf = 0.5f;
-            float leftStart = -w / 2f - 0.2f;
+            float doorHalf = 0.54f;
+            float leftStart = -w / 2f - 0.4f;
             float leftEnd = doorCenterX - doorHalf;
-            float leftW = Mathf.Max(0.2f, leftEnd - leftStart);
-            CreateBox("Wall_North_Left", new Vector3((leftStart + leftEnd) * 0.5f, h / 2f, d / 2f + 0.15f), new Vector3(leftW, h, 0.3f), wall, root);
+            float leftW = Mathf.Max(0.3f, leftEnd - leftStart);
+            CreateBox("Wall_North_Left", new Vector3((leftStart + leftEnd) * 0.5f, h / 2f, d / 2f + 0.20f), new Vector3(leftW, h, 0.4f), wall, root);
 
             float rightStart = doorCenterX + doorHalf;
-            float rightEnd = w / 2f + 0.2f;
-            float rightW = Mathf.Max(0.2f, rightEnd - rightStart);
-            CreateBox("Wall_North_Right", new Vector3((rightStart + rightEnd) * 0.5f, h / 2f, d / 2f + 0.15f), new Vector3(rightW, h, 0.3f), wall, root);
+            float rightEnd = w / 2f + 0.4f;
+            float rightW = Mathf.Max(0.3f, rightEnd - rightStart);
+            CreateBox("Wall_North_Right", new Vector3((rightStart + rightEnd) * 0.5f, h / 2f, d / 2f + 0.20f), new Vector3(rightW, h, 0.4f), wall, root);
 
-            CreateBox("Wall_North_Top", new Vector3(doorCenterX, (2.15f + h) * 0.5f, d / 2f + 0.15f), new Vector3(1.0f, h - 2.15f, 0.3f), wall, root);
+            CreateBox("Wall_North_Top", new Vector3(doorCenterX, (2.15f + h) * 0.5f, d / 2f + 0.20f), new Vector3(1.12f, h - 2.15f, 0.4f), wall, root);
             SetupClosedEntranceDoor(root, doorCenterX, d);
         }
 
         private static void SetupClosedEntranceDoor(Transform root, float doorCenterX, float d)
         {
-            float doorZ = d / 2f + 0.15f;
+            float doorZ = d / 2f + 0.20f;
             Material doorMat = LoadMat("Assets/_Project/Materials/Mat_Door_MustardYellow.mat", new Color(0.78f, 0.62f, 0.16f));
             GameObject hinge = new GameObject("Door_Entrance_Hinge");
             hinge.transform.SetParent(root, false);
@@ -403,7 +408,7 @@ namespace TrashCleaner3D.Editor
 
             // 밖 트럭 마당을 이 방의 현관문 바로 바깥쪽으로 자동 정렬 + 문 앞 안전 바닥 발판 추가!
             Material porchMat = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.55f, 0.55f, 0.55f));
-            CreateBox("Entrance_PorchFloor", new Vector3(doorCenterX, -0.15f, doorZ + 1.8f), new Vector3(4.5f, 0.3f, 4.0f), porchMat, root);
+            CreateBox("Entrance_PorchFloor", new Vector3(doorCenterX, -0.20f, doorZ + 3.0f), new Vector3(12.0f, 0.4f, 6.5f), porchMat, root);
 
             GameObject outside = GameObject.Find("Outside_Truck_Area");
             if (outside != null)
