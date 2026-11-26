@@ -92,19 +92,8 @@ namespace TrashCleaner3D
         private void Awake()
         {
             _cc = GetComponent<CharacterController>();
-            if (_cc != null)
-            {
-                // 벽 통과(터널링) 및 벽 근접 시 시야 가려짐/뚫림 방지용 안전 물리 규격
-                _cc.radius = Mathf.Max(_cc.radius, 0.34f);
-                _cc.skinWidth = 0.04f;
-                _cc.minMoveDistance = 0.0001f;
-            }
             if (cameraTransform == null && Camera.main != null) cameraTransform = Camera.main.transform;
-            if (cameraTransform != null)
-            {
-                _cam = cameraTransform.GetComponent<Camera>();
-                if (_cam != null) _cam.nearClipPlane = 0.03f; // 벽/문 근접 시 화면 뚫림 방지
-            }
+            if (cameraTransform != null) _cam = cameraTransform.GetComponent<Camera>();
             if (rightToolPivot != null) { _rightBasePos = rightToolPivot.localPosition; _rightBaseRot = rightToolPivot.localRotation; }
             if (cameraTransform != null) _camBaseLocalPos = cameraTransform.localPosition;
             EnsureSuckTarget();
@@ -436,7 +425,6 @@ namespace TrashCleaner3D
                 cameraTransform.localRotation = Quaternion.Euler(Mathf.Clamp(_pitch + coughOffset, -84f, 84f), 0f, 0f);
             }
 
-            float dt = Mathf.Min(Time.deltaTime, 0.05f); // 프레임 드랍 시 벽 뚫고 순간이동(터널링) 방지
             if (_cc.isGrounded)
             {
                 if (_verticalVel < 0f) _verticalVel = -2.0f;
@@ -444,13 +432,13 @@ namespace TrashCleaner3D
             }
             else
             {
-                _verticalVel += gravity * dt;
+                _verticalVel += gravity * Time.deltaTime;
             }
 
             float speed = baseMoveSpeed * manager.MoveSpeedTotalMult;
             Vector3 horiz = (transform.right * mx + transform.forward * mz).normalized * speed;
             Vector3 move = new Vector3(horiz.x, _verticalVel, horiz.z);
-            _cc.Move(move * dt);
+            _cc.Move(move * Time.deltaTime);
 
             if (transform.position.y < -1.2f && manager.playerSpawnPoint != null)
             {

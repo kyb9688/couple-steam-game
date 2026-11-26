@@ -74,21 +74,6 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// 스테이지 시작 시 문을 조건 없이 즉시 닫힌 각도로 스냅한다.
-        /// </summary>
-        public void ForceCloseImmediate()
-        {
-            IsOpen = false;
-            _open01 = 0f;
-            if (hingePivot != null)
-            {
-                Vector3 e = hingePivot.localEulerAngles;
-                hingePivot.localEulerAngles = new Vector3(e.x, closedAngleY, e.z);
-            }
-            if (doorCollider != null) doorCollider.enabled = true;
-        }
-
-        /// <summary>
         /// 문을 열거나 닫는다. 닫을 때 플레이어가 문틱에 서 있으면 끼이지 않도록 닫기를 거부한다.
         /// (라운드 시작 시 매니저가 이 메서드로 문을 활짝 열어 둔다)
         /// </summary>
