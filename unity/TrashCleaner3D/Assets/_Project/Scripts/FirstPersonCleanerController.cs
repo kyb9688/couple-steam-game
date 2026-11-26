@@ -100,7 +100,9 @@ namespace TrashCleaner3D
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
             if (manager != null) mouseSensitivity = manager.MouseSensitivity;
             EnsureVacuumVortex();
+#if !UNITY_WEBGL || UNITY_EDITOR
             LockCursorStrict();
+#endif
         }
 
         /// <summary>
@@ -158,11 +160,13 @@ namespace TrashCleaner3D
 
         private void OnApplicationFocus(bool hasFocus)
         {
+#if !UNITY_WEBGL || UNITY_EDITOR
             if (hasFocus && manager != null &&
                 (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping))
             {
                 LockCursorStrict();
             }
+#endif
         }
 
         private static void LockCursorStrict()
@@ -215,7 +219,21 @@ namespace TrashCleaner3D
                 return;
             }
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // 브라우저 보안 정책: WebGL 포인터 락은 사용자 클릭 제스처 안에서만 호출
+            if (Cursor.lockState != CursorLockMode.Locked)
+            {
+                bool clicked = false;
+#if ENABLE_INPUT_SYSTEM
+                clicked = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+#else
+                clicked = Input.GetMouseButtonDown(0);
+#endif
+                if (clicked) LockCursorStrict();
+            }
+#else
             if (Application.isFocused && Cursor.lockState != CursorLockMode.Locked) LockCursorStrict();
+#endif
 
             _isHoldingTrashNow = false;
             _isVacuumingNow = false;

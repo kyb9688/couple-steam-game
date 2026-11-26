@@ -58,14 +58,23 @@ namespace TrashCleaner3D
         {
             _whiteTex = MakeTex(Color.white);
             _dimTex = MakeTex(new Color(0.075f, 0.065f, 0.055f, 0.86f));
-            try
+            // WebGL에는 OS 폰트가 없으므로 번들된 Resources/Fonts/KRFont 우선 로드, 데스크톱은 OS 한글 폰트 사용
+            if (Application.platform == RuntimePlatform.WebGLPlayer)
             {
-                _krFont = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "맑은 고딕", "NanumGothic", "Arial" }, 14);
+                _krFont = Resources.Load<Font>("Fonts/KRFont");
             }
-            catch
+            if (_krFont == null)
             {
-                _krFont = null;
+                try
+                {
+                    _krFont = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "맑은 고딕", "NanumGothic", "Arial" }, 14);
+                }
+                catch
+                {
+                    _krFont = null;
+                }
             }
+            if (_krFont == null) _krFont = Resources.Load<Font>("Fonts/KRFont");
         }
 
         private static Texture2D MakeTex(Color c)
@@ -494,6 +503,15 @@ namespace TrashCleaner3D
         {
             if (controller == null) return;
             float cx = Mathf.Round(w * 0.5f), cy = Mathf.Round(h * 0.5f);
+
+            // WebGL 브라우저 포인터 잠금 안내 (클릭 시 1인칭 조작 활성화)
+            if (Application.platform == RuntimePlatform.WebGLPlayer && Cursor.lockState != CursorLockMode.Locked)
+            {
+                Rect lockR = new Rect(cx - 170, cy - 22, 340, 44);
+                DrawPaperCard(lockR, new Color(0.76f, 0.52f, 0.14f), 2);
+                GUI.Label(lockR, "화면을 클릭하여 1인칭 시점 시작", _inkCenter);
+                return;
+            }
 
             bool hasTarget = controller.AimDoor != null || controller.AimDroppedBag != null ||
                              controller.AimIsPile || controller.AimIsSwarmNear || controller.AimIsStain;
