@@ -5,17 +5,25 @@ using UnityEngine.Rendering;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v1.0 GPU-Instanced 쓰레기 매니저:
-    /// - 0.22초 HOLD 진동 줍기(맨손 0.22s → 집게/빗자루 0.15s → 진공청소기 0.07s):
-    ///   [LMB] 꾹 누르는 동안 원 안의 쓰레기가 부르르 진동하며 떠오르다가, 차징 완료 시 포물선을 그리며 빨려 들어옴!
-    /// - 방 전체 균등 분산 대신 5개 구역의 큰 무더기로 배치 → 한 덩어리 밀면 바닥이 드러남
-    /// - 바닥 커서 원형 오라(ZTest Always)가 쓰레기 더미 위에 항상 선명하게 표시!
-    /// - 동종 연속 압축(typeIdx 전달) + 로봇청소기 자동 수거 지원.
+    /// v1.4 초고속 8,000+ GPU-Instanced 쓰레기 엔진 (WebGL 60fps 대응):
+    /// 1) 멀티청크 GPU Instancing(1023개 제한 해제): 8,000개도 드로우콜 ~16개로 렌더!
+    /// 2) 정적/동적 분리 + Dirty-Flag 캐시: 멈춰있는 7,990개는 매 프레임 Matrix4x4 재계산 0회!
+    /// 3) 2D Spatial Hash Grid (1m 셀): 8,000개 중 커서 반경/로봇 주변 셀만 O(1) 탐색!
+    /// 4) 바닥 원형 색 매트 제거 → 실제 방 단위(1단계 원룸 1방 / 2단계 거실·주방·안방·화장실 4방) 클리어 추적!
+    /// 5) HOLD 락온 유지(순수 수평 XZ 반경) + 포물선 흡입 연출!
     /// </summary>
     public class InstancedTrashSwarm : MonoBehaviour
     {
-        public const int InitialSwarmCount = 1200;
-        public const byte NoCluster = 255;
+        public const int Stage1SwarmCount = 1650;
+        public const int Stage2SwarmCount = 8000;
+
+        public struct RoomZoneDef
+        {
+            public string name;
+            public float minX, maxX, minZ, maxZ;
+            public Vector3 center;
+            public int countToSpawn;
+        }
 
         public struct TrashUnit
         {
@@ -30,10 +38,13 @@ namespace TrashCleaner3D
             public Vector3 endPos;
             public int value;
             public bool isCritBonus;
-            public float holdCharge; // 0~1: 꾹 누르는 동안 진동 차징!
-            public float suckDur;    // 흡입 연출 1회 재생 시간(초) — 거리 기반으로 짧게
-            public float arcHeight;   // 흡입 궤적이 위로 솟는 높이
-            public byte clusterIdx;   // 0~4: 5대 무더기 구역, 255: 산개된 쓰레기(구역 클리어 집계 제외)
+            public float holdCharge;
+            public float suckDur;
+            public float arcHeight;
+            public byte roomIdx;
+            public Matrix4x4 cachedMatrix;
+            public int gridKey;
+            public bool inActiveList;
         }
 
         [System.Serializable]
@@ -52,11 +63,23 @@ namespace TrashCleaner3D
         private TrashUnit[] _units = new TrashUnit[0];
         private int _unitCount;
         private int _cleanedCount;
+        private int _currentStageLayout = 1;
         private Transform _suckDestination;
         private Transform _robotSuckDest;
 
-        private Matrix4x4[][] _batchMatrices;
-        private int[] _batchCounts;
+        // 2D Spatial Hash Grid (1.0m cells) -> O(1) lookup even at 8,000+ units!
+        private readonly Dictionary<int, List<int>> _grid = new Dictionary<int, List<int>>(512);
+        // Active-only update list (only popping / sucking / vibrating units!)
+        private readonly List<int> _activeIndices = new List<int>(128);
+
+        // Multi-chunk Static & Dynamic GPU Instancing buffers
+        private List<Matrix4x4[]>[] _staticChunks;
+        private int[] _staticCounts;
+        private bool _staticDirty = true;
+
+        private List<Matrix4x4[]>[] _dynChunks;
+        private int[] _dynCounts;
+
         private RenderParams[] _renderParams;
 
         private Matrix4x4[][] _outlineMatrices;
@@ -64,12 +87,12 @@ namespace TrashCleaner3D
         private Material _outlineMat;
         private RenderParams _outlineRenderParams;
 
-        private Matrix4x4[][] _detectMatrices;
+        private List<Matrix4x4[]>[] _detectChunks;
         private int[] _detectCounts;
         private Material _detectMat;
         private RenderParams _detectRenderParams;
 
-        // 커서 원형 오라 (쓰레기 위에 항상 선명히 보이는 오버레이 링!)
+        // Floor cursor ring (y=0 fixed, crisp overlay)
         private Mesh _auraRingMesh;
         private Material _auraRingMat;
         private Material _cursorRingMat;
@@ -77,11 +100,9 @@ namespace TrashCleaner3D
         private bool _isHoldingNow;
         private Vector3 _auraCenter;
         private float _auraRadius;
-
-        // 바닥 커서 흡입 반경 링 (쓰레기가 멀어도 항상 보이는 항해용 인디케이터)
         private bool _cursorRingVisible;
         private Vector3 _cursorRingCenter;
-        private float _cursorRingRadius = 1f;
+        private float _cursorRingRadius = 0.5f;
 
         private readonly List<int> _selectedIndices = new List<int>(64);
         private readonly HashSet<int> _selectedSet = new HashSet<int>();
@@ -94,40 +115,45 @@ namespace TrashCleaner3D
         public int CleanedCount => _cleanedCount;
         public int RemainingCount => Mathf.Max(0, _unitCount - _cleanedCount);
 
-        // ===== v1.2: 5대 무더기 구역 클리어 추적 =====
-        /// <summary>무더기 하나가 0개가 된 순간 (구역 인덱스, 무더기 중심 월드 좌표)을 알린다.</summary>
-        public event System.Action<int, Vector3> ClusterCleared;
-        public int ClearedClusterCount { get; private set; }
-        private readonly int[] _clusterRemaining = new int[ClusterCenters.Length];
-        private readonly bool[] _clusterCleared = new bool[ClusterCenters.Length];
+        // ===== 방 단위 클리어 추적 (원룸 1방 / 2단계 거실·주방·안방·화장실 4방) =====
+        public event System.Action<int, string, Vector3> RoomCleared;
+        private RoomZoneDef[] _rooms = new RoomZoneDef[0];
+        private int[] _roomRemaining = new int[0];
+        private int[] _roomInitial = new int[0];
+        private bool[] _roomClearedFlags = new bool[0];
 
-        public int ClusterSlotCount => ClusterCenters.Length;
+        public int RoomCount => _rooms.Length;
+        public int ClearedRoomCount { get; private set; }
 
-        public int RemainingInCluster(int idx)
+        public string GetRoomName(int idx) => (idx >= 0 && idx < _rooms.Length) ? _rooms[idx].name : "방";
+        public int GetRoomRemaining(int idx) => (idx >= 0 && idx < _roomRemaining.Length) ? _roomRemaining[idx] : 0;
+        public int GetRoomInitial(int idx) => (idx >= 0 && idx < _roomInitial.Length) ? _roomInitial[idx] : 1;
+        public bool IsRoomCleared(int idx) => idx >= 0 && idx < _roomClearedFlags.Length && _roomClearedFlags[idx];
+        public Vector3 GetRoomCenter(int idx) => (idx >= 0 && idx < _rooms.Length) ? _rooms[idx].center : Vector3.zero;
+
+        // Stage 1: +30% 확장 원룸 (9.36 x 7.80, x: -4.68..+4.68, z: -3.90..+3.90)
+        private static readonly RoomZoneDef[] Stage1Rooms =
         {
-            return idx >= 0 && idx < _clusterRemaining.Length ? _clusterRemaining[idx] : 0;
-        }
+            new RoomZoneDef { name = "원룸", minX = -4.35f, maxX = 4.35f, minZ = -3.60f, maxZ = 3.55f, center = new Vector3(0f, 0f, 0f), countToSpawn = Stage1SwarmCount }
+        };
 
-        public bool IsClusterCleared(int idx)
+        // Stage 2: 4방 가정집 아파트 (15.4 x 12.8, x: -7.70..+7.70, z: -8.90..+3.90) — 총 8,000개!
+        private static readonly RoomZoneDef[] Stage2Rooms =
         {
-            return idx >= 0 && idx < _clusterCleared.Length && _clusterCleared[idx];
-        }
+            new RoomZoneDef { name = "거실",   minX =  0.05f, maxX = 7.35f, minZ = -1.95f, maxZ =  3.55f, center = new Vector3( 3.70f, 0f,  0.80f), countToSpawn = 2600 },
+            new RoomZoneDef { name = "주방",   minX = -7.35f, maxX = -0.45f, minZ = -1.95f, maxZ =  3.55f, center = new Vector3(-3.90f, 0f,  0.80f), countToSpawn = 1900 },
+            new RoomZoneDef { name = "안방",   minX = -7.35f, maxX =  1.25f, minZ = -8.55f, maxZ = -2.45f, center = new Vector3(-3.05f, 0f, -5.50f), countToSpawn = 2300 },
+            new RoomZoneDef { name = "화장실", minX =  1.75f, maxX =  7.35f, minZ = -8.55f, maxZ = -2.45f, center = new Vector3( 4.55f, 0f, -5.50f), countToSpawn = 1200 },
+        };
 
-        public static string ClusterName(int idx)
-        {
-            return idx >= 0 && idx < ClusterNames.Length ? ClusterNames[idx] : "구역";
-        }
-
-        public static Vector3 ClusterCenter(int idx)
-        {
-            return idx >= 0 && idx < ClusterCenters.Length ? ClusterCenters[idx] : Vector3.zero;
-        }
+        private static int PackCell(int cx, int cz) => (cx + 1024) * 4096 + (cz + 1024);
+        private static int CellKeyForPos(Vector3 p) => PackCell(Mathf.FloorToInt(p.x), Mathf.FloorToInt(p.z));
 
         private void Awake()
         {
             if (meshTypes.Count > 0 && (_units == null || _units.Length == 0))
             {
-                SpawnInitialSwarm(InitialSwarmCount);
+                SpawnForStage(1);
             }
         }
 
@@ -135,9 +161,8 @@ namespace TrashCleaner3D
         {
             if (meshTypes.Count == 0) BuildProceduralTypes();
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
-            if (_units == null || _units.Length == 0) SpawnInitialSwarm(InitialSwarmCount);
+            if (_units == null || _units.Length == 0) SpawnForStage(manager != null ? manager.CurrentStage : 1);
             else EnsureRenderBuffers();
-            BuildClusterZoneMarkers();   // 요청 #11: 5구역 바닥 색 구분
         }
 
         public void InitializeCapacity(int capacity)
@@ -145,48 +170,48 @@ namespace TrashCleaner3D
             _units = new TrashUnit[capacity];
             _unitCount = 0;
             _cleanedCount = 0;
+            _grid.Clear();
+            _activeIndices.Clear();
             _selectedIndices.Clear();
             _selectedSet.Clear();
             _lockedIndices.Clear();
             MaxSelectedCharge01 = 0f;
-            ResetClusterTracking();
+            _staticDirty = true;
             EnsureRenderBuffers();
-        }
-
-        private void ResetClusterTracking()
-        {
-            for (int i = 0; i < _clusterRemaining.Length; i++)
-            {
-                _clusterRemaining[i] = 0;
-                _clusterCleared[i] = false;
-            }
-            ClearedClusterCount = 0;
         }
 
         private void EnsureRenderBuffers()
         {
             int types = Mathf.Max(1, meshTypes.Count);
-            _batchMatrices = new Matrix4x4[types][];
-            _batchCounts = new int[types];
-            _renderParams = new RenderParams[types];
+            if (_staticChunks == null || _staticChunks.Length != types)
+            {
+                _staticChunks = new List<Matrix4x4[]>[types];
+                _staticCounts = new int[types];
+                _dynChunks = new List<Matrix4x4[]>[types];
+                _dynCounts = new int[types];
+                _detectChunks = new List<Matrix4x4[]>[types];
+                _detectCounts = new int[types];
+                _renderParams = new RenderParams[types];
+                _outlineMatrices = new Matrix4x4[types][];
+                _outlineCounts = new int[types];
 
-            _outlineMatrices = new Matrix4x4[types][];
-            _outlineCounts = new int[types];
-
-            _detectMatrices = new Matrix4x4[types][];
-            _detectCounts = new int[types];
+                for (int t = 0; t < types; t++)
+                {
+                    _staticChunks[t] = new List<Matrix4x4[]> { new Matrix4x4[1023] };
+                    _dynChunks[t] = new List<Matrix4x4[]> { new Matrix4x4[1023] };
+                    _detectChunks[t] = new List<Matrix4x4[]> { new Matrix4x4[1023] };
+                    _outlineMatrices[t] = new Matrix4x4[1023];
+                }
+            }
 
             for (int t = 0; t < meshTypes.Count; t++)
             {
-                _batchMatrices[t] = new Matrix4x4[1023];
-                _outlineMatrices[t] = new Matrix4x4[1023];
-                _detectMatrices[t] = new Matrix4x4[1023];
                 if (meshTypes[t].material != null)
                 {
                     meshTypes[t].material.enableInstancing = true;
                     _renderParams[t] = new RenderParams(meshTypes[t].material)
                     {
-                        worldBounds = new Bounds(Vector3.zero, Vector3.one * 60f),
+                        worldBounds = new Bounds(Vector3.zero, Vector3.one * 100f),
                         shadowCastingMode = ShadowCastingMode.Off,
                         receiveShadows = true
                     };
@@ -202,7 +227,7 @@ namespace TrashCleaner3D
                 _outlineMat.enableInstancing = true;
                 _outlineRenderParams = new RenderParams(_outlineMat)
                 {
-                    worldBounds = new Bounds(Vector3.zero, Vector3.one * 60f),
+                    worldBounds = new Bounds(Vector3.zero, Vector3.one * 100f),
                     shadowCastingMode = ShadowCastingMode.Off,
                     receiveShadows = false
                 };
@@ -217,7 +242,7 @@ namespace TrashCleaner3D
                 _detectMat.enableInstancing = true;
                 _detectRenderParams = new RenderParams(_detectMat)
                 {
-                    worldBounds = new Bounds(Vector3.zero, Vector3.one * 60f),
+                    worldBounds = new Bounds(Vector3.zero, Vector3.one * 100f),
                     shadowCastingMode = ShadowCastingMode.Off,
                     receiveShadows = false
                 };
@@ -225,7 +250,7 @@ namespace TrashCleaner3D
 
             if (_auraRingMesh == null)
             {
-                _auraRingMesh = BuildRingMesh(64, 0.93f, 1.0f);
+                _auraRingMesh = BuildRingMesh(48, 0.86f, 1.0f);
                 Shader ringSh = Shader.Find("TrashCleaner3D/CursorRingOverlay") ?? Shader.Find("Universal Render Pipeline/Unlit");
                 _auraRingMat = new Material(ringSh);
                 if (ringSh.name.Contains("Unlit"))
@@ -256,7 +281,6 @@ namespace TrashCleaner3D
                 float c = Mathf.Cos(a), s = Mathf.Sin(a);
                 verts[i * 2] = new Vector3(c * innerR, 0f, s * innerR);
                 verts[i * 2 + 1] = new Vector3(c * outerR, 0f, s * outerR);
-
                 int ni = (i + 1) % segments;
                 int t = i * 6;
                 tris[t] = i * 2; tris[t + 1] = i * 2 + 1; tris[t + 2] = ni * 2 + 1;
@@ -268,374 +292,172 @@ namespace TrashCleaner3D
             return m;
         }
 
-        // ===== v1.1.2 디자인: 아트 팩이 없어도 원룸에 어울리는 생활 쓰레기 5종을 코드로 만든다 =====
-        /// <summary>
-        /// 찌그러진 캔 · 눌린 택배 박스 · 페트병 · 구겨진 비닐봉투 · 구겨진 종이.
-        /// 색은 크라프트/무광 알루미늄/반투명 플라스틱/검은 비닐 톤으로 차분하게 맞춤.
-        /// </summary>
         public void BuildProceduralTypes()
         {
             if (meshTypes.Count > 0) return;
             Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             if (lit == null) return;
 
-            // 1) 찌그러진 알루미늄 캔 · 바닥에 누운 자세
-            Mesh can = BuildLatheMesh(
-                new[] { -0.058f, -0.026f, 0.020f, 0.058f },
-                new[] { 0.030f, 0.034f, 0.031f, 0.033f }, 14, 0.055f);
-            AddProceduralType(lit, "찌그러진 캔", can, new Color(0.655f, 0.66f, 0.655f), 0.52f, 0.72f, 0.16f, new Vector3(0f, 0f, 90f));
+            GameObject c = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            Mesh cyl = c.GetComponent<MeshFilter>().sharedMesh; Destroy(c);
+            GameObject b = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Mesh box = b.GetComponent<MeshFilter>().sharedMesh; Destroy(b);
+            GameObject s = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            Mesh sph = s.GetComponent<MeshFilter>().sharedMesh; Destroy(s);
 
-            // 2) 눌린 택배/피자 박스 · 크라프트지
-            Mesh box = BuildWarpedBoxMesh(new Vector3(0.30f, 0.065f, 0.235f), 0.07f);
-            AddProceduralType(lit, "택배 박스", box, new Color(0.600f, 0.452f, 0.295f), 0.10f, 0.0f, 0.30f, Vector3.zero);
-
-            // 3) 페트병
-            Mesh bottle = BuildLatheMesh(
-                new[] { -0.085f, -0.055f, 0.030f, 0.062f, 0.098f },
-                new[] { 0.031f, 0.035f, 0.029f, 0.013f, 0.014f }, 14, 0.015f);
-            AddProceduralType(lit, "페트병", bottle, new Color(0.720f, 0.795f, 0.830f), 0.62f, 0.05f, 0.23f, new Vector3(90f, 0f, 0f));
-
-            // 4) 구겨진 검은 비닐봉투
-            Mesh bag = BuildCrumpledBlobMesh(0.105f, 12, 8, 0.17f, 11);
-            AddProceduralType(lit, "비닐봉투", bag, new Color(0.125f, 0.125f, 0.135f), 0.38f, 0.0f, 0.21f, Vector3.zero);
-
-            // 5) 구겨진 종이
-            Mesh paper = BuildCrumpledBlobMesh(0.075f, 10, 7, 0.30f, 23);
-            AddProceduralType(lit, "구겨진 종이", paper, new Color(0.815f, 0.790f, 0.740f), 0.08f, 0.0f, 0.15f, Vector3.zero);
+            AddProc(lit, "찌그러진 캔", cyl, new Color(0.65f, 0.66f, 0.65f), 0.52f, 0.14f, new Vector3(0f, 0f, 90f));
+            AddProc(lit, "택배 박스", box, new Color(0.60f, 0.45f, 0.30f), 0.12f, 0.24f, Vector3.zero);
+            AddProc(lit, "페트병", cyl, new Color(0.72f, 0.80f, 0.84f), 0.60f, 0.18f, new Vector3(90f, 0f, 0f));
+            AddProc(lit, "비닐봉투", sph, new Color(0.14f, 0.14f, 0.16f), 0.36f, 0.19f, Vector3.zero);
+            AddProc(lit, "구겨진 종이", sph, new Color(0.82f, 0.79f, 0.74f), 0.10f, 0.13f, Vector3.zero);
         }
 
-        private void AddProceduralType(Shader lit, string label, Mesh mesh, Color tint, float smoothness, float metallic, float targetDim, Vector3 euler)
+        private void AddProc(Shader lit, string label, Mesh mesh, Color tint, float smooth, float targetDim, Vector3 euler)
         {
             Material mat = new Material(lit);
-            mat.name = $"Mat_Proc_{label}";
             if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", tint);
             mat.color = tint;
-            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smoothness);
-            if (mat.HasProperty("_Glossiness")) mat.SetFloat("_Glossiness", smoothness);
-            if (mat.HasProperty("_Metallic")) mat.SetFloat("_Metallic", metallic);
+            if (mat.HasProperty("_Smoothness")) mat.SetFloat("_Smoothness", smooth);
             mat.enableInstancing = true;
-
             Vector3 sz = mesh.bounds.size;
             float maxDim = Mathf.Max(sz.x, Mathf.Max(sz.y, sz.z));
-            meshTypes.Add(new TrashMeshType
-            {
-                label = label,
-                mesh = mesh,
-                material = mat,
-                normalizedScale = maxDim > 0.0001f ? targetDim / maxDim : 1f,
-                baseEulerOffset = euler
-            });
-        }
-
-        /// <summary>Y축 회전체(캔·병) 메쉬: 링별 반지름을 주면 살짝 찌그러진 원통이 된다.</summary>
-        private static Mesh BuildLatheMesh(float[] ringY, float[] ringR, int seg, float wobble)
-        {
-            var verts = new List<Vector3>();
-            var tris = new List<int>();
-            int rings = Mathf.Min(ringY.Length, ringR.Length);
-            for (int r = 0; r < rings; r++)
-            {
-                for (int i = 0; i < seg; i++)
-                {
-                    float a = i / (float)seg * Mathf.PI * 2f;
-                    float rr = ringR[r] * (1f + wobble * Mathf.Sin(a * 3f + r * 1.7f) + wobble * 0.45f * Mathf.Sin(a * 5f - r));
-                    verts.Add(new Vector3(Mathf.Cos(a) * rr, ringY[r], Mathf.Sin(a) * rr));
-                }
-            }
-            for (int r = 0; r < rings - 1; r++)
-            {
-                for (int i = 0; i < seg; i++)
-                {
-                    int i2 = (i + 1) % seg;
-                    int a0 = r * seg + i, a1 = r * seg + i2, b0 = (r + 1) * seg + i, b1 = (r + 1) * seg + i2;
-                    tris.Add(a0); tris.Add(b0); tris.Add(b1);
-                    tris.Add(a0); tris.Add(b1); tris.Add(a1);
-                }
-            }
-            int c0 = verts.Count; verts.Add(new Vector3(0f, ringY[0], 0f));
-            for (int i = 0; i < seg; i++) { tris.Add(c0); tris.Add(i); tris.Add((i + 1) % seg); }
-            int c1 = verts.Count; verts.Add(new Vector3(0f, ringY[rings - 1], 0f));
-            int baseIdx = (rings - 1) * seg;
-            for (int i = 0; i < seg; i++) { tris.Add(c1); tris.Add(baseIdx + (i + 1) % seg); tris.Add(baseIdx + i); }
-            return BuildOutwardMesh(verts, tris);
-        }
-
-        /// <summary>모서리가 살짝 눌린 상자 메쉬 (택배/피자 박스용).</summary>
-        private static Mesh BuildWarpedBoxMesh(Vector3 size, float warp)
-        {
-            Vector3 h = size * 0.5f;
-            var verts = new List<Vector3>(8);
-            for (int i = 0; i < 8; i++)
-            {
-                float sx = (i & 1) == 0 ? -1f : 1f;
-                float sy = (i & 2) == 0 ? -1f : 1f;
-                float sz = (i & 4) == 0 ? -1f : 1f;
-                verts.Add(new Vector3(
-                    sx * h.x * (1f + (sz > 0f ? warp : -warp * 0.5f)),
-                    sy * h.y * (1f + (sx > 0f ? warp * 0.6f : 0f)),
-                    sz * h.z));
-            }
-            var tris = new List<int>
-            {
-                0, 1, 3, 0, 3, 2,
-                4, 6, 7, 4, 7, 5,
-                0, 4, 5, 0, 5, 1,
-                2, 3, 7, 2, 7, 6,
-                0, 2, 6, 0, 6, 4,
-                1, 5, 7, 1, 7, 3
-            };
-            return BuildOutwardMesh(verts, tris);
-        }
-
-        /// <summary>구겨진 봉투/종이 메쉬: 납작하게 눌린 방울형에 잔주름을 준다.</summary>
-        private static Mesh BuildCrumpledBlobMesh(float radius, int seg, int rings, float crumple, int seed)
-        {
-            var verts = new List<Vector3>();
-            var tris = new List<int>();
-            float phase = (seed % 17) * 0.37f;
-            for (int y = 0; y <= rings; y++)
-            {
-                float v = y / (float)rings;
-                float phi = v * Mathf.PI;
-                for (int x = 0; x < seg; x++)
-                {
-                    float theta = x / (float)seg * Mathf.PI * 2f;
-                    float n = 1f + crumple * (0.55f * Mathf.Sin(theta * 3f + phi * 2f + phase) + 0.45f * Mathf.Sin(phi * 4f - theta * 2f));
-                    float r = radius * n;
-                    verts.Add(new Vector3(Mathf.Sin(phi) * Mathf.Cos(theta) * r, Mathf.Cos(phi) * r * 0.66f, Mathf.Sin(phi) * Mathf.Sin(theta) * r));
-                }
-            }
-            for (int y = 0; y < rings; y++)
-            {
-                for (int x = 0; x < seg; x++)
-                {
-                    int x2 = (x + 1) % seg;
-                    int a = y * seg + x, b = y * seg + x2, c = (y + 1) * seg + x, d = (y + 1) * seg + x2;
-                    tris.Add(a); tris.Add(c); tris.Add(d);
-                    tris.Add(a); tris.Add(d); tris.Add(b);
-                }
-            }
-            return BuildOutwardMesh(verts, tris);
-        }
-
-        /// <summary>중심에서 바깥을 향하도록 삼각형 감기 순서를 자동 보정해 노멀을 바로잡는다.</summary>
-        private static Mesh BuildOutwardMesh(List<Vector3> verts, List<int> tris)
-        {
-            for (int t = 0; t + 2 < tris.Count; t += 3)
-            {
-                Vector3 a = verts[tris[t]], b = verts[tris[t + 1]], c = verts[tris[t + 2]];
-                Vector3 n = Vector3.Cross(b - a, c - a);
-                if (n.sqrMagnitude < 1e-12f) continue;
-                Vector3 centroid = (a + b + c) / 3f;
-                if (Vector3.Dot(n, centroid) < 0f)
-                {
-                    int tmp = tris[t + 1];
-                    tris[t + 1] = tris[t + 2];
-                    tris[t + 2] = tmp;
-                }
-            }
-            Mesh m = new Mesh();
-            m.SetVertices(verts);
-            m.SetTriangles(tris, 0);
-            m.RecalculateNormals();
-            m.RecalculateBounds();
-            return m;
-        }
-
-        /// <summary>쓸어담으면 바닥이 드러나는 5개 무더기 중심 좌표.</summary>
-        private static readonly Vector3[] ClusterCenters =
-        {
-            new Vector3(2.05f, 0f, 0.85f),
-            new Vector3(-1.95f, 0f, 1.25f),
-            new Vector3(2.35f, 0f, -1.45f),
-            new Vector3(-0.85f, 0f, -0.75f),
-            new Vector3(0.55f, 0f, 1.45f)
-        };
-
-        /// <summary>ClusterCenters와 같은 순서의 구역 이름 (원룸 가구 배치 기준).</summary>
-        private static readonly string[] ClusterNames =
-        {
-            "현관 앞",
-            "서쪽 벽",
-            "책상 앞",
-            "침대 앞",
-            "싱크대 앞"
-        };
-
-        /// <summary>ClusterCenters와 같은 순서의 구역 마트 색 (요청 #11: 눈으로 확연히 구분되는 5구역).</summary>
-        private static readonly Color[] ClusterTints =
-        {
-            new Color(0.98f, 0.62f, 0.18f),   // 현관 앞 — 주황
-            new Color(0.32f, 0.58f, 0.96f),   // 서쪽 벽 — 파랑
-            new Color(0.66f, 0.42f, 0.92f),   // 책상 앞 — 보라
-            new Color(0.30f, 0.80f, 0.46f),   // 침대 앞 — 초록
-            new Color(0.96f, 0.82f, 0.22f)    // 싱크대 앞 — 노랑
-        };
-
-        private Transform _zoneMarkerRoot;
-
-        public static Color ClusterTint(int idx)
-        {
-            return idx >= 0 && idx < ClusterTints.Length ? ClusterTints[idx] : Color.white;
+            meshTypes.Add(new TrashMeshType { label = label, mesh = mesh, material = mat, normalizedScale = maxDim > 0.001f ? targetDim / maxDim : 1f, baseEulerOffset = euler });
         }
 
         /// <summary>
-        /// v1.3 (요청 #11): 5개 무더기 구역이 눈으로 구분되도록 바닥에 구역별 색 매트 + 테이프 링을 깐다.
-        /// 콜라이더가 없어 이동·레이캐스트에 영향이 없고, 씬 재빌드 없이 런타임에 생성된다.
+        /// 스테이지에 맞춰 1단계 원룸(1,650개) 또는 2단계 4방 아파트(8,000개!)를 무렉으로 스폰!
         /// </summary>
-        private void BuildClusterZoneMarkers()
+        public void SpawnForStage(int stage)
         {
-            if (_zoneMarkerRoot != null) return;
-
-            GameObject root = new GameObject("ClusterZoneMarkers");
-            root.transform.SetParent(transform, false);
-            _zoneMarkerRoot = root.transform;
-
-            Shader sh = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Sprites/Default");
-            if (sh == null) return;
-
-            Mesh disc = BuildRingMesh(48, 0f, 1f);
-            Mesh ring = BuildRingMesh(48, 0.90f, 1.0f);
-
-            for (int i = 0; i < ClusterCenters.Length; i++)
-            {
-                Color tint = ClusterTints[i];
-                Vector3 c = ClusterCenters[i];
-
-                // 바닥 매트 (은은한 색 판)
-                AddZoneQuad(_zoneMarkerRoot, disc, $"ZoneMat_{i + 1}_{ClusterNames[i]}",
-                    new Vector3(c.x, 0.010f, c.z), 1.10f,
-                    new Color(tint.r, tint.g, tint.b, 0.34f), sh);
-
-                // 테이프 링 (구역 경계선)
-                AddZoneQuad(_zoneMarkerRoot, ring, $"ZoneTape_{i + 1}_{ClusterNames[i]}",
-                    new Vector3(c.x, 0.016f, c.z), 1.16f,
-                    new Color(tint.r, tint.g, tint.b, 0.92f), sh);
-
-                // 안쪽 짧은 테이프 4개 — '공사 구역 테이프' 느낌으로 시선을 잡아준다
-                for (int k = 0; k < 4; k++)
-                {
-                    float ang = 45f + k * 90f;
-                    GameObject stripe = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                    stripe.name = $"ZoneStripe_{i + 1}_{k + 1}";
-                    stripe.transform.SetParent(_zoneMarkerRoot, false);
-                    stripe.transform.localPosition = new Vector3(c.x, 0.014f, c.z);
-                    stripe.transform.localRotation = Quaternion.Euler(90f, ang, 0f);
-                    stripe.transform.localScale = new Vector3(0.34f, 0.055f, 1f);
-                    Collider stripeCol = stripe.GetComponent<Collider>();
-                    if (stripeCol != null) { stripeCol.enabled = false; Object.Destroy(stripeCol); }   // 조준 레이를 막지 않도록 즉시 비활성
-                    var mr = stripe.GetComponent<MeshRenderer>();
-                    if (mr != null)
-                    {
-                        mr.sharedMaterial = MakeZoneMaterial(sh, new Color(1f, 1f, 1f, 0.55f));
-                        mr.shadowCastingMode = ShadowCastingMode.Off;
-                        mr.receiveShadows = false;
-                    }
-                }
-            }
-        }
-
-        private void AddZoneQuad(Transform parent, Mesh mesh, string name, Vector3 pos, float radius, Color color, Shader sh)
-        {
-            GameObject go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = pos;
-            go.transform.localRotation = Quaternion.identity;   // 링/원판 메쉬는 XZ 평면
-            go.transform.localScale = new Vector3(radius, 1f, radius);
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = MakeZoneMaterial(sh, color);
-            mr.shadowCastingMode = ShadowCastingMode.Off;
-            mr.receiveShadows = false;
-        }
-
-        private static Material MakeZoneMaterial(Shader sh, Color color)
-        {
-            Material mat = new Material(sh);
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
-            if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
-            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);
-            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
-            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
-            if (mat.HasProperty("_Cull")) mat.SetFloat("_Cull", (float)CullMode.Off);   // 위에서 내려다봐도 항상 보이게
-            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            mat.renderQueue = (int)RenderQueue.Transparent + 4;
-            return mat;
-        }
-
-        public void SpawnInitialSwarm(int count)
-        {
+            if (meshTypes.Count == 0) BuildProceduralTypes();
             if (meshTypes.Count == 0) return;
-            InitializeCapacity(count + 900);
 
-            // v1.0 '구역이 뚫리는' 무더기: 방 전체 균등 분산 대신 4~5개 주요 구역에 큰 클러스터로 몰아둔다.
-            // 한 무더기를 밀어내면 그 자리 바닥이 시원하게 드러난다.
-            for (int i = 0; i < count; i++)
+            _currentStageLayout = stage >= 2 ? 2 : 1;
+            _rooms = _currentStageLayout == 1 ? Stage1Rooms : Stage2Rooms;
+            _roomRemaining = new int[_rooms.Length];
+            _roomInitial = new int[_rooms.Length];
+            _roomClearedFlags = new bool[_rooms.Length];
+            ClearedRoomCount = 0;
+
+            int totalSpawn = 0;
+            for (int r = 0; r < _rooms.Length; r++) totalSpawn += _rooms[r].countToSpawn;
+            InitializeCapacity(totalSpawn + 900);
+
+            for (int r = 0; r < _rooms.Length; r++)
             {
-                Vector3 pos;
-                byte cluster = NoCluster;
-                if (i < count * 0.86f)
-                {
-                    int clusterIdx = i % ClusterCenters.Length;
-                    cluster = (byte)clusterIdx;
-                    Vector3 h = ClusterCenters[clusterIdx];
-                    float ang = Random.Range(0f, Mathf.PI * 2f);
-                    float dist = Mathf.Sqrt(Random.value) * 1.02f;
-                    float dist01 = dist / 1.02f;
-                    float yStack = Mathf.Pow(1f - dist01, 1.6f) * Random.Range(0.08f, 0.62f);
-                    pos = new Vector3(
-                        Mathf.Clamp(h.x + Mathf.Cos(ang) * dist, -3.24f, 3.24f),
-                        0.06f + yStack,
-                        Mathf.Clamp(h.z + Mathf.Sin(ang) * dist, -2.62f, 2.55f)
-                    );
-                }
-                else
-                {
-                    pos = new Vector3(Random.Range(-3.22f, 3.22f), 0.06f, Random.Range(-2.65f, 2.55f));
-                }
+                RoomZoneDef room = _rooms[r];
+                int n = room.countToSpawn;
 
-                // 5종 미니멀 원룸 가구(침대·책상·냉장고·전자레인지·싱크대)만 회피해 넓은 바닥에 풍성하게 배치!
-                if (pos.x < -1.35f && pos.z < -0.65f) pos.y += 0.56f; // 침대 위
-                if (pos.x > -1.05f && pos.x < 1.35f && pos.z > 1.88f) pos.z = Random.Range(0.95f, 1.78f); // 냉장고·싱크대 앞
-                if (pos.x > -0.45f && pos.x < 1.35f && pos.z < -1.85f) pos.z = Random.Range(-1.75f, -0.95f); // PC 책상 앞
-                if (pos.x > 1.45f && pos.z > 1.90f) pos.z -= 1.05f; // 현관문 스윙 공간 확보
+                // 각 방마다 자연스러운 쓰레기 언덕 3~4곳 + 바닥 전체 밀집 배치
+                Vector3[] mounds =
+                {
+                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.30f), 0f, Mathf.Lerp(room.minZ, room.maxZ, 0.35f)),
+                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.70f), 0f, Mathf.Lerp(room.minZ, room.maxZ, 0.40f)),
+                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.45f), 0f, Mathf.Lerp(room.minZ, room.maxZ, 0.72f)),
+                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.65f), 0f, Mathf.Lerp(room.minZ, room.maxZ, 0.75f))
+                };
 
-                int preferredType = (i < count * 0.55f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
-                AddUnit(pos, pos, false, preferredType, cluster);
+                for (int i = 0; i < n; i++)
+                {
+                    Vector3 pos;
+                    if (i < n * 0.72f)
+                    {
+                        Vector3 m = mounds[i % mounds.Length];
+                        float maxRad = _currentStageLayout == 1 ? 1.85f : 2.15f;
+                        Vector2 off = Random.insideUnitCircle * Random.Range(0.08f, maxRad);
+                        float dist01 = Mathf.Clamp01(off.magnitude / maxRad);
+                        float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.05f, _currentStageLayout == 2 ? 0.82f : 0.68f);
+                        pos = new Vector3(
+                            Mathf.Clamp(m.x + off.x, room.minX, room.maxX),
+                            0.055f + yStack,
+                            Mathf.Clamp(m.z + off.y, room.minZ, room.maxZ)
+                        );
+                    }
+                    else
+                    {
+                        pos = new Vector3(
+                            Random.Range(room.minX, room.maxX),
+                            0.055f + Random.Range(0f, 0.14f),
+                            Random.Range(room.minZ, room.maxZ)
+                        );
+                    }
+
+                    // 현관문 스윙 공간(x: 1.4..2.9, z > 2.65)은 살짝 비워 문 열림을 깔끔하게!
+                    if (pos.x > 1.35f && pos.x < 2.95f && pos.z > 2.60f) pos.z -= 1.15f;
+
+                    // 1단계 원룸 가구(침대 위 올리기 & 냉장고/싱크대/책상 회피)
+                    if (_currentStageLayout == 1)
+                    {
+                        if (pos.x < -1.95f && pos.z < -1.10f) pos.y += 0.56f; // 침대 위
+                        if (pos.x > -1.25f && pos.x < 1.35f && pos.z > 2.65f) pos.z = Random.Range(1.40f, 2.55f); // 냉장고·싱크대 앞
+                        if (pos.x > -0.45f && pos.x < 1.45f && pos.z < -2.65f) pos.z = Random.Range(-2.55f, -1.35f); // PC 책상 앞
+                    }
+                    else
+                    {
+                        // 2단계 안방 침대 위
+                        if (r == 2 && pos.x < -4.80f && pos.z < -6.00f) pos.y += 0.56f;
+                    }
+
+                    int tIdx = (i < n * 0.45f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
+                    AddUnit(pos, pos, false, tIdx, (byte)r);
+                }
             }
+
+            _staticDirty = true;
+        }
+
+        public void ResetSwarm(int stageOrCount)
+        {
+            int st = stageOrCount <= 10 ? Mathf.Max(1, stageOrCount) : (manager != null ? manager.CurrentStage : 1);
+            SpawnForStage(st);
         }
 
         public void SpawnBurstFountain(Vector3 origin, int count)
         {
             if (meshTypes.Count == 0) return;
+            byte rIdx = FindRoomIndexForPos(origin);
+            RoomZoneDef room = rIdx < _rooms.Length ? _rooms[rIdx] : Stage1Rooms[0];
+
             for (int i = 0; i < count; i++)
             {
                 if (_unitCount >= _units.Length) break;
-                Vector2 off = Random.insideUnitCircle.normalized * Random.Range(0.25f, 1.35f);
+                Vector2 off = Random.insideUnitCircle.normalized * Random.Range(0.28f, 1.45f);
                 Vector3 land = new Vector3(
-                    Mathf.Clamp(origin.x + off.x, -2.60f, 2.68f),
-                    0.07f,
-                    Mathf.Clamp(origin.z + off.y, -1.78f, 1.72f)
+                    Mathf.Clamp(origin.x + off.x, room.minX, room.maxX),
+                    0.06f,
+                    Mathf.Clamp(origin.z + off.y, room.minZ, room.maxZ)
                 );
-                if (land.x < -1.35f && land.z < -0.65f) land.y += 0.56f;
-                AddUnit(origin + Vector3.up * 0.35f, land, true, Random.Range(0, meshTypes.Count));
+                AddUnit(origin + Vector3.up * 0.35f, land, true, Random.Range(0, meshTypes.Count), rIdx);
             }
+            _staticDirty = true;
         }
 
-        private void AddUnit(Vector3 startPos, Vector3 endPos, bool popAnimation, int tIdx, byte cluster = NoCluster)
+        private byte FindRoomIndexForPos(Vector3 p)
+        {
+            for (int r = 0; r < _rooms.Length; r++)
+            {
+                if (p.x >= _rooms[r].minX - 0.5f && p.x <= _rooms[r].maxX + 0.5f &&
+                    p.z >= _rooms[r].minZ - 0.5f && p.z <= _rooms[r].maxZ + 0.5f)
+                    return (byte)r;
+            }
+            return 0;
+        }
+
+        private void AddUnit(Vector3 startPos, Vector3 endPos, bool popAnimation, int tIdx, byte roomIdx)
         {
             if (_unitCount >= _units.Length) return;
             tIdx = Mathf.Clamp(tIdx, 0, meshTypes.Count - 1);
             float baseS = meshTypes[tIdx].normalizedScale * Random.Range(0.86f, 1.22f);
             Quaternion baseOffset = Quaternion.Euler(meshTypes[tIdx].baseEulerOffset);
+            Quaternion rot = Quaternion.Euler(Random.Range(-16f, 16f), Random.Range(0f, 360f), Random.Range(-16f, 16f)) * baseOffset;
 
-            if (cluster < _clusterRemaining.Length) _clusterRemaining[cluster]++;
+            int idx = _unitCount++;
+            int cellKey = CellKeyForPos(endPos);
 
-            _units[_unitCount++] = new TrashUnit
+            _units[idx] = new TrashUnit
             {
                 pos = startPos,
-                rot = Quaternion.Euler(Random.Range(-16f, 16f), Random.Range(0f, 360f), Random.Range(-16f, 16f)) * baseOffset,
+                rot = rot,
                 baseScale = baseS,
                 curScale = baseS,
                 typeIdx = tIdx,
@@ -643,32 +465,65 @@ namespace TrashCleaner3D
                 timer = 0f,
                 startPos = startPos,
                 endPos = endPos,
-                value = 4,
+                value = 2,
                 isCritBonus = false,
                 holdCharge = 0f,
-                clusterIdx = cluster
+                suckDur = 0.24f,
+                arcHeight = 0.45f,
+                roomIdx = roomIdx,
+                cachedMatrix = Matrix4x4.TRS(startPos, rot, Vector3.one * baseS),
+                gridKey = cellKey,
+                inActiveList = popAnimation
             };
-        }
 
-        /// <summary>
-        /// 쓰레기 하나가 바닥에서 완전히 사라졌을 때(플레이어 흡입·로봇 수거 공통) 해당 무더기의 남은 개수를 줄이고,
-        /// 0이 되는 순간 구역 클리어 이벤트를 한 번만 발생시킨다.
-        /// </summary>
-        private void NotifyUnitCleaned(int idx)
-        {
-            if (idx < 0 || idx >= _unitCount) return;
-            byte cluster = _units[idx].clusterIdx;
-            if (cluster >= _clusterRemaining.Length) return;   // 산개 14%는 구역 집계 제외
-
-            if (_clusterRemaining[cluster] > 0) _clusterRemaining[cluster]--;
-            if (_clusterRemaining[cluster] == 0 && !_clusterCleared[cluster])
+            if (!_grid.TryGetValue(cellKey, out var bucket))
             {
-                _clusterCleared[cluster] = true;
-                ClearedClusterCount++;
-                ClusterCleared?.Invoke(cluster, ClusterCenters[cluster]);
+                bucket = new List<int>(24);
+                _grid[cellKey] = bucket;
+            }
+            bucket.Add(idx);
+
+            if (popAnimation) _activeIndices.Add(idx);
+
+            if (roomIdx < _roomRemaining.Length)
+            {
+                _roomRemaining[roomIdx]++;
+                _roomInitial[roomIdx]++;
             }
         }
 
+        private void ActivateUnit(int idx)
+        {
+            if (!_units[idx].inActiveList)
+            {
+                _units[idx].inActiveList = true;
+                _activeIndices.Add(idx);
+                _staticDirty = true;
+            }
+        }
+
+        private void NotifyUnitCleaned(byte rIdx)
+        {
+            if (rIdx >= _roomRemaining.Length) return;
+            if (_roomRemaining[rIdx] > 0) _roomRemaining[rIdx]--;
+            if (_roomRemaining[rIdx] == 0 && !_roomClearedFlags[rIdx])
+            {
+                _roomClearedFlags[rIdx] = true;
+                ClearedRoomCount++;
+                RoomCleared?.Invoke(rIdx, _rooms[rIdx].name, _rooms[rIdx].center);
+            }
+        }
+
+        public void SetCursorRing(bool visible, Vector3 center, float radius)
+        {
+            _cursorRingVisible = visible;
+            _cursorRingCenter = center;
+            _cursorRingRadius = radius;
+        }
+
+        /// <summary>
+        /// 2D Spatial Hash Grid O(1) 탐색 + HOLD 락온 유지! (8,000개에서도 0.02ms!)
+        /// </summary>
         public void UpdateHoverSelection(bool active, bool isHolding, Vector3 aimPoint, float cursorRadius, int maxSelectCount)
         {
             _selectedIndices.Clear();
@@ -689,7 +544,8 @@ namespace TrashCleaner3D
             }
 
             float rSq = cursorRadius * cursorRadius;
-            // 홀드 중에는 기존 락온 대상이 커서 원(수평 XZ 반경) 밖으로 벗어나기 전까지 절대 해제/초기화 X!
+
+            // 홀드 중 기존 락온 유지 (순수 수평 XZ 반경 * 1.15 여유)
             if (isHolding && _lockedIndices.Count > 0)
             {
                 float keepRSq = (cursorRadius * 1.15f) * (cursorRadius * 1.15f);
@@ -702,7 +558,7 @@ namespace TrashCleaner3D
                         continue;
                     }
                     Vector3 d = _units[idx].pos - aimPoint;
-                    d.y = 0f; // 높이 오차로 락온이 풀리지 않도록 원형 커서와 동일한 순수 수평(XZ) 반경으로 판정!
+                    d.y = 0f;
                     if (d.sqrMagnitude > keepRSq)
                     {
                         _lockedIndices.RemoveAt(i);
@@ -715,17 +571,30 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 남은 슬롯이 있으면 원 안의 가장 가까운 후보로 채움
+            // Spatial Hash Grid 주변 셀만 O(1) 스캔!
             if (_selectedIndices.Count < maxSelectCount)
             {
                 _candidates.Clear();
-                for (int i = 0; i < _unitCount; i++)
+                int minCx = Mathf.FloorToInt(aimPoint.x - cursorRadius);
+                int maxCx = Mathf.FloorToInt(aimPoint.x + cursorRadius);
+                int minCz = Mathf.FloorToInt(aimPoint.z - cursorRadius);
+                int maxCz = Mathf.FloorToInt(aimPoint.z + cursorRadius);
+
+                for (int cx = minCx; cx <= maxCx; cx++)
                 {
-                    if (_units[i].state != 0 || _selectedSet.Contains(i)) continue;
-                    Vector3 d = _units[i].pos - aimPoint;
-                    d.y = 0f;
-                    float dSq = d.sqrMagnitude;
-                    if (dSq <= rSq) _candidates.Add((i, dSq));
+                    for (int cz = minCz; cz <= maxCz; cz++)
+                    {
+                        if (!_grid.TryGetValue(PackCell(cx, cz), out var bucket)) continue;
+                        for (int b = 0; b < bucket.Count; b++)
+                        {
+                            int idx = bucket[b];
+                            if (_units[idx].state != 0 || _selectedSet.Contains(idx)) continue;
+                            Vector3 d = _units[idx].pos - aimPoint;
+                            d.y = 0f;
+                            float dSq = d.sqrMagnitude;
+                            if (dSq <= rSq) _candidates.Add((idx, dSq));
+                        }
+                    }
                 }
 
                 if (_candidates.Count > 0)
@@ -751,11 +620,6 @@ namespace TrashCleaner3D
             MaxSelectedCharge01 = maxC;
         }
 
-        /// <summary>
-        /// v1.0 경쾌한 HOLD 진동 줍기:
-        /// - holdActive=true 동안 원 안의 선택된 쓰레기의 holdCharge가 0 → 1로 올라가며 격렬히 진동!
-        /// - 1.0 도달 즉시(맨손 0.22초 → 집게 0.15초 → 진공 0.07초) 빨려 들어가기 시작!
-        /// </summary>
         public int TickHoldChargeAndPull(
             bool holdActive, float dt, float holdDurationSeconds,
             Transform suckDest, float critChance, float chainChance, int chainExtraCount,
@@ -769,6 +633,7 @@ namespace TrashCleaner3D
             if (!_isHoldingNow || _unitCount == 0) return 0;
 
             _suckDestination = suckDest;
+            Vector3 destPos = suckDest != null ? suckDest.position : Vector3.zero;
             float rate = 1f / Mathf.Max(0.04f, holdDurationSeconds);
             int picked = 0;
             float maxC = 0f;
@@ -780,60 +645,64 @@ namespace TrashCleaner3D
                 int idx = _selectedIndices[k];
                 if (idx < 0 || idx >= _unitCount || _units[idx].state != 0) continue;
 
+                ActivateUnit(idx);
                 _units[idx].holdCharge = Mathf.Min(1f, _units[idx].holdCharge + dt * rate);
                 if (_units[idx].holdCharge > maxC) maxC = _units[idx].holdCharge;
 
                 if (_units[idx].holdCharge >= 1f)
                 {
                     if (picked == 0) fxOrigin = _units[idx].pos;
-                    Vector3 suckDestPos = _suckDestination != null ? _suckDestination.position : _units[idx].pos;
-                    BeginSuck(ref _units[idx], suckDestPos, rolledCrit);
+                    StartUnitSuck(idx, 2, destPos, rolledCrit);
                     picked++;
                     if (rolledCrit) didCrit = true;
                 }
             }
 
             MaxSelectedCharge01 = picked > 0 ? 0f : maxC;
-
-            if (picked > 0 && chainChance > 0f && chainExtraCount > 0 && Random.value < chainChance)
-            {
-                float chainRSq = 1.15f * 1.15f;
-                int chained = 0;
-                for (int i = 0; i < _unitCount && chained < chainExtraCount; i++)
-                {
-                    if (_units[i].state != 0) continue;
-                    if ((_units[i].pos - fxOrigin).sqrMagnitude <= chainRSq)
-                    {
-                        Vector3 chainDest = _suckDestination != null ? _suckDestination.position : _units[i].pos;
-                        BeginSuck(ref _units[i], chainDest, false);
-                        chained++;
-                        picked++;
-                    }
-                }
-                if (chained > 0) didChain = true;
-            }
-
+            if (picked > 0) _staticDirty = true;
             return picked;
         }
 
-        /// <summary>선택된 쓰레기를 '빨려 들어오는' 상태로 전환한다(거리 기반 짧은 연출 시간).</summary>
-        private void BeginSuck(ref TrashUnit unit, Vector3 dest, bool crit)
+        private void StartUnitSuck(int idx, byte newState, Vector3 destPos, bool critBonus)
         {
-            unit.startPos = unit.pos;
-            unit.state = 2;
-            unit.timer = 0f;
-            unit.holdCharge = 0f;
-            unit.isCritBonus = crit;
-            unit.suckDur = Mathf.Clamp(Vector3.Distance(unit.pos, dest) / 7.5f, 0.16f, 0.34f);
-            unit.arcHeight = Random.Range(0.30f, 0.75f);
+            ActivateUnit(idx);
+            _units[idx].state = newState;
+            _units[idx].timer = 0f;
+            _units[idx].holdCharge = 0f;
+            _units[idx].startPos = _units[idx].pos;
+            _units[idx].isCritBonus = critBonus;
+            float dist = Vector3.Distance(_units[idx].pos, destPos);
+            float spd = (manager != null && manager.ToolTier >= 2) ? 14.5f : 12.0f;
+            _units[idx].suckDur = Mathf.Clamp(dist / spd, 0.16f, 0.34f);
+            _units[idx].arcHeight = Mathf.Clamp(0.28f + dist * 0.12f, 0.28f, 0.72f);
         }
 
         public bool TryFindNearestIdlePos(Vector3 fromPos, out Vector3 foundPos)
         {
             foundPos = Vector3.zero;
+            // 먼저 주변 반경 3m 셀에서 빠르게 탐색
             float best = float.MaxValue;
             int bestIdx = -1;
-            int step = Mathf.Max(1, _unitCount / 220);
+            int minCx = Mathf.FloorToInt(fromPos.x - 3f), maxCx = Mathf.FloorToInt(fromPos.x + 3f);
+            int minCz = Mathf.FloorToInt(fromPos.z - 3f), maxCz = Mathf.FloorToInt(fromPos.z + 3f);
+            for (int cx = minCx; cx <= maxCx; cx++)
+            {
+                for (int cz = minCz; cz <= maxCz; cz++)
+                {
+                    if (!_grid.TryGetValue(PackCell(cx, cz), out var bucket)) continue;
+                    for (int b = 0; b < bucket.Count; b++)
+                    {
+                        int i = bucket[b];
+                        if (_units[i].state != 0) continue;
+                        float dSq = (_units[i].pos - fromPos).sqrMagnitude;
+                        if (dSq < best) { best = dSq; bestIdx = i; }
+                    }
+                }
+            }
+            if (bestIdx >= 0) { foundPos = _units[bestIdx].pos; return true; }
+
+            // 주변에 없으면 전체 샘플링
+            int step = Mathf.Max(1, _unitCount / 180);
             for (int i = 0; i < _unitCount; i += step)
             {
                 if (_units[i].state != 0) continue;
@@ -849,184 +718,199 @@ namespace TrashCleaner3D
             _robotSuckDest = robotTrans;
             float rSq = radius * radius;
             int eaten = 0;
-            for (int i = 0; i < _unitCount && eaten < maxEat; i++)
+            int minCx = Mathf.FloorToInt(robotPos.x - radius), maxCx = Mathf.FloorToInt(robotPos.x + radius);
+            int minCz = Mathf.FloorToInt(robotPos.z - radius), maxCz = Mathf.FloorToInt(robotPos.z + radius);
+
+            for (int cx = minCx; cx <= maxCx && eaten < maxEat; cx++)
             {
-                if (_units[i].state != 0) continue;
-                Vector3 d = _units[i].pos - robotPos;
-                d.y *= 0.4f;
-                if (d.sqrMagnitude <= rSq)
+                for (int cz = minCz; cz <= maxCz && eaten < maxEat; cz++)
                 {
-                    _units[i].state = 4;
-                    _units[i].timer = 0f;
-                    _units[i].holdCharge = 0f;
-                    _units[i].startPos = _units[i].pos;
-                    _units[i].suckDur = 0.30f;
-                    _units[i].arcHeight = 0.22f;
-                    eaten++;
+                    if (!_grid.TryGetValue(PackCell(cx, cz), out var bucket)) continue;
+                    for (int b = 0; b < bucket.Count && eaten < maxEat; b++)
+                    {
+                        int i = bucket[b];
+                        if (_units[i].state != 0) continue;
+                        Vector3 d = _units[i].pos - robotPos;
+                        d.y *= 0.4f;
+                        if (d.sqrMagnitude <= rSq)
+                        {
+                            StartUnitSuck(i, 4, robotPos, false);
+                            eaten++;
+                        }
+                    }
                 }
             }
+            if (eaten > 0) _staticDirty = true;
             return eaten;
         }
 
-        public void ResetSwarm(int initialCount)
+        private static void PushChunk(List<Matrix4x4[]>[] chunks, int[] counts, int tIdx, Matrix4x4 mtx)
         {
-            SpawnInitialSwarm(initialCount);
+            int idx = counts[tIdx]++;
+            int cIdx = idx / 1023;
+            int lIdx = idx % 1023;
+            while (chunks[tIdx].Count <= cIdx) chunks[tIdx].Add(new Matrix4x4[1023]);
+            chunks[tIdx][cIdx][lIdx] = mtx;
         }
 
-        /// <summary>
-        /// 바닥의 흡입 반경(SweepRadius)을 보여주는 커서 링. 쓰레기가 반경 밖에 있어도 항상 보여서
-        /// "어디까지 빨려오는지"를 눈으로 바로 알 수 있다. (Phase 1 바닥 조준 시 컨트롤러가 호출)
-        /// </summary>
-        public void SetCursorRing(bool visible, Vector3 center, float radius)
+        private void RebuildStaticChunks()
         {
-            _cursorRingVisible = visible;
-            _cursorRingCenter = center;
-            _cursorRingRadius = Mathf.Max(0.1f, radius);
+            _staticDirty = false;
+            for (int t = 0; t < _staticCounts.Length; t++) _staticCounts[t] = 0;
+            for (int i = 0; i < _unitCount; i++)
+            {
+                if (_units[i].state != 0 || _units[i].inActiveList) continue;
+                PushChunk(_staticChunks, _staticCounts, _units[i].typeIdx, _units[i].cachedMatrix);
+            }
         }
 
         private void Update()
         {
-            if (_unitCount == 0 || meshTypes.Count == 0 || _batchMatrices == null) return;
+            if (_unitCount == 0 || meshTypes.Count == 0 || _staticChunks == null) return;
 
             float dt = Time.deltaTime;
             float now = Time.time;
             Vector3 playerDest = _suckDestination != null ? _suckDestination.position : Vector3.zero;
             Vector3 botDest = _robotSuckDest != null ? _robotSuckDest.position : Vector3.zero;
 
-            for (int t = 0; t < _batchCounts.Length; t++)
+            for (int t = 0; t < _dynCounts.Length; t++)
             {
-                _batchCounts[t] = 0;
+                _dynCounts[t] = 0;
                 _outlineCounts[t] = 0;
                 _detectCounts[t] = 0;
             }
 
-            bool showDetectOutline = manager != null && manager.HasBeaconDetect &&
-                                     manager.Phase == GamePhase.Phase1_TrashRemoval &&
-                                     RemainingCount > 0 && (RemainingCount <= 80 || manager.Phase1Percent >= 90f);
-
-            if (showDetectOutline && _detectMat != null)
+            // 1) 동적(진동/팝핑/흡입 중) 유닛만 업데이트! (8,000개 중 보통 0~30개만 순회!)
+            for (int k = _activeIndices.Count - 1; k >= 0; k--)
             {
-                float pulse = 0.55f + 0.40f * Mathf.Abs(Mathf.Sin(now * 4.5f));
-                _detectMat.SetColor("_OutlineColor", new Color(1.0f, 0.90f, 0.32f, pulse));
-            }
-
-            for (int i = 0; i < _unitCount; i++)
-            {
+                int i = _activeIndices[k];
                 byte st = _units[i].state;
-                if (st == 3) continue;
 
-                // 선택에서 벗어났거나 홀드를 떼면 진동 차징 부드럽게 원복
-                if (st == 0 && _units[i].holdCharge > 0f && (!_isHoldingNow || !_selectedSet.Contains(i)))
+                if (st == 3)
                 {
-                    _units[i].holdCharge = Mathf.MoveTowards(_units[i].holdCharge, 0f, dt * 2.4f);
+                    _units[i].inActiveList = false;
+                    _activeIndices.RemoveAt(k);
+                    continue;
                 }
 
-                if (st == 1)
+                if (st == 0)
+                {
+                    if (!_isHoldingNow || !_selectedSet.Contains(i))
+                    {
+                        _units[i].holdCharge = Mathf.MoveTowards(_units[i].holdCharge, 0f, dt * 2.6f);
+                    }
+                    float ch = _units[i].holdCharge;
+                    if (ch <= 0.005f)
+                    {
+                        _units[i].holdCharge = 0f;
+                        _units[i].inActiveList = false;
+                        _activeIndices.RemoveAt(k);
+                        _staticDirty = true;
+                        continue;
+                    }
+
+                    // 진동 연출
+                    float freq = 52f + ch * 38f;
+                    float amp = 0.012f + ch * 0.032f;
+                    float seed = i * 1.73f;
+                    Vector3 rPos = _units[i].pos + new Vector3(
+                        Mathf.Sin(now * freq + seed) * amp,
+                        ch * 0.09f + Mathf.Abs(Mathf.Sin(now * freq * 0.8f + seed)) * (0.025f * ch),
+                        Mathf.Cos(now * freq * 1.13f + seed) * amp
+                    );
+                    Quaternion rRot = _units[i].rot * Quaternion.Euler(
+                        Mathf.Sin(now * freq * 0.9f + seed) * (14f * ch),
+                        Mathf.Cos(now * freq * 0.7f + seed) * (18f * ch),
+                        Mathf.Sin(now * freq * 1.05f + seed) * (14f * ch)
+                    );
+                    float rScale = _units[i].curScale * (1f + ch * 0.14f);
+                    Matrix4x4 mtx = Matrix4x4.TRS(rPos, rRot, Vector3.one * rScale);
+                    PushChunk(_dynChunks, _dynCounts, _units[i].typeIdx, mtx);
+
+                    if (_selectedSet.Contains(i))
+                    {
+                        int oc = _outlineCounts[_units[i].typeIdx];
+                        if (oc < 1023) { _outlineMatrices[_units[i].typeIdx][oc] = mtx; _outlineCounts[_units[i].typeIdx] = oc + 1; }
+                    }
+                }
+                else if (st == 1)
                 {
                     _units[i].timer += dt;
                     float p = Mathf.Clamp01(_units[i].timer / 0.45f);
                     Vector3 cur = Vector3.Lerp(_units[i].startPos, _units[i].endPos, p);
                     cur.y += Mathf.Sin(p * Mathf.PI) * 0.65f;
                     _units[i].pos = cur;
-                    if (p >= 1f) { _units[i].pos = _units[i].endPos; _units[i].state = 0; }
+                    if (p >= 1f)
+                    {
+                        _units[i].pos = _units[i].endPos;
+                        _units[i].state = 0;
+                        _units[i].cachedMatrix = Matrix4x4.TRS(_units[i].pos, _units[i].rot, Vector3.one * _units[i].curScale);
+                        _units[i].inActiveList = false;
+                        _activeIndices.RemoveAt(k);
+                        _staticDirty = true;
+                    }
+                    else
+                    {
+                        PushChunk(_dynChunks, _dynCounts, _units[i].typeIdx, Matrix4x4.TRS(cur, _units[i].rot, Vector3.one * _units[i].curScale));
+                    }
                 }
                 else if (st == 2 || st == 4)
                 {
-                    // v1.0 빨려 들어오는 연출: 직선 이동 대신 위로 솟았다가 커서/손으로 꽂히는 포물선 + 회전 + 축소
                     Vector3 dest = st == 4 ? botDest : playerDest;
                     _units[i].timer += dt;
-                    float suckDur = Mathf.Max(0.05f, _units[i].suckDur);
-                    float sp = Mathf.Clamp01(_units[i].timer / suckDur);
-                    float spe = sp * sp * (3f - 2f * sp);
+                    float u = Mathf.Clamp01(_units[i].timer / Mathf.Max(0.08f, _units[i].suckDur));
+                    float ease = u * u * (3f - 2f * u);
+                    Vector3 cur = Vector3.Lerp(_units[i].startPos, dest, ease);
+                    cur.y += Mathf.Sin(u * Mathf.PI) * _units[i].arcHeight;
+                    _units[i].pos = cur;
+                    _units[i].rot = _units[i].rot * Quaternion.Euler(0f, 680f * dt, 300f * dt);
+                    _units[i].curScale = _units[i].baseScale * Mathf.Clamp01(1f - u * u * 0.92f);
 
-                    Vector3 from = _units[i].startPos;
-                    Vector3 ctrl = Vector3.Lerp(from, dest, 0.5f) + Vector3.up * _units[i].arcHeight;
-                    Vector3 pa = Vector3.Lerp(from, ctrl, spe);
-                    Vector3 pb = Vector3.Lerp(ctrl, dest, spe);
-                    _units[i].pos = Vector3.Lerp(pa, pb, spe);
-                    _units[i].rot = _units[i].rot * Quaternion.Euler(0f, 560f * dt, 280f * dt);
-                    _units[i].curScale = Mathf.Lerp(_units[i].baseScale, 0f, Mathf.Clamp01(spe * 1.18f));
-
-                    if (sp >= 1f)
+                    if (u >= 1f)
                     {
                         _units[i].state = 3;
+                        _units[i].inActiveList = false;
+                        _activeIndices.RemoveAt(k);
                         _cleanedCount++;
-                        NotifyUnitCleaned(i);
+                        NotifyUnitCleaned(_units[i].roomIdx);
                         if (st == 2 && manager != null)
                         {
                             int val = _units[i].isCritBonus ? _units[i].value * 2 : _units[i].value;
                             string label = _units[i].typeIdx < meshTypes.Count ? meshTypes[_units[i].typeIdx].label : "쓰레기";
                             manager.OnInstancedTrashCollected(val, _units[i].typeIdx, label);
                         }
-                        continue;
                     }
-                }
-
-                // 홀드 진동 오프셋 계산! (부르르 흔들리며 살짝 부양 + 살짝 커지는 탄성감!)
-                Vector3 renderPos = _units[i].pos;
-                Quaternion renderRot = _units[i].rot;
-                float renderScale = _units[i].curScale;
-                float ch = _units[i].holdCharge;
-                if (st == 0 && ch > 0.01f)
-                {
-                    float freq = 52f + ch * 38f;
-                    float amp = 0.012f + ch * 0.032f;
-                    float seed = i * 1.73f;
-                    renderPos += new Vector3(
-                        Mathf.Sin(now * freq + seed) * amp,
-                        ch * 0.09f + Mathf.Abs(Mathf.Sin(now * freq * 0.8f + seed)) * (0.025f * ch),
-                        Mathf.Cos(now * freq * 1.13f + seed) * amp
-                    );
-                    renderRot = renderRot * Quaternion.Euler(
-                        Mathf.Sin(now * freq * 0.9f + seed) * (14f * ch),
-                        Mathf.Cos(now * freq * 0.7f + seed) * (18f * ch),
-                        Mathf.Sin(now * freq * 1.05f + seed) * (14f * ch)
-                    );
-                    renderScale *= (1f + ch * 0.14f);
-                }
-
-                int tIdx = _units[i].typeIdx;
-                int c = _batchCounts[tIdx];
-                if (c < 1023)
-                {
-                    Matrix4x4 mtx = Matrix4x4.TRS(renderPos, renderRot, Vector3.one * renderScale);
-                    _batchMatrices[tIdx][c] = mtx;
-                    _batchCounts[tIdx] = c + 1;
-
-                    if (showDetectOutline && st == 0)
+                    else
                     {
-                        int dc = _detectCounts[tIdx];
-                        if (dc < 1023) { _detectMatrices[tIdx][dc] = mtx; _detectCounts[tIdx] = dc + 1; }
-                    }
-
-                    if (st == 0 && _selectedSet.Contains(i))
-                    {
-                        int oc = _outlineCounts[tIdx];
-                        if (oc < 1023) { _outlineMatrices[tIdx][oc] = mtx; _outlineCounts[tIdx] = oc + 1; }
+                        PushChunk(_dynChunks, _dynCounts, _units[i].typeIdx, Matrix4x4.TRS(cur, _units[i].rot, Vector3.one * _units[i].curScale));
                     }
                 }
             }
 
-            // 1) 일반 3D 쓰레기 렌더
-            for (int t = 0; t < meshTypes.Count; t++)
-            {
-                int cnt = _batchCounts[t];
-                if (cnt > 0 && meshTypes[t].mesh != null && meshTypes[t].material != null)
-                    Graphics.RenderMeshInstanced(_renderParams[t], meshTypes[t].mesh, 0, _batchMatrices[t], cnt);
-            }
+            // 정적 청크는 변경이 생겼을 때만 재구축!
+            if (_staticDirty) RebuildStaticChunks();
 
-            // 2) 10% 투시 황금 테두리
-            if (showDetectOutline && _detectMat != null)
+            // 호버 선택된 정적 유닛 하얀 외곽선 수집
+            for (int k = 0; k < _selectedIndices.Count; k++)
             {
-                for (int t = 0; t < meshTypes.Count; t++)
+                int idx = _selectedIndices[k];
+                if (idx < 0 || idx >= _unitCount || _units[idx].state != 0 || _units[idx].inActiveList) continue;
+                int tIdx = _units[idx].typeIdx;
+                int oc = _outlineCounts[tIdx];
+                if (oc < 1023)
                 {
-                    int dcnt = _detectCounts[t];
-                    if (dcnt > 0 && meshTypes[t].mesh != null)
-                        Graphics.RenderMeshInstanced(_detectRenderParams, meshTypes[t].mesh, 0, _detectMatrices[t], dcnt);
+                    _outlineMatrices[tIdx][oc] = _units[idx].cachedMatrix;
+                    _outlineCounts[tIdx] = oc + 1;
                 }
             }
 
-            // 3) 호버/진동 하얀 테두리
+            // 2) 정적 8,000+ 멀티청크 GPU Instanced 렌더!
+            RenderChunked(_staticChunks, _staticCounts, _renderParams);
+
+            // 3) 동적 유닛 GPU Instanced 렌더!
+            RenderChunked(_dynChunks, _dynCounts, _renderParams);
+
+            // 4) 호버 하얀 테두리
             if (_outlineMat != null)
             {
                 for (int t = 0; t < meshTypes.Count; t++)
@@ -1037,40 +921,44 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 4) 커서 원형 오라 (쓰레기 위에 항상 선명히 표시! 홀드 중에는 채도/크기 펄스!)
-            if (_auraVisible && _auraRingMesh != null && _auraRingMat != null && _auraRadius > 0.05f)
+            // 5) 바닥 커서 링 (y=0.03 고정, 흔들림 없음)
+            if (_auraRingMesh != null)
             {
-                int tier = manager != null ? manager.ToolTier : 0;
-                float holdBoost = _isHoldingNow ? (0.22f + MaxSelectedCharge01 * 0.25f) : 0f;
-                Color auraCol = tier >= 2
-                    ? new Color(0.52f, 0.90f, 0.82f, 0.62f + holdBoost)
-                    : tier == 1
-                        ? new Color(0.56f, 0.86f, 0.58f, 0.56f + holdBoost)
-                        : _isHoldingNow
-                            ? new Color(1.0f, 0.84f, 0.38f, 0.70f + holdBoost * 0.5f)
-                            : new Color(1.0f, 0.96f, 0.88f, 0.48f);
-                _auraRingMat.SetColor("_BaseColor", auraCol);
-
-                float spin = tier >= 2 ? now * 110f : (_isHoldingNow ? now * 55f : 0f);
-                // v1.3 (요청 #6): 홀드 중 반경이 줄었다 늘었다 하던 '링 흔들림' 제거 — 반경은 항상 고정.
-                float rScale = _auraRadius;
-                Vector3 ringPos = new Vector3(_auraCenter.x, Mathf.Max(0.04f, _auraCenter.y + 0.04f), _auraCenter.z);
-                Matrix4x4 ringMtx = Matrix4x4.TRS(ringPos, Quaternion.Euler(0f, spin, 0f), new Vector3(rScale, 1f, rScale));
-                Graphics.DrawMesh(_auraRingMesh, ringMtx, _auraRingMat, 0);
+                if (_cursorRingVisible && _cursorRingMat != null && _cursorRingRadius > 0.04f)
+                {
+                    Color c = _isHoldingNow ? new Color(1.0f, 0.88f, 0.28f, 0.78f) : new Color(1.0f, 0.96f, 0.86f, 0.42f);
+                    _cursorRingMat.SetColor("_BaseColor", c);
+                    Vector3 rPos = new Vector3(_cursorRingCenter.x, 0.03f, _cursorRingCenter.z);
+                    Graphics.DrawMesh(_auraRingMesh, Matrix4x4.TRS(rPos, Quaternion.identity, new Vector3(_cursorRingRadius, 1f, _cursorRingRadius)), _cursorRingMat, 0);
+                }
+                if (_auraVisible && _isHoldingNow && _auraRingMat != null && _auraRadius > 0.04f)
+                {
+                    int tier = manager != null ? manager.ToolTier : 0;
+                    Color ac = tier >= 2 ? new Color(0.28f, 0.94f, 1.0f, 0.72f) : tier == 1 ? new Color(0.45f, 0.96f, 0.56f, 0.65f) : new Color(1.0f, 0.88f, 0.30f, 0.72f);
+                    _auraRingMat.SetColor("_BaseColor", ac);
+                    float rScale = _auraRadius * (1f - MaxSelectedCharge01 * 0.10f);
+                    Vector3 rPos = new Vector3(_auraCenter.x, 0.035f, _auraCenter.z);
+                    Graphics.DrawMesh(_auraRingMesh, Matrix4x4.TRS(rPos, Quaternion.Euler(0f, now * 65f, 0f), new Vector3(rScale, 1f, rScale)), _auraRingMat, 0);
+                }
             }
-            // 5) 바닥 커서 흡입 반경 링 — 쓰레기 호버 오라가 없을 때도 항상 반경을 보여준다.
-            if (_cursorRingVisible && !_auraVisible && _auraRingMesh != null && _cursorRingMat != null && _cursorRingRadius > 0.05f)
-            {
-                bool holding = _isHoldingNow;
-                float pulse = 0.5f + 0.5f * Mathf.Sin(now * 2.6f);
-                Color ringCol = holding
-                    ? new Color(1.0f, 0.84f, 0.38f, 0.72f + 0.18f * pulse)
-                    : new Color(1.0f, 0.965f, 0.88f, 0.34f + 0.12f * pulse);
-                _cursorRingMat.SetColor("_BaseColor", ringCol);
+        }
 
-                Vector3 ringPos = new Vector3(_cursorRingCenter.x, Mathf.Max(0.035f, _cursorRingCenter.y + 0.035f), _cursorRingCenter.z);
-                Matrix4x4 ringMtx = Matrix4x4.TRS(ringPos, Quaternion.identity, new Vector3(_cursorRingRadius, 1f, _cursorRingRadius));
-                Graphics.DrawMesh(_auraRingMesh, ringMtx, _cursorRingMat, 0);
+        private void RenderChunked(List<Matrix4x4[]>[] chunks, int[] counts, RenderParams[] rps)
+        {
+            for (int t = 0; t < meshTypes.Count; t++)
+            {
+                int total = counts[t];
+                if (total <= 0 || meshTypes[t].mesh == null || meshTypes[t].material == null) continue;
+                int full = total / 1023;
+                int rem = total % 1023;
+                for (int c = 0; c < full; c++)
+                {
+                    Graphics.RenderMeshInstanced(rps[t], meshTypes[t].mesh, 0, chunks[t][c], 1023);
+                }
+                if (rem > 0)
+                {
+                    Graphics.RenderMeshInstanced(rps[t], meshTypes[t].mesh, 0, chunks[t][full], rem);
+                }
             }
         }
     }

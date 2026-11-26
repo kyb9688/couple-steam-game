@@ -23,7 +23,7 @@ namespace TrashCleaner3D.Editor
         private const string AptKitRoot = "Assets/Brick Project Studio/Apartment Kit/_Prefabs";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 44;
+        private const int SceneBuildVersion = 45;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -103,29 +103,22 @@ namespace TrashCleaner3D.Editor
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.28f, 0.26f, 0.21f);
+            RenderSettings.ambientLight = new Color(0.20f, 0.17f, 0.13f);
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogColor = new Color(0.18f, 0.16f, 0.12f);
-            RenderSettings.fogDensity = 0.032f;
+            RenderSettings.fogColor = new Color(0.16f, 0.13f, 0.09f);
+            RenderSettings.fogDensity = 0.044f;
 
-            // 3. Room 01 Shell (+50% 확장: 7.2m x 6.0m x 2.8m) with Doorway at x: 1.55 ~ 2.65
-            GameObject roomRoot = new GameObject("Room01_KoreanStudio");
-            float w = 7.2f, d = 6.0f, h = 2.8f;
-
-            CreateWorldBox("Floor", new Vector3(0, -0.30f, 0), new Vector3(w + 0.4f, 0.6f, d + 0.4f), matFloor, roomRoot.transform, true);
-            CreateWorldBox("Ceiling", new Vector3(0, h + 0.15f, 0), new Vector3(w + 0.4f, 0.3f, d + 0.4f), matCeiling, roomRoot.transform, true);
-
-            // North Wall split around Doorway (x: 1.55 to 2.65, height: 0 to 2.15)
-            CreateWorldBox("Wall_North_Left", new Vector3(-1.125f, h / 2f, d / 2f + 0.15f), new Vector3(5.35f, h, 0.3f), matWall, roomRoot.transform, true);
-            CreateWorldBox("Wall_North_Right", new Vector3(3.225f, h / 2f, d / 2f + 0.15f), new Vector3(1.15f, h, 0.3f), matWall, roomRoot.transform, true);
-            CreateWorldBox("Wall_North_Header", new Vector3(2.10f, 2.475f, d / 2f + 0.15f), new Vector3(1.15f, 0.65f, 0.3f), matWall, roomRoot.transform, true);
-
-            // Interactive Closed Mustard Yellow Entrance Door
+            Material matTileFloor = CreateSimpleLitMaterial("Mat_Floor_BathroomTile", new Color(0.82f, 0.86f, 0.88f), 0.42f);
+            Material matPartitionWall = CreateSimpleLitMaterial("Mat_Wall_Partition", new Color(0.95f, 0.93f, 0.88f), 0.10f);
             Material matDoorHandle = CreateSimpleLitMaterial("Mat_Door_HandleMetal", new Color(0.18f, 0.19f, 0.22f), 0.72f);
+
+            // 공유 북쪽 현관문 (z = 3.92, x: 1.55..2.65) — 1단계 원룸과 2단계 4방 아파트가 동일한 현관·마당 공유!
+            const float doorZ = 3.92f;
+            GameObject sharedDoorRoot = new GameObject("Shared_EntranceDoor");
             GameObject doorHinge = new GameObject("Door_Interactive_Hinge");
-            doorHinge.transform.SetParent(roomRoot.transform, false);
-            doorHinge.transform.position = new Vector3(2.64f, 0f, 3.02f);
+            doorHinge.transform.SetParent(sharedDoorRoot.transform, false);
+            doorHinge.transform.position = new Vector3(2.64f, 0f, doorZ);
 
             GameObject doorLeaf = CreateLocalBox("Door_Leaf", new Vector3(-0.54f, 1.075f, 0f), new Vector3(1.08f, 2.15f, 0.08f), matDoor, doorHinge.transform, false);
             GameObject handleOut = CreateLocalBox("Door_Handle_Out", new Vector3(-0.92f, 1.02f, 0.07f), new Vector3(0.14f, 0.04f, 0.07f), matDoorHandle, doorHinge.transform, false);
@@ -139,40 +132,98 @@ namespace TrashCleaner3D.Editor
             doorCtrl.closedAngleY = 0f;
             doorCtrl.openAngleY = -98f;
 
-            CreateWorldBox("Wall_South", new Vector3(0, h / 2f, -d / 2f - 0.15f), new Vector3(w + 0.4f, h, 0.3f), matWall, roomRoot.transform, true);
-            CreateWorldBox("Wall_East", new Vector3(w / 2f + 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
-            CreateWorldBox("Wall_West", new Vector3(-w / 2f - 0.15f, h / 2f, 0), new Vector3(0.3f, h, d + 0.4f), matWall, roomRoot.transform, true);
+            // ===== 3A. STAGE 1: +30% 확장 원룸 (9.36m × 7.80m × 2.8m, x:-4.68..+4.68, z:-3.90..+3.90) =====
+            GameObject stage1Container = new GameObject("Stage1_OneRoom_Container");
+            float w1 = 9.36f, d1 = 7.80f, h1 = 2.80f;
+            CreateWorldBox("Floor", new Vector3(0f, -0.30f, 0f), new Vector3(w1 + 0.4f, 0.6f, d1 + 0.4f), matFloor, stage1Container.transform, true);
+            CreateWorldBox("Ceiling", new Vector3(0f, h1 + 0.15f, 0f), new Vector3(w1 + 0.4f, 0.3f, d1 + 0.4f), matCeiling, stage1Container.transform, true);
 
-            // 3.5. Brick Project Studio Apartment Kit 실제 3D 원룸 인테리어 가구 & 소품 배치!
-            GameObject furnRoot = new GameObject("ApartmentKit_InteriorDesign");
-            furnRoot.transform.SetParent(roomRoot.transform, false);
-            BuildApartmentKitInterior(furnRoot.transform, matAppliance, matCeiling, matMattress);
+            // 북쪽 벽 (현관문 x: 1.55 ~ 2.65 비움)
+            CreateWorldBox("Wall_North_Left", new Vector3(-1.665f, h1 / 2f, d1 / 2f + 0.15f), new Vector3(6.43f, h1, 0.3f), matWall, stage1Container.transform, true);
+            CreateWorldBox("Wall_North_Right", new Vector3(3.765f, h1 / 2f, d1 / 2f + 0.15f), new Vector3(2.23f, h1, 0.3f), matWall, stage1Container.transform, true);
+            CreateWorldBox("Wall_North_Header", new Vector3(2.10f, 2.475f, d1 / 2f + 0.15f), new Vector3(1.15f, 0.65f, 0.3f), matWall, stage1Container.transform, true);
 
-            // 4. Outside Yard (z: 3.0 ~ 16.8) + 4-Stage Evolving Vehicle at z = 10.60
-            // * 앞벽 버그 완전 수정: 북쪽 경계 펜스를 쓰레기통 훨씬 뒤(z=16.5)로 이동 → 뒤로 날아가도 벽에 안 막히고 직접 걸어가 회수 가능!
+            CreateWorldBox("Wall_South", new Vector3(0f, h1 / 2f, -d1 / 2f - 0.15f), new Vector3(w1 + 0.4f, h1, 0.3f), matWall, stage1Container.transform, true);
+            CreateWorldBox("Wall_East", new Vector3(w1 / 2f + 0.15f, h1 / 2f, 0f), new Vector3(0.3f, h1, d1 + 0.4f), matWall, stage1Container.transform, true);
+            CreateWorldBox("Wall_West", new Vector3(-w1 / 2f - 0.15f, h1 / 2f, 0f), new Vector3(0.3f, h1, d1 + 0.4f), matWall, stage1Container.transform, true);
+
+            GameObject furnRoot1 = new GameObject("ApartmentKit_Stage1_Interior");
+            furnRoot1.transform.SetParent(stage1Container.transform, false);
+            BuildStage1OneRoomInterior(furnRoot1.transform, matAppliance, matMattress);
+
+            Light s1CeilingLight = CreateRoomCeilingLight("Stage1_CeilingLight", new Vector3(0f, h1 - 0.2f, 0f), 16.5f, stage1Container.transform);
+            Light[] stage1RoomLights = new[] { s1CeilingLight };
+
+            // ===== 3B. STAGE 2: 4방 가정집 아파트 (거실·주방·안방·화장실, 15.4m × 12.8m × 2.9m, 8,000개!) =====
+            GameObject stage2Container = new GameObject("Stage2_Apartment_Container");
+            float w2 = 15.40f, d2 = 12.80f, h2 = 2.90f;
+            float z2Center = -2.50f; // z: -8.90 .. +3.90 (북벽이 Stage 1과 정확히 z=3.90 일치!)
+            CreateWorldBox("Floor_Apt", new Vector3(0f, -0.30f, z2Center), new Vector3(w2 + 0.4f, 0.6f, d2 + 0.4f), matFloor, stage2Container.transform, true);
+            GameObject bathTile = CreateWorldBox("Floor_BathroomTile", new Vector3(4.60f, 0.002f, -5.55f), new Vector3(6.15f, 0.006f, 6.65f), matTileFloor, stage2Container.transform, true);
+            Object.DestroyImmediate(bathTile.GetComponent<Collider>());
+            CreateWorldBox("Ceiling_Apt", new Vector3(0f, h2 + 0.15f, z2Center), new Vector3(w2 + 0.4f, 0.3f, d2 + 0.4f), matCeiling, stage2Container.transform, true);
+
+            // 외벽 (북벽 현관문 x: 1.55 ~ 2.65 공유)
+            CreateWorldBox("Wall2_North_Left", new Vector3(-3.175f, h2 / 2f, 3.90f + 0.15f), new Vector3(9.45f, h2, 0.3f), matWall, stage2Container.transform, true);
+            CreateWorldBox("Wall2_North_Right", new Vector3(5.275f, h2 / 2f, 3.90f + 0.15f), new Vector3(5.25f, h2, 0.3f), matWall, stage2Container.transform, true);
+            CreateWorldBox("Wall2_North_Header", new Vector3(2.10f, 2.525f, 3.90f + 0.15f), new Vector3(1.15f, 0.75f, 0.3f), matWall, stage2Container.transform, true);
+            CreateWorldBox("Wall2_South", new Vector3(0f, h2 / 2f, -8.90f - 0.15f), new Vector3(w2 + 0.4f, h2, 0.3f), matWall, stage2Container.transform, true);
+            CreateWorldBox("Wall2_East", new Vector3(w2 / 2f + 0.15f, h2 / 2f, z2Center), new Vector3(0.3f, h2, d2 + 0.4f), matWall, stage2Container.transform, true);
+            CreateWorldBox("Wall2_West", new Vector3(-w2 / 2f - 0.15f, h2 / 2f, z2Center), new Vector3(0.3f, h2, d2 + 0.4f), matWall, stage2Container.transform, true);
+
+            // 내부 방 칸막이 벽 (1.6m~1.8m 넓은 통로 확보!)
+            // A) 거실 ↔ 주방 (x = -0.20, z: -2.20..+3.90, 통로 z: -0.40..+1.40)
+            CreateWorldBox("Part_LivingKitchen_N", new Vector3(-0.20f, h2 / 2f, 2.65f), new Vector3(0.22f, h2, 2.50f), matPartitionWall, stage2Container.transform, true);
+            CreateWorldBox("Part_LivingKitchen_S", new Vector3(-0.20f, h2 / 2f, -1.30f), new Vector3(0.22f, h2, 1.80f), matPartitionWall, stage2Container.transform, true);
+            CreateWorldBox("Part_LivingKitchen_Lintel", new Vector3(-0.20f, 2.60f, 0.50f), new Vector3(0.22f, 0.60f, 1.80f), matPartitionWall, stage2Container.transform, true);
+
+            // B) 북쪽(거실/주방) ↔ 남쪽(안방/화장실) (z = -2.20, 안방 통로 x:-2.20..-0.40, 화장실 통로 x:+3.60..+5.20)
+            CreateWorldBox("Part_Mid_W", new Vector3(-4.95f, h2 / 2f, -2.20f), new Vector3(5.50f, h2, 0.22f), matPartitionWall, stage2Container.transform, true);
+            CreateWorldBox("Part_Mid_BedLintel", new Vector3(-1.30f, 2.60f, -2.20f), new Vector3(1.80f, 0.60f, 0.22f), matPartitionWall, stage2Container.transform, true);
+            CreateWorldBox("Part_Mid_Center", new Vector3(1.60f, h2 / 2f, -2.20f), new Vector3(4.00f, h2, 0.22f), matPartitionWall, stage2Container.transform, true);
+            CreateWorldBox("Part_Mid_BathLintel", new Vector3(4.40f, 2.60f, -2.20f), new Vector3(1.60f, 0.60f, 0.22f), matPartitionWall, stage2Container.transform, true);
+            CreateWorldBox("Part_Mid_E", new Vector3(6.45f, h2 / 2f, -2.20f), new Vector3(2.50f, h2, 0.22f), matPartitionWall, stage2Container.transform, true);
+
+            // C) 안방 ↔ 화장실 (x = +1.50, z: -8.90..-2.20)
+            CreateWorldBox("Part_BedBath", new Vector3(1.50f, h2 / 2f, -5.55f), new Vector3(0.22f, h2, 6.70f), matPartitionWall, stage2Container.transform, true);
+
+            GameObject furnRoot2 = new GameObject("ApartmentKit_Stage2_Interior");
+            furnRoot2.transform.SetParent(stage2Container.transform, false);
+            BuildStage2ApartmentInterior(furnRoot2.transform, matAppliance, matMattress);
+
+            // 2단계 방별 천장 조명 4개 (순서 엄수: 0:거실, 1:주방, 2:안방, 3:화장실)
+            Light[] stage2RoomLights = new[]
+            {
+                CreateRoomCeilingLight("Stage2_Light_Living",   new Vector3( 3.70f, h2 - 0.20f,  0.80f), 14.0f, stage2Container.transform),
+                CreateRoomCeilingLight("Stage2_Light_Kitchen",  new Vector3(-3.90f, h2 - 0.20f,  0.80f), 14.0f, stage2Container.transform),
+                CreateRoomCeilingLight("Stage2_Light_Bedroom",  new Vector3(-3.05f, h2 - 0.20f, -5.50f), 14.0f, stage2Container.transform),
+                CreateRoomCeilingLight("Stage2_Light_Bathroom", new Vector3( 4.55f, h2 - 0.20f, -5.50f), 13.0f, stage2Container.transform),
+            };
+
+            // 4. Outside Yard (z: 3.90 ~ 18.10) + 4-Stage Evolving Vehicle at z = 11.40
             GameObject outsideRoot = new GameObject("Outside_Truck_Area");
-            CreateWorldBox("Parking_Floor", new Vector3(2.1f, -0.30f, 9.9f), new Vector3(11.0f, 0.6f, 13.8f), matOutdoorFloor, outsideRoot.transform, true);
+            CreateWorldBox("Parking_Floor", new Vector3(2.1f, -0.30f, 11.0f), new Vector3(16.0f, 0.6f, 14.2f), matOutdoorFloor, outsideRoot.transform, true);
 
-            GameObject stepCurb = CreateWorldBox("Door_StepCurb", new Vector3(2.1f, 0.015f, 3.02f), new Vector3(1.1f, 0.03f, 0.10f), matCeiling, outsideRoot.transform, true);
+            GameObject stepCurb = CreateWorldBox("Door_StepCurb", new Vector3(2.1f, 0.015f, doorZ), new Vector3(1.1f, 0.03f, 0.10f), matCeiling, outsideRoot.transform, true);
             Object.DestroyImmediate(stepCurb.GetComponent<Collider>());
 
-            CreateInvisibleFence("Fence_Outside_North", new Vector3(2.1f, 1.2f, 16.5f), new Vector3(11.0f, 2.4f, 0.15f), outsideRoot.transform);
-            CreateInvisibleFence("Fence_Outside_West", new Vector3(-3.3f, 1.2f, 9.9f), new Vector3(0.15f, 2.4f, 13.8f), outsideRoot.transform);
-            CreateInvisibleFence("Fence_Outside_East", new Vector3(7.5f, 1.2f, 9.9f), new Vector3(0.15f, 2.4f, 13.8f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_North", new Vector3(2.1f, 1.2f, 18.0f), new Vector3(16.0f, 2.4f, 0.15f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_West", new Vector3(-5.8f, 1.2f, 11.0f), new Vector3(0.15f, 2.4f, 14.2f), outsideRoot.transform);
+            CreateInvisibleFence("Fence_Outside_East", new Vector3(10.0f, 1.2f, 11.0f), new Vector3(0.15f, 2.4f, 14.2f), outsideRoot.transform);
 
             GameObject porchLightObj = new GameObject("Porch_Light");
             porchLightObj.transform.SetParent(outsideRoot.transform, false);
-            porchLightObj.transform.position = new Vector3(2.10f, 2.55f, 4.2f);
+            porchLightObj.transform.position = new Vector3(2.10f, 2.55f, 5.1f);
             Light porchLight = porchLightObj.AddComponent<Light>();
             porchLight.type = LightType.Point;
             porchLight.color = new Color(1.0f, 0.94f, 0.80f);
-            porchLight.intensity = 11f;
-            porchLight.range = 9.0f;
+            porchLight.intensity = 12f;
+            porchLight.range = 10.0f;
             porchLight.shadows = LightShadows.None;
 
             GameObject truckRoot = new GameObject("TrashVehicle_Goal");
             truckRoot.transform.SetParent(outsideRoot.transform, false);
-            truckRoot.transform.position = new Vector3(2.10f, 0.0f, 10.60f);
+            truckRoot.transform.position = new Vector3(2.10f, 0.0f, 11.40f);
 
             Material matBinBody = CreateSimpleLitMaterial("Mat_Veh_BinDark", new Color(0.24f, 0.28f, 0.30f), 0.35f);
             Material matCartBlue = CreateSimpleLitMaterial("Mat_Veh_CartBlue", new Color(0.18f, 0.45f, 0.78f), 0.38f);
@@ -229,44 +280,76 @@ namespace TrashCleaner3D.Editor
             goalAnchor.transform.SetParent(truckRoot.transform, false);
             goalAnchor.transform.localPosition = new Vector3(0f, 0.62f, 0f);
 
-            // 5. Ceiling Light (larger range for +50% bigger room!)
-            GameObject lightObj = new GameObject("Ceiling_Light_WarmFluorescent");
-            lightObj.transform.position = new Vector3(0f, h - 0.2f, 0f);
-            Light ceilingLight = lightObj.AddComponent<Light>();
-            ceilingLight.type = LightType.Point;
-            ceilingLight.color = new Color(1.0f, 0.92f, 0.76f);
-            ceilingLight.intensity = 16f;
-            ceilingLight.range = 13.5f;
-            ceilingLight.shadows = LightShadows.None;
+            // 5. Directional Sunlight (Before → After 햇살 변화 연출용)
+            GameObject sunObj = new GameObject("Directional_SunLight");
+            sunObj.transform.rotation = Quaternion.Euler(48f, -32f, 0f);
+            Light sunLight = sunObj.AddComponent<Light>();
+            sunLight.type = LightType.Directional;
+            sunLight.color = new Color(0.92f, 0.80f, 0.62f);
+            sunLight.intensity = 0.45f;
+            sunLight.shadows = LightShadows.None;
 
             SetupPostProcessing();
 
-            // 6. Phase 2 Floor Stains (8 big glossy stains across the +50% larger room)
-            GameObject stainRoot = new GameObject("Phase2_FloorStains");
-            Vector3[] stainPositions = new[]
+            // 6A. Stage 1 Phase 2 Floor Stains (8개 — Stage 1 컨테이너 소속!)
+            GameObject stainRoot1 = new GameObject("Phase2_FloorStains_Stage1");
+            stainRoot1.transform.SetParent(stage1Container.transform, false);
+            Vector3[] stainPos1 = new[]
             {
-                new Vector3(-0.35f, 0.008f, 0.35f),
-                new Vector3(1.35f, 0.008f, -0.55f),
-                new Vector3(2.25f, 0.009f, 0.95f),
-                new Vector3(-1.55f, 0.008f, 1.45f),
-                new Vector3(0.35f, 0.009f, -1.65f),
-                new Vector3(1.95f, 0.008f, -1.95f),
-                new Vector3(-2.35f, 0.008f, 0.45f),
-                new Vector3(0.45f, 0.009f, 1.55f),
+                new Vector3(-0.55f, 0.008f,  0.45f),
+                new Vector3( 1.85f, 0.008f, -0.75f),
+                new Vector3( 3.10f, 0.009f,  1.25f),
+                new Vector3(-2.15f, 0.008f,  1.95f),
+                new Vector3( 0.45f, 0.009f, -2.10f),
+                new Vector3( 2.85f, 0.008f, -2.55f),
+                new Vector3(-3.20f, 0.008f,  0.55f),
+                new Vector3( 0.65f, 0.009f,  2.15f),
             };
-            for (int i = 0; i < stainPositions.Length; i++)
+            for (int i = 0; i < stainPos1.Length; i++)
             {
                 bool isMold = i % 2 == 0;
                 PlaceCleanableStain(
-                    isMold ? $"Stain_Mold_{i + 1:00}" : $"Stain_Soup_{i + 1:00}",
-                    stainPositions[i],
-                    Random.Range(1.15f, 1.50f),
+                    isMold ? $"Stain1_Mold_{i + 1:00}" : $"Stain1_Soup_{i + 1:00}",
+                    stainPos1[i],
+                    Random.Range(1.25f, 1.65f),
                     isMold ? matMoldDecal : matSoupDecal,
-                    stainRoot.transform
+                    stainRoot1.transform
                 );
             }
 
-            // 7. Phase 1 Big Breakable Piles (16개 — 단단한 큰 봉투/박스)
+            // 6B. Stage 2 Phase 2 Floor Stains (10개 — 거실·주방·안방·화장실 4방 분산!)
+            GameObject stainRoot2 = new GameObject("Phase2_FloorStains_Stage2");
+            stainRoot2.transform.SetParent(stage2Container.transform, false);
+            Vector3[] stainPos2 = new[]
+            {
+                // 거실 (3)
+                new Vector3( 2.40f, 0.008f,  1.40f),
+                new Vector3( 4.60f, 0.009f, -0.35f),
+                new Vector3( 1.45f, 0.008f, -0.85f),
+                // 주방 (3)
+                new Vector3(-2.60f, 0.009f,  1.65f),
+                new Vector3(-5.20f, 0.008f,  1.20f),
+                new Vector3(-3.80f, 0.009f, -0.80f),
+                // 안방 (2)
+                new Vector3(-2.20f, 0.008f, -4.60f),
+                new Vector3(-4.40f, 0.009f, -6.20f),
+                // 화장실 (2)
+                new Vector3( 3.60f, 0.008f, -4.40f),
+                new Vector3( 5.20f, 0.009f, -6.20f),
+            };
+            for (int i = 0; i < stainPos2.Length; i++)
+            {
+                bool isMold = i % 2 == 0;
+                PlaceCleanableStain(
+                    isMold ? $"Stain2_Mold_{i + 1:00}" : $"Stain2_Soup_{i + 1:00}",
+                    stainPos2[i],
+                    Random.Range(1.30f, 1.75f),
+                    isMold ? matMoldDecal : matSoupDecal,
+                    stainRoot2.transform
+                );
+            }
+
+            // 7. Phase 1 Big Breakable Piles (Stage 1: 14개, Stage 2: 20개)
             GameObject whiteBagAsset = FindModelAsset($"{ArtRoot}/Models/Trash/trash_bag_white_broken");
             GameObject grayBagAsset = FindModelAsset($"{ArtRoot}/Models/Trash/trash_bag_gray_modern");
             GameObject blackBagAsset = FindModelAsset($"{ArtRoot}/Models/Trash/trashbag");
@@ -283,57 +366,67 @@ namespace TrashCleaner3D.Editor
             };
             string[] pileNames = new[] { "흰 종량제 쓰레기봉투", "검정 쓰레기봉투", "회색 쓰레기봉투", "단단한 택배박스", "배달 스티로폼 박스" };
 
-            GameObject trashRoot = new GameObject("Phase1_BigBreakablePiles");
-            Vector3[] pilePositions = new[]
+            GameObject trashRoot1 = new GameObject("Phase1_BigBreakablePiles_Stage1");
+            trashRoot1.transform.SetParent(stage1Container.transform, false);
+            Vector3[] pilePos1 = new[]
             {
-                new Vector3(2.25f, 0f, 0.85f),
-                new Vector3(1.25f, 0f, 0.72f),
-                new Vector3(2.35f, 0f, -0.45f),
-                new Vector3(2.15f, 0f, -1.35f),
-                new Vector3(1.55f, 0f, -0.25f),
-                new Vector3(1.45f, 0f, -1.15f),
-                new Vector3(0.55f, 0f, 1.15f),
-                new Vector3(-0.55f, 0f, 1.45f),
-                new Vector3(-1.65f, 0f, 1.40f),
-                new Vector3(-0.45f, 0f, 0.45f),
-                new Vector3(0.55f, 0f, -0.85f),
-                new Vector3(-2.25f, 0f, 0.85f),
-                new Vector3(1.25f, 0f, -1.55f),
-                new Vector3(0.05f, 0f, -1.45f),
-                new Vector3(-1.10f, 0f, -0.55f),
-                new Vector3(-2.35f, 0f, 0.10f),
-                new Vector3(0.10f, 0f, 1.45f),
-                new Vector3(2.45f, 0f, -1.55f),
-                new Vector3(-0.85f, 0f, -1.65f),
-                new Vector3(-2.15f, 0f, 1.45f),
+                new Vector3( 2.85f, 0f,  1.25f),
+                new Vector3( 1.65f, 0f,  0.95f),
+                new Vector3( 3.10f, 0f, -0.65f),
+                new Vector3( 2.75f, 0f, -1.95f),
+                new Vector3( 1.25f, 0f, -0.45f),
+                new Vector3( 0.35f, 0f,  1.55f),
+                new Vector3(-1.15f, 0f,  1.95f),
+                new Vector3(-2.65f, 0f,  1.85f),
+                new Vector3(-0.85f, 0f,  0.35f),
+                new Vector3( 0.55f, 0f, -1.45f),
+                new Vector3(-3.15f, 0f,  0.65f),
+                new Vector3(-1.65f, 0f, -0.95f),
+                new Vector3(-3.35f, 0f, -0.45f),
+                new Vector3( 3.45f, 0f, -2.65f),
             };
+            SpawnBigPilesAtPositions(pilePos1, pileAssets, pileNames, trashRoot1.transform, "Pile1");
 
-            for (int i = 0; i < pilePositions.Length; i++)
+            GameObject trashRoot2 = new GameObject("Phase1_BigBreakablePiles_Stage2");
+            trashRoot2.transform.SetParent(stage2Container.transform, false);
+            Vector3[] pilePos2 = new[]
             {
-                int k = i % pileAssets.Length;
-                GameObject src = pileAssets[k];
-                if (src == null) continue;
-                bool isBoxLike = (k == 3 || k == 4);
-                float size = isBoxLike ? Random.Range(0.62f, 0.78f) : Random.Range(0.82f, 1.05f);
-                GameObject pile = SpawnNormalizedModel(
-                    src, $"BreakablePile_{i + 1:00}",
-                    pilePositions[i], Quaternion.Euler(0f, Random.Range(0f, 360f), 0f),
-                    size, trashRoot.transform
-                );
-                if (pile != null)
-                {
-                    var ct = AddCleanable(pile, CleanableKind.TrashPile, pileNames[k], 10.0f, 0, 0, 2.0f);
-                    ct.burstSpawnCount = 20;
-                    ct.containsTreasureChance = true;
-                }
-            }
+                // 거실 (5)
+                new Vector3( 2.80f, 0f,  2.10f),
+                new Vector3( 4.90f, 0f,  1.50f),
+                new Vector3( 1.30f, 0f,  0.50f),
+                new Vector3( 3.50f, 0f, -0.90f),
+                new Vector3( 5.40f, 0f, -1.10f),
+                // 주방 (5)
+                new Vector3(-1.80f, 0f,  2.20f),
+                new Vector3(-4.20f, 0f,  1.80f),
+                new Vector3(-6.20f, 0f,  1.10f),
+                new Vector3(-2.40f, 0f, -0.70f),
+                new Vector3(-5.50f, 0f, -1.00f),
+                // 안방 (6)
+                new Vector3(-1.20f, 0f, -3.90f),
+                new Vector3(-3.60f, 0f, -4.10f),
+                new Vector3(-5.80f, 0f, -4.40f),
+                new Vector3(-0.60f, 0f, -6.50f),
+                new Vector3(-3.40f, 0f, -6.90f),
+                new Vector3(-1.80f, 0f, -7.40f),
+                // 화장실 (4)
+                new Vector3( 3.10f, 0f, -3.80f),
+                new Vector3( 5.60f, 0f, -3.70f),
+                new Vector3( 3.80f, 0f, -5.80f),
+                new Vector3( 5.10f, 0f, -6.60f),
+            };
+            SpawnBigPilesAtPositions(pilePos2, pileAssets, pileNames, trashRoot2.transform, "Pile2");
 
-            // 8. 2,250+ GPU-Instanced 3D Trash Swarm
-            GameObject swarmObj = new GameObject("TrashSwarm_1000");
+            // 2단계 컨테이너는 1단계 시작 시 비활성화!
+            stage2Container.SetActive(false);
+
+            // 8. GPU-Instanced 3D Trash Swarm (1단계 1,650개 / 2단계 8,000개 무렉!)
+            GameObject swarmObj = new GameObject("TrashSwarm_Engine");
             var swarm = swarmObj.AddComponent<InstancedTrashSwarm>();
             PopulateSwarmMeshTypes(swarm);
 
-            // 9. Hidden Runtime Template for Thrown Trash Bag
+            // 9. Hidden Runtime Template for Thrown Trash Bag (레거시 참조 안전망)
             GameObject templateRoot = new GameObject("_RuntimeTemplates");
             GameObject thrownBagSrc = whiteBagAsset ?? blackBagAsset;
             GameObject thrownBagTmpl = SpawnNormalizedModel(thrownBagSrc, "Template_ThrownBag", Vector3.zero, Quaternion.identity, 0.44f, templateRoot.transform);
@@ -347,9 +440,9 @@ namespace TrashCleaner3D.Editor
             }
             thrownBagTmpl.SetActive(false);
 
-            // 10. Player Spawn OUTSIDE facing the closed Mustard Yellow Front Door!
+            // 10. Player Spawn OUTSIDE facing the Entrance Doorway!
             GameObject spawnObj = new GameObject("PlayerSpawnPoint");
-            spawnObj.transform.position = new Vector3(2.10f, 0.15f, 4.15f);
+            spawnObj.transform.position = new Vector3(2.10f, 0.15f, 5.10f);
             spawnObj.transform.rotation = Quaternion.Euler(0f, 180f, 0f);
 
             FirstPersonCleanerController playerCtrl = CreateFpsPlayer(
@@ -357,18 +450,27 @@ namespace TrashCleaner3D.Editor
                 matSkin, matTissue, matMopStick, matMopHead, matVacuumBody, matVacuumMetal
             );
 
-            // 11. Manager & HUD Wiring
+            // 11. Manager, Truck Visual & HUD Wiring
             GameObject sysObj = new GameObject("GamePrototypeManager");
             var mgr = sysObj.AddComponent<GamePrototypeManager>();
+            var truckVisual = sysObj.AddComponent<InstancedTruckTrash>();
             mgr.player = playerCtrl;
             mgr.trashSwarm = swarm;
+            mgr.truckTrashVisual = truckVisual;
             mgr.playerSpawnPoint = spawnObj.transform;
             mgr.truckBedGoal = goalAnchor.transform;
             mgr.vehicleStageObjects = vehicleStages;
             mgr.truckStackedParent = stackedParent.transform;
-            mgr.ceilingLight = ceilingLight;
+            mgr.ceilingLight = s1CeilingLight;
+            mgr.sunLight = sunLight;
             mgr.thrownBagPrefab = thrownBagTmpl;
+            mgr.stage1Container = stage1Container;
+            mgr.stage2Container = stage2Container;
+            mgr.stage1RoomLights = stage1RoomLights;
+            mgr.stage2RoomLights = stage2RoomLights;
+            mgr.doorThresholdZ = doorZ;
 
+            doorCtrl.manager = mgr;
             swarm.manager = mgr;
             playerCtrl.manager = mgr;
 
@@ -378,36 +480,116 @@ namespace TrashCleaner3D.Editor
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             AssetDatabase.SaveAssets();
-            Debug.Log("[TrashCleaner3D v0.9.2] Brick Project Studio Apartment Kit 3D 원룸 인테리어 + v0.9.1 게임플레이 통합 빌드 완료!");
+            Debug.Log("[TrashCleaner3D v1.4] Stage 1(+30% 원룸 1,650개) + Stage 2(4방 아파트 8,000개 무렉) + 1:1 트럭 적재 씬 빌드 완료!");
         }
 
-        private static void BuildApartmentKitInterior(Transform parent, Material fallbackAppliance, Material fallbackCeiling, Material fallbackMattress)
+        private static Light CreateRoomCeilingLight(string name, Vector3 pos, float range, Transform parent)
         {
-            // 요청 #2: 집 안에 꼭 필요한 핵심 5종만 깔끔하게 배치 (냉장고 · 전자레인지 · 싱크대 · 침대 · 책상)!
-            // 1) 냉장고 (북쪽, 현관문 왼쪽)
+            GameObject go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.transform.position = pos;
+            Light l = go.AddComponent<Light>();
+            l.type = LightType.Point;
+            l.color = new Color(0.95f, 0.78f, 0.54f);
+            l.intensity = 9.5f;
+            l.range = range;
+            l.shadows = LightShadows.None;
+            return l;
+        }
+
+        private static void SpawnBigPilesAtPositions(Vector3[] positions, GameObject[] pileAssets, string[] pileNames, Transform parent, string prefix)
+        {
+            for (int i = 0; i < positions.Length; i++)
+            {
+                int k = i % pileAssets.Length;
+                GameObject src = pileAssets[k];
+                if (src == null) continue;
+                bool isBoxLike = (k == 3 || k == 4);
+                float size = isBoxLike ? Random.Range(0.62f, 0.78f) : Random.Range(0.82f, 1.05f);
+                GameObject pile = SpawnNormalizedModel(
+                    src, $"{prefix}_{i + 1:00}",
+                    positions[i], Quaternion.Euler(0f, Random.Range(0f, 360f), 0f),
+                    size, parent
+                );
+                if (pile != null)
+                {
+                    var ct = AddCleanable(pile, CleanableKind.TrashPile, pileNames[k], 10.0f, 0, 0, 2.0f);
+                    ct.burstSpawnCount = 22;
+                    ct.containsTreasureChance = true;
+                }
+            }
+        }
+
+        private static void BuildStage1OneRoomInterior(Transform parent, Material fallbackAppliance, Material fallbackMattress)
+        {
+            // +30% 확장 원룸 (x: -4.68..+4.68, z: -3.90..+3.90) 핵심 가구 5종 (냉장고·전자레인지·싱크대·침대·책상)
             Bounds fridgeBounds;
-            bool hasFridge = PlaceAptPrefab("Furniture/Kitchen/Appliances/Fridge_01.prefab", "Apt_Fridge", new Vector3(0.82f, 0f, 2.52f), 180f, parent, true, true, out fridgeBounds);
+            bool hasFridge = PlaceAptPrefab("Furniture/Kitchen/Appliances/Fridge_01.prefab", "Apt_Fridge",
+                new Vector3(0.75f, 0f, 3.35f), 180f, parent, true, -4.55f, 1.42f, -3.78f, 3.78f, out fridgeBounds);
             if (!hasFridge)
             {
-                GameObject fb = CreateWorldBox("Fridge", new Vector3(0.78f, 0.78f, 2.60f), new Vector3(0.70f, 1.56f, 0.70f), fallbackAppliance, parent, true);
+                GameObject fb = CreateWorldBox("Fridge", new Vector3(0.75f, 0.78f, 3.40f), new Vector3(0.70f, 1.56f, 0.70f), fallbackAppliance, parent, true);
                 fridgeBounds = fb.GetComponent<Renderer>().bounds;
             }
-
-            // 2) 전자레인지 (한국형 원룸 국룰: 냉장고 위 깔끔한 3D 전자레인지!)
             BuildRealisticMicrowave(new Vector3(fridgeBounds.center.x, fridgeBounds.max.y, fridgeBounds.center.z), parent);
 
-            // 3) 싱크대 (냉장고 바로 왼쪽)
-            PlaceAptPrefab("Furniture/Kitchen/Cabinets/Cabinet_Base_Sink_01.prefab", "Apt_KitchenSink", new Vector3(-0.35f, 0f, 2.58f), 180f, parent, true, true, out _);
+            PlaceAptPrefab("Furniture/Kitchen/Cabinets/Cabinet_Base_Sink_01.prefab", "Apt_KitchenSink",
+                new Vector3(-0.55f, 0f, 3.40f), 180f, parent, true, -4.55f, 1.42f, -3.78f, 3.78f, out _);
 
-            // 4) 침대 (서남쪽 코너)
-            bool hasBed = PlaceAptPrefab("Furniture/Bedroom/Bed_Apt_01_01.prefab", "Apt_Bed", new Vector3(-2.35f, 0f, -1.78f), 90f, parent, true, true, out _);
+            bool hasBed = PlaceAptPrefab("Furniture/Bedroom/Bed_Apt_01_01.prefab", "Apt_Bed",
+                new Vector3(-3.35f, 0f, -2.55f), 90f, parent, true, -4.55f, 4.55f, -3.78f, 3.78f, out _);
             if (!hasBed)
             {
-                CreateWorldBox("Mattress", new Vector3(-2.45f, 0.16f, -1.75f), new Vector3(1.75f, 0.32f, 2.25f), fallbackMattress, parent, true);
+                CreateWorldBox("Mattress", new Vector3(-3.35f, 0.16f, -2.55f), new Vector3(1.75f, 0.32f, 2.25f), fallbackMattress, parent, true);
             }
 
-            // 5) 책상 (남쪽 벽 PC 책상 풀세트)
-            PlaceAptPrefab("Furniture/Living Room/Table_Computer_01_Setup.prefab", "Apt_ComputerDesk", new Vector3(0.45f, 0f, -2.42f), 0f, parent, true, true, out _);
+            PlaceAptPrefab("Furniture/Living Room/Table_Computer_01_Setup.prefab", "Apt_ComputerDesk",
+                new Vector3(0.65f, 0f, -3.30f), 0f, parent, true, -4.55f, 4.55f, -3.78f, 3.78f, out _);
+        }
+
+        private static void BuildStage2ApartmentInterior(Transform parent, Material fallbackAppliance, Material fallbackMattress)
+        {
+            // 1) 거실 (x: -0.05..+7.55, z: -2.05..+3.78)
+            PlaceAptPrefab("Furniture/Living Room/Sofa_Apt_01.prefab", "St2_Living_Sofa",
+                new Vector3(6.75f, 0f, 0.85f), -90f, parent, true, 0.15f, 7.55f, -2.02f, 3.75f, out _);
+            PlaceAptPrefab("Furniture/Living Room/Table_Media_01.prefab", "St2_Living_TVStand",
+                new Vector3(5.10f, 0f, 3.38f), 180f, parent, true, 2.80f, 7.55f, -2.02f, 3.75f, out _);
+
+            // 2) 주방 (x: -7.55..-0.35, z: -2.05..+3.78)
+            Bounds fridge2;
+            bool hasF2 = PlaceAptPrefab("Furniture/Kitchen/Appliances/Fridge_01.prefab", "St2_Kitchen_Fridge",
+                new Vector3(-6.85f, 0f, 3.25f), 180f, parent, true, -7.55f, -0.42f, -2.02f, 3.75f, out fridge2);
+            if (!hasF2)
+            {
+                GameObject fb = CreateWorldBox("St2_Fridge", new Vector3(-6.85f, 0.78f, 3.30f), new Vector3(0.70f, 1.56f, 0.70f), fallbackAppliance, parent, true);
+                fridge2 = fb.GetComponent<Renderer>().bounds;
+            }
+            BuildRealisticMicrowave(new Vector3(fridge2.center.x, fridge2.max.y, fridge2.center.z), parent);
+
+            PlaceAptPrefab("Furniture/Kitchen/Cabinets/Cabinet_Base_Sink_01.prefab", "St2_Kitchen_Sink",
+                new Vector3(-5.15f, 0f, 3.38f), 180f, parent, true, -7.55f, -0.42f, -2.02f, 3.75f, out _);
+            PlaceAptPrefab("Furniture/Kitchen/Appliances/Stove_01.prefab", "St2_Kitchen_Stove",
+                new Vector3(-3.65f, 0f, 3.35f), 180f, parent, true, -7.55f, -0.42f, -2.02f, 3.75f, out _);
+
+            // 3) 안방 (x: -7.55..+1.35, z: -8.75..-2.35)
+            bool hasBed2 = PlaceAptPrefab("Furniture/Bedroom/Bed_Apt_01_01.prefab", "St2_Bedroom_Bed",
+                new Vector3(-6.05f, 0f, -7.20f), 90f, parent, true, -7.55f, 1.32f, -8.75f, -2.42f, out _);
+            if (!hasBed2)
+            {
+                CreateWorldBox("St2_Mattress", new Vector3(-6.05f, 0.16f, -7.20f), new Vector3(1.75f, 0.32f, 2.25f), fallbackMattress, parent, true);
+            }
+            PlaceAptPrefab("Furniture/Living Room/Table_Computer_01_Setup.prefab", "St2_Bedroom_Desk",
+                new Vector3(-2.55f, 0f, -8.25f), 0f, parent, true, -7.55f, 1.32f, -8.75f, -2.42f, out _);
+            PlaceAptPrefab("Furniture/Bedroom/Dresser Closet_01.prefab", "St2_Bedroom_Closet",
+                new Vector3(-7.10f, 0f, -3.70f), 90f, parent, true, -7.55f, 1.32f, -8.75f, -2.42f, out _);
+
+            // 4) 화장실 (x: +1.65..+7.55, z: -8.75..-2.35)
+            PlaceAptPrefab("Furniture/Bathroom/BathTub_Base_01.prefab", "St2_Bath_Tub",
+                new Vector3(6.65f, 0f, -7.30f), -90f, parent, true, 1.70f, 7.55f, -8.75f, -2.42f, out _);
+            PlaceAptPrefab("Furniture/Bathroom/Toilet_Apt_01.prefab", "St2_Bath_Toilet",
+                new Vector3(2.45f, 0f, -8.25f), 0f, parent, true, 1.70f, 7.55f, -8.75f, -2.42f, out _);
+            PlaceAptPrefab("Furniture/Bathroom/BR_Vanity_01.prefab", "St2_Bath_Vanity",
+                new Vector3(4.35f, 0f, -8.30f), 0f, parent, true, 1.70f, 7.55f, -8.75f, -2.42f, out _);
         }
 
         private static void BuildRealisticMicrowave(Vector3 bottomCenter, Transform parent)
@@ -435,7 +617,8 @@ namespace TrashCleaner3D.Editor
 
         private static bool PlaceAptPrefab(
             string relPath, string objName, Vector3 anchorPos, float yawDeg,
-            Transform parent, bool addSimpleBoxCollider, bool clampInsideRoom, out Bounds finalBounds)
+            Transform parent, bool addSimpleBoxCollider,
+            float minX, float maxX, float minZ, float maxZ, out Bounds finalBounds)
         {
             finalBounds = new Bounds(anchorPos, Vector3.one);
             string fullPath = $"{AptKitRoot}/{relPath}";
@@ -470,22 +653,15 @@ namespace TrashCleaner3D.Editor
                 );
                 go.transform.position += shift;
 
-                if (clampInsideRoom)
-                {
-                    b = rends[0].bounds;
-                    for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
 
-                    Vector3 clampShift = Vector3.zero;
-                    if (b.min.x < -3.54f) clampShift.x = -3.54f - b.min.x;
-                    else if (b.max.x > 3.54f) clampShift.x = 3.54f - b.max.x;
-                    if (b.min.z < -2.94f) clampShift.z = -2.94f - b.min.z;
-                    else if (b.max.z > 2.94f) clampShift.z = 2.94f - b.max.z;
-                    if (b.max.x > 1.46f && b.max.z > 1.95f && anchorPos.x < 1.50f)
-                    {
-                        clampShift.x = Mathf.Min(clampShift.x, 1.44f - b.max.x);
-                    }
-                    go.transform.position += clampShift;
-                }
+                Vector3 clampShift = Vector3.zero;
+                if (b.min.x < minX) clampShift.x = minX - b.min.x;
+                else if (b.max.x > maxX) clampShift.x = maxX - b.max.x;
+                if (b.min.z < minZ) clampShift.z = minZ - b.min.z;
+                else if (b.max.z > maxZ) clampShift.z = maxZ - b.max.z;
+                go.transform.position += clampShift;
 
                 b = rends[0].bounds;
                 for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);

@@ -74,9 +74,10 @@ namespace TrashCleaner3D
             {
                 float spd = manager.RoombaMoveSpeed;
                 Vector3 next = transform.position + to.normalized * (spd * dt);
-                next.x = Mathf.Clamp(next.x, -3.15f, 3.15f);
-                next.z = Mathf.Clamp(next.z, -2.55f, 2.45f);
-                next.y = (next.x < -1.55f && next.z < -0.55f) ? 0.36f : 0.05f;
+                bool st2 = manager.CurrentStage >= 2;
+                next.x = Mathf.Clamp(next.x, st2 ? -7.2f : -4.2f, st2 ? 7.2f : 4.2f);
+                next.z = Mathf.Clamp(next.z, st2 ? -8.4f : -3.5f, 3.4f);
+                next.y = 0.05f;
                 transform.position = next;
                 transform.Rotate(Vector3.up * (180f * dt));
             }

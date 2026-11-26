@@ -212,9 +212,9 @@ namespace TrashCleaner3D
             // 흡입 연출은 1단계 청소 중에만 — 보물 팝업·설정·정산 화면에서는 즉시 끈다
             if (_vacuumVortex != null && manager.Phase != GamePhase.Phase1_TrashRemoval) _vacuumVortex.SetIntensity(0f);
 
-            if (WasEscPressed())
+            if (WasEscPressed() || (manager.KioskOpen && WasKeyEPressed()))
             {
-                // 키오스크가 열려 있을 때의 ESC는 '강화 창 닫기'가 먼저다.
+                // 키오스크가 열려 있을 때의 ESC/E는 '강화 창 닫기'가 먼저다.
                 if (manager.KioskOpen) manager.CloseUpgradeKiosk();
                 else manager.ToggleSettingsMenu();
                 ClearHighlight();
@@ -338,11 +338,12 @@ namespace TrashCleaner3D
             if (!station.IsPlayerInRange(transform.position)) return;
 
             KioskActive = true;
-            KioskTitle = "[E] 통합 강화소 열기";
-            KioskDetail = $"로봇청소기 {manager.RoombaCount}대 · 수거통 {manager.CollectingCount}/{manager.BinCapacity} · 보유 ${manager.Money:N0}";
+            int avail = manager.CountAffordableCashUpgrades();
+            KioskTitle = avail > 0 ? $"[E] 통합 강화 트리 열기 ({avail}개 구매 가능!)" : "[E] 통합 강화 트리 열기";
+            KioskDetail = $"{manager.CurrentVehicleName} · 수거통 {manager.CollectingCount}/{manager.BinCapacity} · 보유 ${manager.Money:N0}";
             KioskColor = new Color(0.95f, 0.78f, 0.24f);
 
-            if (WasKeyEPressed()) manager.OpenUpgradeKiosk();
+            if (WasKeyEPressed()) manager.OpenFieldUpgradeKiosk();
         }
 
         private void UpdateToolVisuals()
@@ -554,24 +555,27 @@ namespace TrashCleaner3D
                 manager.trashSwarm.SetCursorRing(showRing, aimPoint, manager.SweepRadius);
             }
 
-            // ===== 트럭 정산 구역 (요청 #4·#12) =====
-            SettlementZoneActive = manager.IsNearTruckSettlement(transform.position);
+            // ===== v1.4 트럭 1:1 정산 구역 (허리 아래 낮은 포물선 — 시야 가림 0%) =====
+            SettlementZoneActive = manager.IsPlayerInTruckSettleZone(transform.position);
             SettlementReadyCount = manager.CollectingCount;
 
             if (rmbDown)
             {
-                if (SettlementZoneActive && manager.CanSettle)
+                if (SettlementZoneActive && manager.CollectingCount > 0)
                 {
-                    // 담긴 만큼(1개라도) 낱개로 우루루 트럭에 쏟아 정산
-                    Vector3 origin = cameraTransform.position + cameraTransform.forward * 0.30f - cameraTransform.up * 0.18f;
-                    manager.SettleCollectingAtTruck(origin);
-                    _grabSwingTimer = 0.22f;
+                    Vector3 origin = manager.GetLowRightPourOrigin();
+                    if (manager.SettleBinAtTruck(origin, false))
+                    {
+                        _grabSwingTimer = 0.22f;
+                    }
                     return;
                 }
-                if (manager.CanSettle && !SettlementZoneActive && _binHintCooldown <= 0f)
+                if (manager.CollectingCount > 0 && !SettlementZoneActive && _binHintCooldown <= 0f)
                 {
                     _binHintCooldown = 1.6f;
-                    manager.ShowToast($"트럭 정산 구역에서 [RMB] · 담긴 {manager.CollectingCount}개");
+                    manager.ShowToast(manager.HasAutoVehicleSuction
+                        ? $"현관 밖 마당에 나가면 자동 흡입 정산! (담긴 {manager.CollectingCount}개)"
+                        : $"수거 차량 앞에서 [RMB] 정산 · 담긴 {manager.CollectingCount}개");
                 }
             }
 
@@ -614,7 +618,6 @@ namespace TrashCleaner3D
                         _punchCooldown = 0.12f;
                         _punchTimer = 0.15f;
                         float dmg = manager.FistDamage;
-                        manager.ApplyShockwaveToNearbyPiles(hitPile, dmg);
                         if (hitPile.ApplyCleanDamage(dmg, null)) manager.OnBigPileBurst(hitPile);
                         else manager.sfx.PlayScrub();
                         ClearSwarmSelection();
