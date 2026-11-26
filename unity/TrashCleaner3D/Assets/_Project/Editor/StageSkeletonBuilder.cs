@@ -401,12 +401,15 @@ namespace TrashCleaner3D.Editor
                 mgr.stage2Container = null;
             }
 
-            // 밖 트럭 마당을 이 방의 현관문 바로 바깥쪽으로 자동 정렬!
+            // 밖 트럭 마당을 이 방의 현관문 바로 바깥쪽으로 자동 정렬 + 문 앞 안전 바닥 발판 추가!
+            Material porchMat = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.55f, 0.55f, 0.55f));
+            CreateBox("Entrance_PorchFloor", new Vector3(doorCenterX, -0.15f, doorZ + 1.8f), new Vector3(4.5f, 0.3f, 4.0f), porchMat, root);
+
             GameObject outside = GameObject.Find("Outside_Truck_Area");
             if (outside != null)
             {
                 float dz = doorZ - 3.92f;
-                float dx = doorCenterX - 1.50f;
+                float dx = doorCenterX - 2.10f;
                 outside.transform.position = new Vector3(dx, 0f, dz);
             }
 
