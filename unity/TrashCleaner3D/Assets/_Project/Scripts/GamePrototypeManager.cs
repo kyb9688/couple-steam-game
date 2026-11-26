@@ -366,7 +366,7 @@ namespace TrashCleaner3D
             if (door != null)
             {
                 door.manager = this;
-                door.SetOpen(false);
+                door.ForceCloseImmediate();
             }
         }
 

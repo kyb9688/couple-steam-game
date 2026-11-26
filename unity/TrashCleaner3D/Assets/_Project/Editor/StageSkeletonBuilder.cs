@@ -18,6 +18,7 @@ namespace TrashCleaner3D.Editor
         [MenuItem("TrashCleaner/Build Stage Skeleton/★ Build ALL Stage 2-7 & Register Test Scenes")]
         public static void BuildAllAndRegister()
         {
+            if (GuardPlayMode()) return;
             BuildStage2Internal(false);
             BuildStage3Internal(false);
             BuildStage4Internal(false);
@@ -53,22 +54,33 @@ namespace TrashCleaner3D.Editor
         }
 
         [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 2 - 택배 중독 오피스텔 (4.2x6.8m)")]
-        public static void BuildStage2() => BuildStage2Internal(true);
+        public static void BuildStage2() { if (!GuardPlayMode()) BuildStage2Internal(true); }
 
         [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 3 - 치킨집 주방 (5.5x5.0m)")]
-        public static void BuildStage3() => BuildStage3Internal(true);
+        public static void BuildStage3() { if (!GuardPlayMode()) BuildStage3Internal(true); }
 
         [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 4 - 육아 전쟁 맞벌이 집 (7.2x5.8m)")]
-        public static void BuildStage4() => BuildStage4Internal(true);
+        public static void BuildStage4() { if (!GuardPlayMode()) BuildStage4Internal(true); }
 
         [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 5 - 스타트업 사무실 (8.5x7.0m)")]
-        public static void BuildStage5() => BuildStage5Internal(true);
+        public static void BuildStage5() { if (!GuardPlayMode()) BuildStage5Internal(true); }
 
         [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 6 - 시골집 농막 (4.2x3.6m)")]
-        public static void BuildStage6() => BuildStage6Internal(true);
+        public static void BuildStage6() { if (!GuardPlayMode()) BuildStage6Internal(true); }
 
         [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 7 - 졸부 3층 복층 펜트하우스 (10x8m, 3층)")]
-        public static void BuildStage7() => BuildStage7Internal(true);
+        public static void BuildStage7() { if (!GuardPlayMode()) BuildStage7Internal(true); }
+
+        private static bool GuardPlayMode()
+        {
+            if (!EditorApplication.isPlaying) return false;
+            EditorUtility.DisplayDialog(
+                "Play(재생) 중에는 방을 생성할 수 없습니다!",
+                "먼저 화면 가운데 위 Play(▶) 버튼을 한 번 눌러 정지(■)한 뒤에\n메뉴를 다시 클릭해 주세요!\n\n(Play 중에는 키보드 [F1] ~ [F7]로 스테이지를 이동할 수 있습니다.)",
+                "확인"
+            );
+            return true;
+        }
 
         private static void BuildStage2Internal(bool showDialog)
         {
@@ -398,8 +410,8 @@ namespace TrashCleaner3D.Editor
                 outside.transform.position = new Vector3(dx, 0f, dz);
             }
 
-            // 플레이어를 닫힌 현관문 앞(바깥쪽)으로 배치
-            Vector3 spawnPos = new Vector3(doorCenterX, 0.05f, doorZ + 1.35f);
+            // 플레이어를 닫힌 노란 현관문 바로 앞(1.18m 거리, 정면 180도)으로 배치 → 시작 즉시 [F] 현관문 열기 표시!
+            Vector3 spawnPos = new Vector3(doorCenterX, 0.12f, doorZ + 1.18f);
             Quaternion spawnRot = Quaternion.Euler(0f, 180f, 0f);
             GameObject player = GameObject.Find("Player_FPS") ?? GameObject.Find("Player");
             if (player != null)
