@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace TrashCleaner3D
 {
@@ -38,8 +37,8 @@ namespace TrashCleaner3D
     /// <summary>
     /// TrashCleaner3D v1.0 중앙 매니저 — '무더기 밀기 → 트럭에 와르르 환전 → 트럭 옆 현장 강화' 코어 루프:
     /// - 0.22초 HOLD 진동 줍기(맨손 0.22s → 집게/빗자루 0.15s → 진공청소기 0.07s) + 도레미파솔 수거음
-    /// - 빨아들인 쓰레기는 수거통에 쌓이고, 트럭 옆 정산 구역에서 우루루 쏟아 환전 (v1.3: 봉투 연출 제거)
-    /// - 정산하면 다발 연출 + 돈 드르르륵 카운트업(와르르 환전)
+    /// - 쓰레기 봉투 100% 정직한 원복 (150% 과적/벽 충돌 폭발 완전 제거!)
+    /// - 트럭에 봉투를 넣으면 다발 연출 + 돈 드르르륵 카운트업(와르르 환전)
     /// - 트럭 옆 '현장 강화' 발판 3개(범위·흡입·용량)에서 바로 강화 → 방으로 복귀하는 3D 공간 루프
     /// - 부가 기믹(동종 압축 · 의심 스릴 · 막판 잭팟 · 보물 슈킹 분기)은 CoreLoopConfig로 OFF
     /// </summary>
@@ -100,12 +99,9 @@ namespace TrashCleaner3D
         private float _coughTimer = 3.0f;
 
         public int StenchStage => StenchPercent >= 99.5f ? 4 : StenchPercent >= 75f ? 3 : StenchPercent >= 50f ? 2 : StenchPercent >= 25f ? 1 : 0;
-        // v1.3 (요청 #7): 악취 4단계에서도 '작업 자체'는 절대 막지 않는다. (예전엔 작업 배율 0 = 완전 봉인)
-        //   대신 손이 무거워지는 둔화 폭을 단계별로 크게 벌리고, 시야는 화면 안개(StenchBlur01)로 가린다.
-        public float StenchMoveSpeedMult => StenchStage == 4 ? 0.42f : StenchStage == 3 ? 0.55f : StenchStage == 2 ? 0.70f : StenchStage == 1 ? 0.84f : 1.0f;
-        public float StenchWorkSpeedMult => StenchStage == 4 ? 0.40f : StenchStage == 3 ? 0.50f : StenchStage == 2 ? 0.66f : StenchStage == 1 ? 0.83f : 1.0f;
-        /// <summary>악취로 시야가 뿌옇게 가려지는 정도(0~1). HUD 안개 오버레이와 포그가 함께 쓴다.</summary>
-        public float StenchBlur01 => IsOutsideVentilating ? 0f : Mathf.Clamp01((StenchPercent - 22f) / 78f);
+        public bool IsTooSuffocatedToWork => StenchStage >= 4 && !IsOutsideVentilating;
+        public float StenchMoveSpeedMult => StenchStage == 4 ? 0.44f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.72f : StenchStage == 1 ? 0.84f : 1.0f;
+        public float StenchWorkSpeedMult => StenchStage == 4 ? 0.0f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.78f : 1.0f;
         public float StenchGainPerSec => CoreLoopConfig.EnableStenchGimmick ? 3.4f * Mathf.Max(0.18f, 1f - LvMask * 0.082f) : 0f;
 
         // ===== 의심 게이지 (0~100% 확정 발각 · 80~95% 아드레날린 구간!) =====
@@ -140,7 +136,7 @@ namespace TrashCleaner3D
         public int StreakCount { get; private set; } = 0;
         public int TotalCompressionsThisRoom { get; private set; } = 0;
 
-        // ===== 수거통 용량 10단계 성장 (BagCapByLv) =====
+        // ===== 봉투 100% 정직 원복 (10단계 성장!) =====
         // v1.1 밸런스: 초반 30칸은 0.22초 홀드에서 6.6초마다 트럭으로 뛰어야 해 템포가 끊겼다.
         // → 1Lv 78칸(맨손 0.22초 ≈ 4.5개/s → 약 17초 연속 수거)로 시작하고, 홀드가 빨라지는
         //   2·3단계 구간에서는 용량도 함께 커져 각 단계마다 8~19초는 한 번에 쓸어 담게 맞췄다.
@@ -150,19 +146,19 @@ namespace TrashCleaner3D
         private static readonly int[] ToolStepCosts = { 16, 26, 44, 76, 130, 220, 380, 660, 1100 };
         private static readonly int[] TruckStepCosts = { 24, 40, 66, 110, 180, 300, 520, 900, 1500 };
         // v1.0: 1초 홀드 → 0.22초 경쾌한 템포 (도구를 올릴수록 0.07초까지)
-        // v1.3 (요청 #1): 시작은 1.00초 — 한 개 줍는 데 1초라 '느릿한 손맛'이 먼저 오고,
-        // 1라운드 끝 무렵(ToolStep 4~5)에 0.25~0.20초로 빨라지며 성장이 체감되고, 풀강에서 0.07초.
-        private static readonly float[] ToolHoldDurs = { 1.00f, 0.78f, 0.58f, 0.40f, 0.25f, 0.20f, 0.16f, 0.12f, 0.095f, 0.07f };
+        private static readonly float[] ToolHoldDurs = { 0.22f, 0.205f, 0.19f, 0.175f, 0.15f, 0.135f, 0.12f, 0.10f, 0.085f, 0.07f };
 
-        // ===== 수거통(요청 #4·#12) =====
-        // 봉투를 만들어 던지던 연출은 없앴다. 빨아들인 쓰레기는 '수거통'에 개수만큼 쌓이고,
-        // 트럭 옆 정산 구역에서 [RMB] 한 번이면 담긴 만큼(1개라도) 낱개로 우루루 쏟아져 정산된다.
         public int CollectingCount { get; private set; } = 0;
         public int CollectingPendingValue { get; private set; } = 0;
-        public int BinCapacity => BagCapByLv[Mathf.Clamp(LvBagSize, 0, BagCapByLv.Length - 1)] * (ToolTier >= 2 ? 2 : 1);
-        public float BinFill01 => Mathf.Clamp01(CollectingCount / (float)Mathf.Max(1, BinCapacity));
-        public bool IsBinFull => CollectingCount >= BinCapacity;
-        public bool CanSettle => CollectingCount > 0;   // 1개만 담겨 있어도 정산 가능
+        public int HandBagCapacity => BagCapByLv[Mathf.Clamp(LvBagSize, 0, BagCapByLv.Length - 1)] * (ToolTier >= 2 ? 2 : 1);
+        public int HalfBagThreshold => Mathf.Max(1, Mathf.CeilToInt(HandBagCapacity * 0.5f));
+        public bool CanTieBagEarly => !HasCarriedBag && CollectingCount >= HalfBagThreshold;
+
+        // 손에 쥔 완성 봉지 1개
+        public bool HasCarriedBag { get; private set; } = false;
+        public int CarriedBagCount { get; private set; } = 0;
+        public int CarriedBagValue { get; private set; } = 0;
+        public bool CanPickUpDroppedBag => !HasCarriedBag;
 
         // ===== 슈킹 감정 결과 대형 배너 & 동종 보너스 배너 =====
         public float AppraisalBannerTimer { get; private set; }
@@ -194,12 +190,7 @@ namespace TrashCleaner3D
         public bool HasFeverEngine => LvFever > 0;
         public int LvCrit { get; private set; }             // 0~10
         public int LvChainPop { get; private set; }         // 0~8
-        // v1.3 (요청 #14): 로봇청소기는 '서브'. 시작 1대(초당 1개)에서 대수(최대 3대)와 속도만 따로 올린다.
-        public int LvRoomba { get; private set; }           // 0~2 (추가 대수: 1대 → 2대 → 3대)
-        public int LvRoombaSpeed { get; private set; }      // 0~6 (수거 간격 1.00초 → 0.55초)
-        public int RoombaCount => 1 + LvRoomba;
-        public float RoombaEatInterval => Mathf.Max(0.55f, 1.00f - LvRoombaSpeed * 0.075f);
-        public float RoombaMoveSpeed => 1.85f + LvRoombaSpeed * 0.10f;
+        public int LvRoomba { get; private set; }           // 0~6 (1·3·5에 로봇 투입, 2·4·6은 성능↑)
 
         public int LvBagSize { get; private set; }          // 0~10
         public int LvThrowPower { get; private set; }       // 0~8
@@ -235,8 +226,7 @@ namespace TrashCleaner3D
         {
             get
             {
-                // v1.3 (요청 #6): 시작 반경 0.15m = 지름 30cm(50원 동전 느낌). 여기서 강화로만 넓어진다.
-                float baseR = 0.15f + ToolStep * 0.080f + LvSweepRadius * 0.042f;
+                float baseR = 0.36f + ToolStep * 0.13f + LvSweepRadius * 0.065f;
                 return baseR * (1f + FeverRadiusBonus);
             }
         }
@@ -261,7 +251,7 @@ namespace TrashCleaner3D
                 float baseDur = ToolHoldDurs[Mathf.Clamp(ToolStep, 0, ToolHoldDurs.Length - 1)];
                 float workMult = Mathf.Max(0.45f, StenchWorkSpeedMult);
                 float totalSpeed = workMult * (1f + FeverSpeedBonus) * AdrenalineSpeedMult;
-                return Mathf.Clamp(baseDur / totalSpeed, 0.04f, 1.30f);   // v1.3: 초반 1.00초 홀드가 잘리지 않도록 상한 확대
+                return Mathf.Clamp(baseDur / totalSpeed, 0.04f, 0.6f);
             }
         }
 
@@ -336,22 +326,6 @@ namespace TrashCleaner3D
             OverallCleanPercent >= 80f &&
             (Phase == GamePhase.Phase1_TrashRemoval || Phase == GamePhase.Phase2_FloorMopping);
 
-        // ===== v1.3 통합 강화소(키오스크) & 트럭 정산 구역 =====
-        /// <summary>트럭 옆 통합 강화소 창이 열려 있는지. (엣 Tab 상시 트리는 제거됨)</summary>
-        public bool KioskOpen => Phase == GamePhase.MindMapUpgrade;
-
-        /// <summary>트럭 정산 구역 판정 — 적재함 중심에서 개구부 반폭 + 1.15m 이내면 정산 가능.</summary>
-        public bool IsNearTruckSettlement(Vector3 worldPos)
-        {
-            if (truckBedGoal == null) return false;
-            Vector3 half = GetGoalOpeningHalfExtents();
-            Vector3 d = worldPos - truckBedGoal.position;
-            d.y = 0f;
-            float rx = half.x + 1.15f;
-            float rz = half.z + 1.15f;
-            return Mathf.Abs(d.x) <= rx && Mathf.Abs(d.z) <= rz;
-        }
-
         // ===== 자동 보물 발견 시스템 =====
         public DiscoveredTreasure ActiveTreasure { get; private set; }
         public float TreasureDecisionLockTimer { get; private set; }
@@ -393,7 +367,6 @@ namespace TrashCleaner3D
 
         public string ToastMessage { get; private set; } = "";
         private float _toastTimer;
-        private bool _binFullHinted;        // 수거통 가득 안내를 한 번만 띄우기 위한 플래그
         private int _melodyStep;            // 도레미파솔 연속 수거음 계단
         private float _pitchResetTimer;
 
@@ -451,18 +424,6 @@ namespace TrashCleaner3D
             UpdateAtmosphere();
             UpdateVehicleStageVisuals();
             if (spawnFieldUpgradeStation) EnsureFieldUpgradeStation();
-            EnsureRoombaCount();   // v1.3: 초반에도 서브 로봇청소기 1대는 바닥에 있다.
-        }
-
-        /// <summary>대수 강화에 맞춰 로봇청소기를 필요한 만큼만 바닥에 내려놓는다(요청 #14).</summary>
-        public void EnsureRoombaCount()
-        {
-            while (_roombas.Count < RoombaCount)
-            {
-                // 방 안(원룸 바닥)에 내려놓는다 — 마당/문 밖에서 시작하지 않도록.
-                Vector3 p = new Vector3(Random.Range(-1.2f, 1.2f), 0.05f, Random.Range(-0.8f, 1.0f));
-                _roombas.Add(AutoRoombaCleaner.Spawn(this, p, _roombas.Count));
-            }
         }
 
         /// <summary>
@@ -499,9 +460,9 @@ namespace TrashCleaner3D
         }
 
         // ===== 현장 강화 존 배치 =====
-        // FieldUpgradeStation(통합 강화소) 실제 크기 — 로컬 X 폭 2.40m × 로컬 Z 깊이 1.60m
-        private const float StationHalfWidth = 1.20f;
-        private const float StationHalfDepth = 0.80f;
+        // FieldUpgradeStation의 실제 크기(로컬 X 폭 3.90m × 로컬 Z 깊이 1.45m)
+        private const float StationHalfWidth = 1.95f;
+        private const float StationHalfDepth = 0.725f;
         private const float StationWalkGap = 0.55f;   // 트럭 벽 ↔ 발판 사이 보행 여유
 
         /// <summary>
@@ -629,7 +590,6 @@ namespace TrashCleaner3D
             if (_pitchResetTimer > 0f) { _pitchResetTimer -= dt; if (_pitchResetTimer <= 0f) _melodyStep = 0; }
             TickCashCrunch(dt);
             TickAtmosphere(dt);
-            DrawSettlementZone();   // 트럭 정산 구역 바닥 링
             if (_doorAutoOpenTimer > 0f)
             {
                 _doorAutoOpenTimer -= dt;
@@ -820,20 +780,6 @@ namespace TrashCleaner3D
             _cashPayoutElapsed = 0f;
         }
 
-        /// <summary>
-        /// 라운드가 끝날 때 수거통에 남아 있는 쓰레기 값을 현금으로 정리한다.
-        /// (정산을 못 하고 방이 끝나 '돈이 증발'하는 일이 없도록)
-        /// </summary>
-        private void FlushCollectingIntoCash()
-        {
-            if (CollectingCount <= 0) return;
-            int pay = Mathf.Max(1, Mathf.RoundToInt(CollectingPendingValue * (1f + LvTruckSize * 0.03f)));
-            AddCashCrunch(pay);
-            CollectingCount = 0;
-            CollectingPendingValue = 0;
-            _binFullHinted = false;
-        }
-
         private void CheckSuspicionCleanMilestones()
         {
             float pct = OverallCleanPercent;
@@ -852,7 +798,7 @@ namespace TrashCleaner3D
 
         /// <summary>
         /// 바닥 쓰레기 수거 콜백:
-        /// - 수거통이 차면 더 담기지 않고 트럭 정산 안내 (v1.3)
+        /// - 100% 차면 즉시 깔끔하게 봉투 완성 (과적/벽충돌 폭발 없음!)
         /// - 동종 연속 압축 (5개 / 특전 3개 → 0칸 + ×2)
         /// - 일정 확률로 보물 자동 발견 팝업!
         /// </summary>
@@ -884,9 +830,9 @@ namespace TrashCleaner3D
                         if (player != null)
                         {
                             Vector3 fxPos = player.transform.position + player.transform.forward * 1.4f + Vector3.up * 0.9f;
-                            SpawnFloatingText(fxPos, $"★ {typeLabel} {targetStreak}연속! 수거통 비움 · +${bonus}", new Color(0.35f, 1f, 0.72f), 1.5f);
+                            SpawnFloatingText(fxPos, $"★ {typeLabel} {targetStreak}연속! 봉투 비움 · +${bonus}", new Color(0.35f, 1f, 0.72f), 1.5f);
                         }
-                        CompressionBannerText = $"★ [{typeLabel}] {targetStreak}연속 보너스! · 수거통 -{targetStreak}칸 비움 · 보너스 +${bonus}";
+                        CompressionBannerText = $"★ [{typeLabel}] {targetStreak}연속 보너스! · 봉투 -{targetStreak}칸 비움 · 보너스 +${bonus}";
                         CompressionBannerTimer = 2.2f;
                     }
                 }
@@ -909,18 +855,10 @@ namespace TrashCleaner3D
             _melodyStep = _melodyStep >= CoreLoopConfig.MelodyTopStep ? 0 : _melodyStep + 1;
             sfx.PlayNote(_melodyStep);
 
-            // 수거통 용량이 꽉 차면 더는 담지 않는다. (강제로 봉투를 만드는 단계 없음 — 요청 #4·#12)
-            if (CollectingCount >= BinCapacity)
+            // 100% 도달 시 즉시 완성 봉투로 묶기!
+            if (CollectingCount >= HandBagCapacity)
             {
-                if (!_binFullHinted)
-                {
-                    _binFullHinted = true;
-                    ShowToast($"수거통 가득 ({CollectingCount}/{BinCapacity}) · 트럭에서 [RMB] 정산");
-                }
-            }
-            else
-            {
-                _binFullHinted = false;
+                PackageCollectingIntoBag();
             }
 
             // 쓰레기 줍기 시 일정 확률로 보물 자동 팝업!
@@ -929,6 +867,13 @@ namespace TrashCleaner3D
             UpdateAtmosphere();
             CheckSuspicionCleanMilestones();
             CheckPhase1Complete();
+        }
+
+        public bool TieBagEarlyIntoHand()
+        {
+            if (!CanTieBagEarly) return false;
+            PackageCollectingIntoBag();
+            return true;
         }
 
         public void OnRobotAutoCleaned(int eatenCount, Vector3 botPos)
@@ -941,51 +886,28 @@ namespace TrashCleaner3D
             CheckPhase1Complete();
         }
 
-        // ===== v1.3 트럭 정산(요청 #4·#12) =====
-        /// <summary>
-        /// 트럭 옆 정산 구역에서 [RMB] 한 번 — 수거통에 담긴 개수만큼(1개라도) 낱개 쓰레기를
-        /// 트럭 적재함으로 우루루 쏟아 넣고 그 값을 현금으로 환산한다.
-        /// 용량이 커도 가득 찰 때까지 기다릴 필요가 없다.
-        /// </summary>
-        public int SettleCollectingAtTruck(Vector3 fromWorldPos)
+        private void PackageCollectingIntoBag()
         {
-            if (CollectingCount <= 0) return 0;
-
-            int count = CollectingCount;
-            int value = CollectingPendingValue;
+            if (CollectingCount <= 0) return;
+            int cnt = CollectingCount;
+            int val = CollectingPendingValue;
             CollectingCount = 0;
             CollectingPendingValue = 0;
-            _binFullHinted = false;
 
-            // 연속 정산 콤보 (예전 '연속 투하'를 그대로 계승 — 빨리 여러 번 정산할수록 배율↑)
-            if (ThrowComboTimer > 0f) ThrowComboCount = Mathf.Min(6, ThrowComboCount + 1);
-            else ThrowComboCount = 1;
-            ThrowComboTimer = MaxComboWindow;
-
-            float comboMult = 1f + (ThrowComboCount - 1) * 0.25f;
-            float vehPct = LvTruckSize * 0.03f;
-            int totalPay = Mathf.Max(1, Mathf.RoundToInt(Mathf.Max(value, count * 2) * (comboMult + vehPct)));
-
-            AddCashCrunch(totalPay);
-            sfx.PlayPour();
-            if (player != null) player.AddCameraShake(0.032f, 0.12f);
-
-            // 담긴 개수만큼 낱개가 트럭으로 쏟아진다 (개수가 많으면 다발도 더 많이)
-            TruckPourBurst.Spawn(fromWorldPos, truckBedGoal, count, new Color(0.95f, 0.86f, 0.42f));
-
-            int stackCount = Mathf.Clamp(count / 5, 1, 3);
-            for (int i = 0; i < stackCount; i++) SpawnStackedBagVisualInTruck();
-
-            string popup = ThrowComboCount >= 2
-                ? $"{ThrowComboCount}연속 정산! +${totalPay}"
-                : $"와르르! {count}개 정산 +${totalPay}";
-            Color popCol = ThrowComboCount >= 2 ? new Color(1f, 0.85f, 0.22f) : new Color(0.45f, 1f, 0.55f);
-            Vector3 popPos = truckBedGoal != null ? truckBedGoal.position + Vector3.up * 0.7f : fromWorldPos + Vector3.up * 0.6f;
-            SpawnFloatingText(popPos, popup, popCol, 1.8f);
-            ShowToast($"정산 완료 · {count}개 → +${totalPay:N0}");
-
-            CheckPhase1Complete();
-            return totalPay;
+            if (!HasCarriedBag)
+            {
+                HasCarriedBag = true;
+                CarriedBagCount = cnt;
+                CarriedBagValue = val;
+                sfx.PlayChime();
+                ShowToast($"봉투 완성 (${val}) · [RMB] 투하");
+            }
+            else if (player != null)
+            {
+                Vector3 dropPos = player.transform.position + player.transform.forward * 0.85f + Vector3.up * 0.45f;
+                SpawnDroppedBagAt(dropPos, player.transform.forward * 1.2f + Vector3.up * 1.0f, cnt, val);
+                sfx.PlayChime();
+            }
         }
 
         public void ApplyShockwaveToNearbyPiles(CleanableTarget centerPile, float baseDamage)
@@ -1171,7 +1093,6 @@ namespace TrashCleaner3D
 
         private void TriggerForcedEviction()
         {
-            FlushCollectingIntoCash();
             FlushPendingCash();
             WasEvicted = true;
             WasEarlyCheckout = false;
@@ -1187,7 +1108,6 @@ namespace TrashCleaner3D
         public void TriggerEarlyCheckout()
         {
             if (!CanEarlyCheckout) return;
-            FlushCollectingIntoCash();
             FlushPendingCash();
             WasEvicted = false;
             WasEarlyCheckout = true;
@@ -1199,6 +1119,87 @@ namespace TrashCleaner3D
             sfx.PlayFanfare();
             Phase = GamePhase.RoomCompleted;
             UnlockCursor(true);
+        }
+
+        public void ThrowCarriedBag(Vector3 spawnPos, Vector3 forwardDir)
+        {
+            if (!HasCarriedBag)
+            {
+                if (CollectingCount > 0) ShowToast($"봉투 미달 ({CollectingCount}/{HandBagCapacity})");
+                return;
+            }
+
+            int cnt = CarriedBagCount;
+            int val = CarriedBagValue;
+            HasCarriedBag = false;
+            CarriedBagCount = 0;
+            CarriedBagValue = 0;
+            sfx.PlayPop(0.65f);
+
+            Vector3 launchVel = forwardDir.normalized * ThrowForwardForce + Vector3.up * ThrowUpForce;
+            SpawnDroppedBagAt(spawnPos, launchVel, cnt, val);
+        }
+
+        private void SpawnDroppedBagAt(Vector3 pos, Vector3 vel, int count, int value)
+        {
+            GameObject bagObj = thrownBagPrefab != null
+                ? Instantiate(thrownBagPrefab, pos, Quaternion.identity)
+                : GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            bagObj.SetActive(true);
+            bagObj.transform.position = pos;
+
+            var rb = bagObj.GetComponent<Rigidbody>();
+            if (rb == null) rb = bagObj.AddComponent<Rigidbody>();
+            rb.mass = 1.25f;
+            rb.linearDamping = 0.15f;
+
+            var proj = bagObj.AddComponent<ThrownTrashBag>();
+            proj.Launch(vel, pos, truckBedGoal, this, count, value, HasTruckMagnet);
+        }
+
+        public void OnDroppedBagRetrieved(int count, int pendingVal)
+        {
+            HasCarriedBag = true;
+            CarriedBagCount = count;
+            CarriedBagValue = pendingVal;
+            sfx.PlayPop(1.05f);
+            ShowToast($"봉투 쥐기 · ${CarriedBagValue}");
+        }
+
+        public void OnBagScored(int count, int bagValue, float distance, Vector3 scoreWorldPos)
+        {
+            if (ThrowComboTimer > 0f) ThrowComboCount = Mathf.Min(6, ThrowComboCount + 1);
+            else ThrowComboCount = 1;
+            ThrowComboTimer = MaxComboWindow;
+
+            int rawBase = Mathf.Max(bagValue, count * 2);
+            // v1.1 밸런스: 콤보 배율은 '스택당 25%' 고정. (이전에는 투하 콤보 레벨당 +10%씩 배율까지 올라가
+            // 최대 ×5.25가 됐고, UI는 '유지 시간'만 안내해 숨은 폭딜이 됐다. 레벨업은 이제 유지 시간만 늘린다.)
+            float comboMult = 1f + (ThrowComboCount - 1) * 0.25f;
+            // 거리·차량 보너스도 고정 금액 → 봉투 값 비례(%)로 변경.
+            // 고정 금액이면 봉투를 작게 나눠 여러 번 던질 때마다 보너스가 중복 지급돼
+            // (트럭 9Lv 기준 봉투당 +$180) 봉투 용량을 올리는 것이 손해가 되는 역설이 있었다.
+            bool longShot = distance >= 6.8f;
+            float distPct = longShot ? 0.12f : distance >= 4.5f ? 0.06f : 0f;
+            float vehPct = LvTruckSize * 0.03f;
+            int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * (comboMult + distPct + vehPct)));
+
+            // 와르르: 짐칸으로 쏟아져 들어가는 다발 + 돈 드르르륵 카운트업
+            AddCashCrunch(totalPay);
+            sfx.PlayPour();
+            if (player != null) player.AddCameraShake(0.030f, 0.12f);   // 트럭에 봉투가 쏟아져 정산되는 순간
+            TruckPourBurst.Spawn(scoreWorldPos, truckBedGoal, count, new Color(0.95f, 0.86f, 0.42f));
+
+            int stackCount = Mathf.Clamp(count / 5, 1, 3);
+            for (int i = 0; i < stackCount; i++) SpawnStackedBagVisualInTruck();
+
+            string popup = ThrowComboCount >= 2
+                ? $"{ThrowComboCount}연속! +${totalPay}"
+                : longShot ? $"롱슛! +${totalPay}" : $"와르르! +${totalPay}";
+            Color popCol = ThrowComboCount >= 2 ? new Color(1f, 0.85f, 0.22f) : new Color(0.45f, 1f, 0.55f);
+            SpawnFloatingText(scoreWorldPos + Vector3.up * 0.45f, popup, popCol, 1.8f);
+
+            CheckPhase1Complete();
         }
 
         private void SpawnStackedBagVisualInTruck()
@@ -1233,6 +1234,7 @@ namespace TrashCleaner3D
             if (Phase != GamePhase.Phase1_TrashRemoval) return;
             if (Phase1Cleaned >= Phase1Total && Phase1Total > 0)
             {
+                if (CollectingCount > 0) PackageCollectingIntoBag();
                 Phase = GamePhase.Phase2_FloorMopping;
                 sfx.PlayFanfare();
                 ShowToast("2단계 · 밀대 바닥 닦기");
@@ -1255,31 +1257,11 @@ namespace TrashCleaner3D
             }
         }
 
-        /// <summary>
-        /// v1.3 (요청 #5·#10): 강화 창은 트럭 옆 통합 강화소(키오스크)에서만 열린다.
-        /// [Tab]으로 언제든 열리던 상시 강화 트리는 제거됐다.
-        /// </summary>
-        public void OpenUpgradeKiosk()
+        public void ToggleMindMap()
         {
             if (Phase == GamePhase.RoomCompleted || Phase == GamePhase.TreasureDecision) return;
-            if (Phase == GamePhase.MindMapUpgrade) return;
-            if (Phase != GamePhase.SettingsMenu) _phaseBeforeOverlay = Phase;
-            Phase = GamePhase.MindMapUpgrade;
-            UnlockCursor(true);
-            sfx.PlayChime();
-        }
-
-        public void CloseUpgradeKiosk()
-        {
-            if (Phase != GamePhase.MindMapUpgrade) return;
-            Phase = _phaseBeforeOverlay;
-            UnlockCursor(false);
-        }
-
-        public void ToggleUpgradeKiosk()
-        {
-            if (Phase == GamePhase.MindMapUpgrade) CloseUpgradeKiosk();
-            else OpenUpgradeKiosk();
+            if (Phase == GamePhase.MindMapUpgrade) { Phase = _phaseBeforeOverlay; UnlockCursor(false); }
+            else { if (Phase != GamePhase.SettingsMenu) _phaseBeforeOverlay = Phase; Phase = GamePhase.MindMapUpgrade; UnlockCursor(true); }
         }
 
         public void ToggleSettingsMenu()
@@ -1295,8 +1277,7 @@ namespace TrashCleaner3D
         public int CostFever => Mathf.RoundToInt(40 * Mathf.Pow(1.50f, LvFever));
         public int CostCrit => Mathf.RoundToInt(18 * Mathf.Pow(1.45f, LvCrit));
         public int CostChain => Mathf.RoundToInt(40 * Mathf.Pow(1.50f, LvChainPop));
-        public int CostRoomba => Mathf.RoundToInt(140 * Mathf.Pow(1.80f, LvRoomba));
-        public int CostRoombaSpeed => Mathf.RoundToInt(70 * Mathf.Pow(1.45f, LvRoombaSpeed));
+        public int CostRoomba => Mathf.RoundToInt(90 * Mathf.Pow(1.55f, LvRoomba));
 
         public int CostBag => Mathf.RoundToInt(12 * Mathf.Pow(1.42f, LvBagSize));
         public int CostThrowPower => Mathf.RoundToInt(18 * Mathf.Pow(1.42f, LvThrowPower));
@@ -1326,24 +1307,21 @@ namespace TrashCleaner3D
 
         public bool IsNodeUnlocked(string id)
         {
-            // v1.3: 강화 경로가 '트럭 옆 통합 강화소' 한 곳으로 모였으므로, 키오스크 진열 항목은
-            // 선행 조건 없이 항상 열려 있다(어느 강화를 먼저 살지는 플레이어 선택).
             switch (id)
             {
                 case "tool": case "sweep": case "bag": case "mask": case "fist": return true;
-                case "fever": return true;
-                case "crit": return ToolStep >= 2;
+                case "fever": return ToolStep >= 2;
+                case "crit": return LvSweepRadius >= 2;
                 case "chain": return LvCrit >= 2;
-                case "roomba": return true;
-                case "roombaspeed": return true;
-                case "throw": return true;
-                case "price": return true;
-                case "truck": return true;
-                case "combo": return true;
-                case "magnet": return VehicleVisualStage >= 1;
-                case "speed": return true;
-                case "mop": return true;
-                case "scrub": return true;
+                case "roomba": return LvChainPop >= 2 || ToolTier >= 2;
+                case "throw": return LvBagSize >= 1;
+                case "price": return LvBagSize >= 1;
+                case "truck": return LvThrowPower >= 1;
+                case "combo": return LvTrashPrice >= 2;
+                case "magnet": return VehicleVisualStage >= 2;
+                case "speed": return LvMask >= 1;
+                case "mop": return LvMask >= 1;
+                case "scrub": return HasMopUnlocked;
                 case "shock": return LvFistPower >= 2;
                 case "beacon": return LvFistPower >= 1;
                 case "vip": case "compressor": case "sense": return true;
@@ -1360,8 +1338,7 @@ namespace TrashCleaner3D
             if (IsNodeUnlocked("fever") && LvFever < 5 && Money >= CostFever) c++;
             if (IsNodeUnlocked("crit") && LvCrit < 10 && Money >= CostCrit) c++;
             if (IsNodeUnlocked("chain") && LvChainPop < 8 && Money >= CostChain) c++;
-            if (IsNodeUnlocked("roomba") && LvRoomba < 2 && Money >= CostRoomba) c++;
-            if (IsNodeUnlocked("roombaspeed") && LvRoombaSpeed < 6 && Money >= CostRoombaSpeed) c++;
+            if (IsNodeUnlocked("roomba") && LvRoomba < 6 && Money >= CostRoomba) c++;
 
             if (IsNodeUnlocked("bag") && LvBagSize < 10 && Money >= CostBag) c++;
             if (IsNodeUnlocked("throw") && LvThrowPower < 8 && Money >= CostThrowPower) c++;
@@ -1396,16 +1373,14 @@ namespace TrashCleaner3D
                 case "crit": if (LvCrit >= 10 || Money < CostCrit) return false; Money -= CostCrit; LvCrit++; break;
                 case "chain": if (LvChainPop >= 8 || Money < CostChain) return false; Money -= CostChain; LvChainPop++; break;
                 case "roomba":
-                    // v1.3 (요청 #14): 대수만 늘린다(시작 1대 → 최대 3대). 속도는 아래 별도 항목.
-                    if (LvRoomba >= 2 || Money < CostRoomba) return false;
+                    if (LvRoomba >= 6 || Money < CostRoomba) return false;
                     Money -= CostRoomba; LvRoomba++;
-                    EnsureRoombaCount();
-                    ShowToast($"로봇청소기 {RoombaCount}대 배치!");
-                    break;
-                case "roombaspeed":
-                    if (LvRoombaSpeed >= 6 || Money < CostRoombaSpeed) return false;
-                    Money -= CostRoombaSpeed; LvRoombaSpeed++;
-                    ShowToast($"로봇청소기 속도 강화 · {RoombaEatInterval:0.00}초/개");
+                    if (LvRoomba == 1 || LvRoomba == 3 || LvRoomba == 5)
+                    {
+                        _roombas.Add(AutoRoombaCleaner.Spawn(this, new Vector3(Random.Range(-1.2f, 1.2f), 0.05f, Random.Range(-0.8f, 1.0f)), _roombas.Count));
+                        ShowToast($"로봇청소기 {_roombas.Count}호 투입!");
+                    }
+                    else ShowToast($"로봇청소기 성능 강화 Lv.{LvRoomba}");
                     break;
 
                 case "bag": if (LvBagSize >= 10 || Money < CostBag) return false; Money -= CostBag; LvBagSize++; break;
@@ -1457,7 +1432,6 @@ namespace TrashCleaner3D
 
         private void FinishRoomComplete()
         {
-            FlushCollectingIntoCash();
             FlushPendingCash();
             WasEvicted = false;
             WasEarlyCheckout = false;
@@ -1494,10 +1468,17 @@ namespace TrashCleaner3D
             _stackedVisuals.Clear();
             _stackedBagsInTruck = 0;
 
+            foreach (var dropped in FindObjectsByType<ThrownTrashBag>(FindObjectsSortMode.None))
+            {
+                Destroy(dropped.gameObject);
+            }
+
             ActiveTreasure = null;
             CollectingCount = 0;
             CollectingPendingValue = 0;
-            _binFullHinted = false;
+            HasCarriedBag = false;
+            CarriedBagCount = 0;
+            CarriedBagValue = 0;
             ThrowComboCount = 0;
             ThrowComboTimer = 0f;
             ContinuousFever01 = 0f;
@@ -1569,9 +1550,7 @@ namespace TrashCleaner3D
             float k = 1f - Mathf.Exp(-1.7f * dt);
 
             RenderSettings.fog = true;
-            // v1.3 (요청 #7): 악취가 심할수록 안개 밀도도 함께 올라 시야가 뿌옇게 가린다.
-            float stenchFog = StenchBlur01 * 0.075f;
-            RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, _tgtFogDensity + stenchFog, k);
+            RenderSettings.fogDensity = Mathf.Lerp(RenderSettings.fogDensity, _tgtFogDensity, k);
             RenderSettings.fogColor = Color.Lerp(RenderSettings.fogColor, _tgtFogColor, k);
             RenderSettings.ambientLight = Color.Lerp(RenderSettings.ambientLight, _tgtAmbientSky, k);
             RenderSettings.ambientSkyColor = Color.Lerp(RenderSettings.ambientSkyColor, _tgtAmbientSky, k);
@@ -1589,81 +1568,6 @@ namespace TrashCleaner3D
                 sunLight.color = Color.Lerp(sunLight.color, _tgtSunColor, k);
                 sunLight.intensity = Mathf.Lerp(sunLight.intensity, _tgtSunIntensity, k);
             }
-        }
-
-        // ===== v1.3 트럭 정산 구역 바닥 링 (요청 #4·#12) =====
-        private Mesh _settleDiscMesh;
-        private Mesh _settleRingMesh;
-        private Material _settlePadMat;
-
-        private void EnsureSettlementPadVisuals()
-        {
-            if (_settlePadMat != null) return;
-            Shader sh = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Sprites/Default");
-            if (sh == null) return;
-
-            _settleDiscMesh = BuildFloorRingMesh(56, 0f, 1f);
-            _settleRingMesh = BuildFloorRingMesh(56, 0.94f, 1f);
-
-            _settlePadMat = new Material(sh);
-            if (_settlePadMat.HasProperty("_Surface")) _settlePadMat.SetFloat("_Surface", 1f);
-            if (_settlePadMat.HasProperty("_SrcBlend")) _settlePadMat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-            if (_settlePadMat.HasProperty("_DstBlend")) _settlePadMat.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
-            if (_settlePadMat.HasProperty("_ZWrite")) _settlePadMat.SetFloat("_ZWrite", 0f);
-            if (_settlePadMat.HasProperty("_Cull")) _settlePadMat.SetFloat("_Cull", (float)CullMode.Off);
-            _settlePadMat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            _settlePadMat.renderQueue = (int)RenderQueue.Transparent + 5;
-        }
-
-        /// <summary>플레이어가 어디에 서면 정산되는지 바닥에 금색 링으로 상시 표시한다.</summary>
-        private void DrawSettlementZone()
-        {
-            EnsureSettlementPadVisuals();
-            if (_settlePadMat == null || truckBedGoal == null) return;
-            if (Phase != GamePhase.Phase1_TrashRemoval && Phase != GamePhase.Phase2_FloorMopping) return;
-
-            Vector3 half = GetGoalOpeningHalfExtents();
-            float radius = Mathf.Min(half.x, half.z) + 1.10f;
-            bool ready = CollectingCount > 0;
-            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * (ready ? 4.2f : 1.8f));
-
-            Vector3 p = new Vector3(truckBedGoal.position.x, 0.022f, truckBedGoal.position.z);
-            Matrix4x4 m = Matrix4x4.TRS(p, Quaternion.identity, new Vector3(radius, 1f, radius));
-
-            Color discCol = ready ? new Color(1f, 0.86f, 0.32f, 0.055f + 0.05f * pulse)
-                                  : new Color(1f, 0.96f, 0.88f, 0.028f + 0.02f * pulse);
-            _settlePadMat.SetColor("_BaseColor", discCol);
-            if (_settleDiscMesh != null) Graphics.DrawMesh(_settleDiscMesh, m, _settlePadMat, 0);
-
-            Color ringCol = ready ? new Color(1f, 0.84f, 0.28f, 0.55f + 0.35f * pulse)
-                                  : new Color(1f, 0.95f, 0.86f, 0.20f + 0.10f * pulse);
-            _settlePadMat.SetColor("_BaseColor", ringCol);
-            if (_settleRingMesh != null) Graphics.DrawMesh(_settleRingMesh, m, _settlePadMat, 0);
-        }
-
-        private static Mesh BuildFloorRingMesh(int segments, float innerR, float outerR)
-        {
-            Mesh m = new Mesh();
-            m.name = "Mesh_SettlePadRing";
-            Vector3[] verts = new Vector3[segments * 2];
-            int[] tris = new int[segments * 6];
-            for (int i = 0; i < segments; i++)
-            {
-                float a = (i / (float)segments) * Mathf.PI * 2f;
-                float c = Mathf.Cos(a), sn = Mathf.Sin(a);
-                verts[i * 2] = new Vector3(c * innerR, 0f, sn * innerR);
-                verts[i * 2 + 1] = new Vector3(c * outerR, 0f, sn * outerR);
-
-                int ni = (i + 1) % segments;
-                int t = i * 6;
-                tris[t] = i * 2; tris[t + 1] = i * 2 + 1; tris[t + 2] = ni * 2 + 1;
-                tris[t + 3] = i * 2; tris[t + 4] = ni * 2 + 1; tris[t + 5] = ni * 2;
-            }
-            m.vertices = verts;
-            m.triangles = tris;
-            m.RecalculateNormals();
-            m.RecalculateBounds();
-            return m;
         }
 
         public void ShowToast(string msg)

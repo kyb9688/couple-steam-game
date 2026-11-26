@@ -23,7 +23,7 @@ namespace TrashCleaner3D.Editor
         private const string AptKitRoot = "Assets/Brick Project Studio/Apartment Kit/_Prefabs";
         private const string MatRoot = "Assets/_Project/Materials";
         private const string ScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
-        private const int SceneBuildVersion = 44;
+        private const int SceneBuildVersion = 42;
         private const string SceneVerPrefKey = "TC3D_BuiltSceneVersion";
 
         static RoomToneTestBuilder()
@@ -354,7 +354,7 @@ namespace TrashCleaner3D.Editor
 
             FirstPersonCleanerController playerCtrl = CreateFpsPlayer(
                 spawnObj.transform.position, spawnObj.transform.rotation,
-                matSkin, matTissue, matMopStick, matMopHead, matVacuumBody, matVacuumMetal
+                matSkin, matBagBlack, matTissue, matMopStick, matMopHead, matVacuumBody, matVacuumMetal, thrownBagSrc
             );
 
             // 11. Manager & HUD Wiring
@@ -696,9 +696,9 @@ namespace TrashCleaner3D.Editor
 
         private static FirstPersonCleanerController CreateFpsPlayer(
             Vector3 startPos, Quaternion startRot,
-            Material matSkin, Material matTissue,
+            Material matSkin, Material matBag, Material matTissue,
             Material matMopStick, Material matMopHead,
-            Material matVacuumBody, Material matVacuumMetal)
+            Material matVacuumBody, Material matVacuumMetal, GameObject heldBagModelPrefab)
         {
             GameObject player = new GameObject("Player_FPS");
             player.transform.position = startPos;
@@ -737,13 +737,43 @@ namespace TrashCleaner3D.Editor
             rightPivot.transform.SetParent(camObj.transform, false);
             rightPivot.transform.localPosition = new Vector3(0.32f, -0.26f, 0.52f);
 
-            // 1) 1티어: 장갑 낀 맨손 — v1.3 (요청 #2)
-            //    회색 직육면체 대신 손바닥·엄지·접힌 손가락 마디가 구분되는 장갑 손 실루엣.
+            // 1) 1티어: 장갑 낀 맨손 (어두운 작업장갑 + 주황 커프) — 빗자루(초록)·진공(빨강)과 색이 확실히 갈린다
             Material matGlove = CreateSimpleLitMaterial("Mat_Tool_WorkGlove", new Color(0.19f, 0.21f, 0.26f), 0.16f);
             Material matGloveCuff = CreateSimpleLitMaterial("Mat_Tool_GloveCuff", new Color(0.95f, 0.56f, 0.14f), 0.22f);
             GameObject fist = new GameObject("Visual_FistHand");
             fist.transform.SetParent(rightPivot.transform, false);
-            GloveHandBuilder.BuildFist(fist.transform, matGlove, matGloveCuff, matSkin);
+            GameObject forearm = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            forearm.transform.SetParent(fist.transform, false);
+            forearm.transform.localPosition = new Vector3(0.03f, -0.05f, -0.10f);
+            forearm.transform.localRotation = Quaternion.Euler(78f, -12f, 0f);
+            forearm.transform.localScale = new Vector3(0.085f, 0.18f, 0.085f);
+            Object.DestroyImmediate(forearm.GetComponent<Collider>());
+            forearm.GetComponent<Renderer>().sharedMaterial = matSkin;
+
+            // 주황 커프 밴드: 손목에서 티어 색을 한 번 더 각인
+            GameObject cuff = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            cuff.transform.SetParent(fist.transform, false);
+            cuff.transform.localPosition = new Vector3(0.022f, -0.03f, -0.025f);
+            cuff.transform.localRotation = Quaternion.Euler(78f, -12f, 0f);
+            cuff.transform.localScale = new Vector3(0.10f, 0.035f, 0.10f);
+            Object.DestroyImmediate(cuff.GetComponent<Collider>());
+            cuff.GetComponent<Renderer>().sharedMaterial = matGloveCuff;
+
+            GameObject knuckles = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            knuckles.transform.SetParent(fist.transform, false);
+            knuckles.transform.localPosition = new Vector3(0f, 0.01f, 0.08f);
+            knuckles.transform.localRotation = Quaternion.Euler(-6f, 0f, 0f);
+            knuckles.transform.localScale = new Vector3(0.115f, 0.105f, 0.12f);
+            Object.DestroyImmediate(knuckles.GetComponent<Collider>());
+            knuckles.GetComponent<Renderer>().sharedMaterial = matGlove;
+
+            GameObject thumb = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            thumb.transform.SetParent(fist.transform, false);
+            thumb.transform.localPosition = new Vector3(0.055f, 0.015f, 0.055f);
+            thumb.transform.localRotation = Quaternion.Euler(18f, -22f, -28f);
+            thumb.transform.localScale = new Vector3(0.038f, 0.052f, 0.085f);
+            Object.DestroyImmediate(thumb.GetComponent<Collider>());
+            thumb.GetComponent<Renderer>().sharedMaterial = matGlove;
 
             // 1.5) 2티어 도구: 빗자루 (초록 자루 + 크롬 페룰 + 부채꼴 짚 5가닥 — 마른 잎 색)
             Material matBroomGreen = CreateSimpleLitMaterial("Mat_Tool_BroomGreen", new Color(0.24f, 0.72f, 0.42f), 0.35f);
@@ -896,11 +926,47 @@ namespace TrashCleaner3D.Editor
             head.GetComponent<Renderer>().sharedMaterial = matMopHead;
             mop.SetActive(false);
 
-            // v1.3 (요청 #4): 왼손 봉투 비주얼은 삭제됐다. 수거통은 HUD 게이지로만 표시된다.
+            // LEFT HAND PIVOT: 봉투가 완성되거나 떨어진 봉투를 주웠을 때 왼손에 실제 쓰레기봉지를 쥐고 있는 비주얼!
+            GameObject leftBagRoot = new GameObject("LeftHand_HeldTrashBag");
+            leftBagRoot.transform.SetParent(camObj.transform, false);
+            leftBagRoot.transform.localPosition = new Vector3(-0.34f, -0.24f, 0.54f);
+
+            GameObject leftArm = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            leftArm.transform.SetParent(leftBagRoot.transform, false);
+            leftArm.transform.localPosition = new Vector3(-0.04f, -0.02f, -0.14f);
+            leftArm.transform.localRotation = Quaternion.Euler(82f, 14f, 0f);
+            leftArm.transform.localScale = new Vector3(0.08f, 0.16f, 0.08f);
+            Object.DestroyImmediate(leftArm.GetComponent<Collider>());
+            leftArm.GetComponent<Renderer>().sharedMaterial = matSkin;
+
+            GameObject leftGrip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            leftGrip.transform.SetParent(leftBagRoot.transform, false);
+            leftGrip.transform.localPosition = new Vector3(0f, 0.02f, 0.02f);
+            leftGrip.transform.localScale = new Vector3(0.10f, 0.09f, 0.10f);
+            Object.DestroyImmediate(leftGrip.GetComponent<Collider>());
+            leftGrip.GetComponent<Renderer>().sharedMaterial = matSkin;
+
+            GameObject bagMeshObj = SpawnNormalizedModel(heldBagModelPrefab, "HeldBag_3D", Vector3.zero, Quaternion.identity, 0.32f, leftBagRoot.transform);
+            if (bagMeshObj != null)
+            {
+                foreach (var c in bagMeshObj.GetComponentsInChildren<Collider>(true)) Object.DestroyImmediate(c);
+                bagMeshObj.transform.localPosition = new Vector3(0f, -0.24f, 0.04f);
+            }
+            else
+            {
+                GameObject fallbackBag = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                fallbackBag.transform.SetParent(leftBagRoot.transform, false);
+                fallbackBag.transform.localPosition = new Vector3(0f, -0.16f, 0.04f);
+                fallbackBag.transform.localScale = new Vector3(0.22f, 0.26f, 0.22f);
+                Object.DestroyImmediate(fallbackBag.GetComponent<Collider>());
+                fallbackBag.GetComponent<Renderer>().sharedMaterial = matBag;
+            }
+            leftBagRoot.SetActive(false);
 
             var ctrl = player.AddComponent<FirstPersonCleanerController>();
             ctrl.cameraTransform = camObj.transform;
             ctrl.rightToolPivot = rightPivot.transform;
+            ctrl.leftBagPivot = leftBagRoot.transform;
             ctrl.fistHandVisual = fist;
             ctrl.tongsBroomVisual = tongsBroom;
             ctrl.vacuumVisual = vacuum;

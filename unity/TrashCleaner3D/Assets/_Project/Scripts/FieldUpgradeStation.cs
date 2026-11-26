@@ -3,78 +3,50 @@ using UnityEngine;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v1.3 '통합 강화소' — 트럭 반납 지점 바로 옆에 서는 강화 키오스크 1대.
-    ///
-    /// 요청 #5·#10 반영:
-    ///  · 예전의 발판 3개(범위 · 흡입 · 용량)를 **작업대 1대**로 합쳤다.
-    ///  · 플레이어가 앞에 서서 [E]를 누르면 강화 창이 열리고, 그 창에서 14개 항목을 골라 산다.
-    ///  · [Tab]으로 언제든 열리던 상시 강화 트리는 없앴다 → 강화 경로는 이 한 곳뿐.
-    ///
+    /// 트럭 반납 지점 바로 옆에 서는 '현장 강화' 자판기 존.
+    /// 발판 3개(범위 · 흡입 · 용량) 위에 올라서서 [E]를 누르면 그 자리에서 바로 핵심 강화를 산다.
+    /// → 방을 쓸고 → 밖으로 뛰어나와 트럭에 와르르 쏟고 → 한 걸음 옆에서 강화 → 다시 방으로.
     /// 씬 프리팹/직렬화에 의존하지 않고 GamePrototypeManager가 런타임에 코드로 스폰한다.
     /// </summary>
     public class FieldUpgradeStation : MonoBehaviour
     {
         public GamePrototypeManager manager;
 
-        /// <summary>강화 창 한 칸에 표시할 항목 정보 (HUD가 그대로 그린다).</summary>
-        public struct KioskItem
+        public struct PadInfo
         {
+            public int padIndex;
             public string nodeId;
-            public string icon;
+            public string label;
             public string title;
             public string stat;
+            public int cost;
             public int level;
             public int maxLevel;
-            public int cost;
-            public bool maxed;
             public bool affordable;
+            public bool maxed;
             public Color color;
         }
 
-        /// <summary>키오스크 앞 판정 반경(m)</summary>
-        public const float InteractRadius = 2.35f;
+        public const float PadStandRadius = 0.62f;
 
-        // 노드 순서 = 강화 창 진열 순서 (요청 #5: 흡입 속도·반경·수거통·정산 단가·이동 속도·로봇 대수/속도 등 세분화)
-        private static readonly string[] NodeIds =
+        private static readonly string[] NodeIds = { "sweep", "tool", "bag" };
+        private static readonly string[] Labels = { "범위", "흡입", "용량" };
+        private static readonly Color[] PadColors =
         {
-            "tool", "sweep", "bag", "price",
-            "combo", "speed", "mask", "fist",
-            "mop", "scrub", "roomba", "roombaspeed",
-            "truck", "fever"
-        };
-        private static readonly string[] Icons =
-        {
-            "▲", "◎", "▣", "◆",
-            "»", "➤", "☣", "❖",
-            "┴", "✧", "◉", "⚡",
-            "▶", "✹"
-        };
-        private static readonly string[] Titles =
-        {
-            "흡입 속도", "흡입 반경", "수거통 용량", "정산 단가",
-            "연속 정산 콤보", "이동 속도", "방독면", "주먹 힘",
-            "걸레 성능", "강력 세제", "로봇 대수", "로봇 속도",
-            "수거함 진입", "피버 엔진"
-        };
-        private static readonly Color[] ItemColors =
-        {
-            new Color(0.95f, 0.78f, 0.24f), new Color(0.95f, 0.78f, 0.24f),
-            new Color(0.32f, 0.78f, 0.98f), new Color(0.32f, 0.78f, 0.98f),
-            new Color(0.32f, 0.78f, 0.98f), new Color(0.36f, 0.90f, 0.54f),
-            new Color(0.36f, 0.90f, 0.54f), new Color(0.98f, 0.56f, 0.24f),
-            new Color(0.36f, 0.90f, 0.54f), new Color(0.36f, 0.90f, 0.54f),
-            new Color(0.62f, 0.84f, 1.00f), new Color(0.62f, 0.84f, 1.00f),
-            new Color(0.98f, 0.72f, 0.28f), new Color(0.95f, 0.60f, 0.26f)
+            new Color(0.98f, 0.80f, 0.26f),
+            new Color(0.42f, 0.94f, 0.62f),
+            new Color(0.36f, 0.78f, 0.98f)
         };
 
         private bool _built;
-        private Material _screenMat;
+        private Transform[] _pads = new Transform[0];
+        private Transform[] _icons = new Transform[0];
+        private Material[] _padMats = new Material[0];
         private Material _signMat;
         private Light _lamp;
-        private float _pulseTime;
         private float _buyPulse;
-
-        public int ItemCount => NodeIds.Length;
+        private float _pulseTime;
+        private float _colorTimer;
 
         /// <summary>매니저가 스폰 직후 한 번 호출한다.</summary>
         public void Init(GamePrototypeManager mgr, float facingYawDeg = 0f)
@@ -89,40 +61,56 @@ namespace TrashCleaner3D
         private void BuildVisuals()
         {
             Material baseMat = MakeSimpleMat(new Color(0.20f, 0.22f, 0.26f), 0.35f);
-            Material metalMat = MakeSimpleMat(new Color(0.34f, 0.37f, 0.42f), 0.62f);
-            Material counterMat = MakeSimpleMat(new Color(0.30f, 0.26f, 0.22f), 0.28f);
             _signMat = MakeEmissiveMat(new Color(0.98f, 0.86f, 0.36f), 1.35f);
-            _screenMat = MakeEmissiveMat(new Color(0.36f, 0.88f, 0.78f), 1.05f);
 
-            // 바닥 슬래브 (2.40 x 1.60)
-            CreateBox("Kiosk_Base", new Vector3(0f, 0.05f, 0f), new Vector3(2.40f, 0.10f, 1.60f), baseMat, true);
+            // 바닥 슬래브
+            CreateBox("Station_Base", new Vector3(0f, 0.06f, 0f), new Vector3(3.90f, 0.12f, 1.45f), baseMat, true);
 
-            // 앞 작업대 + 상판
-            CreateBox("Kiosk_Counter", new Vector3(0f, 0.50f, 0.30f), new Vector3(2.05f, 0.92f, 0.52f), counterMat, true);
-            CreateBox("Kiosk_CounterTop", new Vector3(0f, 0.98f, 0.30f), new Vector3(2.16f, 0.06f, 0.60f), metalMat, true);
-
-            // 뒤쪽 프레임 기둥 2개 + 상단 간판
-            CreateBox("Kiosk_Post_L", new Vector3(-0.98f, 1.02f, -0.62f), new Vector3(0.09f, 2.04f, 0.09f), metalMat, true);
-            CreateBox("Kiosk_Post_R", new Vector3(0.98f, 1.02f, -0.62f), new Vector3(0.09f, 2.04f, 0.09f), metalMat, true);
-            GameObject sign = CreateBox("Kiosk_Sign", new Vector3(0f, 2.10f, -0.62f), new Vector3(2.20f, 0.42f, 0.08f), _signMat, true);
+            // 뒤쪽 표지판 + 기둥 2개 (플레이어가 트럭 쪽에서 다가오면 발판 → 표지판 순서로 보이게)
+            CreateBox("Station_SignPost_L", new Vector3(-1.72f, 0.95f, -0.66f), new Vector3(0.10f, 1.90f, 0.10f), baseMat, true);
+            CreateBox("Station_SignPost_R", new Vector3(1.72f, 0.95f, -0.66f), new Vector3(0.10f, 1.90f, 0.10f), baseMat, true);
+            GameObject sign = CreateBox("Station_Sign", new Vector3(0f, 1.86f, -0.66f), new Vector3(3.70f, 0.52f, 0.10f), _signMat, true);
             Object.Destroy(sign.GetComponent<Collider>());
 
-            // 화면 패널 (작업대 위, 살짝 기울여 서 있는 모니터)
-            GameObject screen = CreatePrimitive(PrimitiveType.Cube, "Kiosk_Screen", transform,
-                new Vector3(0f, 1.30f, -0.10f), new Vector3(0.98f, 0.56f, 0.04f), _screenMat);
-            screen.transform.localRotation = Quaternion.Euler(-16f, 0f, 0f);
-            Object.Destroy(screen.GetComponent<Collider>());
-            CreateBox("Kiosk_ScreenFrame", new Vector3(0f, 1.30f, -0.09f), new Vector3(1.08f, 0.66f, 0.03f), baseMat, false)
-                .transform.localRotation = Quaternion.Euler(-16f, 0f, 0f);
+            // 발판 3개 (범위 · 흡입 · 용량)
+            _pads = new Transform[NodeIds.Length];
+            _icons = new Transform[NodeIds.Length];
+            _padMats = new Material[NodeIds.Length];
 
-            // 작업대 위 작은 도구함·판넬 — '강화 작업대' 느낌
-            CreateBox("Kiosk_ToolBox", new Vector3(-0.70f, 1.10f, 0.34f), new Vector3(0.34f, 0.18f, 0.26f), metalMat, false);
-            CreateBox("Kiosk_ToolBox2", new Vector3(0.72f, 1.08f, 0.30f), new Vector3(0.26f, 0.14f, 0.22f), baseMat, false);
+            for (int i = 0; i < NodeIds.Length; i++)
+            {
+                float x = (i - 1) * 1.22f;
 
-            // 야드가 어두워도 강화소가 바로 눈에 띄도록 작은 조명
-            GameObject lampObj = new GameObject("Kiosk_Lamp");
+                GameObject padRoot = new GameObject($"Pad_{NodeIds[i]}");
+                padRoot.transform.SetParent(transform, false);
+                padRoot.transform.localPosition = new Vector3(x, 0f, -0.06f);
+
+                Material padMat = MakeEmissiveMat(PadColors[i] * 0.55f, 1.05f);
+                _padMats[i] = padMat;
+
+                GameObject padBody = CreatePrimitive(PrimitiveType.Cube, "Pad_Body", padRoot.transform,
+                    new Vector3(0f, 0.14f, 0f), new Vector3(1.04f, 0.16f, 1.04f), baseMat);
+                padBody.GetComponent<Renderer>().sharedMaterial = baseMat;
+
+                GameObject padTop = CreatePrimitive(PrimitiveType.Cube, "Pad_Top", padRoot.transform,
+                    new Vector3(0f, 0.235f, 0f), new Vector3(0.96f, 0.04f, 0.96f), padMat);
+                padTop.GetComponent<Renderer>().sharedMaterial = padMat;
+                Object.Destroy(padTop.GetComponent<Collider>());
+
+                // 발판 위로 살짝 떠 있는 아이콘(강화 가능 상태를 한눈에)
+                GameObject icon = CreatePrimitive(PrimitiveType.Cube, "Pad_Icon", padRoot.transform,
+                    new Vector3(0f, 0.95f, 0f), new Vector3(0.26f, 0.26f, 0.26f), padMat);
+                icon.GetComponent<Renderer>().sharedMaterial = padMat;
+                Object.Destroy(icon.GetComponent<Collider>());
+
+                _pads[i] = padRoot.transform;
+                _icons[i] = icon.transform;
+            }
+
+            // 야드가 어두워도 강화 존이 바로 눈에 띄도록 작은 스팟 조명
+            GameObject lampObj = new GameObject("Station_Lamp");
             lampObj.transform.SetParent(transform, false);
-            lampObj.transform.localPosition = new Vector3(0f, 2.55f, 0.05f);
+            lampObj.transform.localPosition = new Vector3(0f, 2.55f, -0.10f);
             _lamp = lampObj.AddComponent<Light>();
             _lamp.type = LightType.Point;
             _lamp.color = new Color(1f, 0.90f, 0.62f);
@@ -131,119 +119,96 @@ namespace TrashCleaner3D
             _lamp.shadows = LightShadows.None;
         }
 
-        /// <summary>플레이어가 키오스크 앞에 서 있는지.</summary>
-        public bool IsPlayerInRange(Vector3 playerPos)
+        private void Update()
         {
-            if (manager == null) return false;
-            Vector3 d = playerPos - transform.position;
-            d.y = 0f;
-            return d.magnitude <= InteractRadius;
-        }
+            _pulseTime += Time.deltaTime;
+            if (_buyPulse > 0f) _buyPulse = Mathf.MoveTowards(_buyPulse, 0f, Time.deltaTime * 2.2f);
 
-        /// <summary>강화 창 한 칸 정보를 돌려준다. (HUD가 그대로 그린다)</summary>
-        public KioskItem GetItem(int i)
-        {
-            i = Mathf.Clamp(i, 0, NodeIds.Length - 1);
-            string id = NodeIds[i];
-
-            KioskItem info = new KioskItem
+            float bob = Mathf.Sin(_pulseTime * 3.1f) * 0.06f;
+            for (int i = 0; i < _icons.Length; i++)
             {
-                nodeId = id,
-                icon = Icons[i],
-                title = Titles[i],
-                color = ItemColors[i],
-                level = 0,
-                maxLevel = 1,
-                cost = 0
-            };
-            if (manager == null) return info;
-
-            switch (id)
-            {
-                case "tool":
-                    info.level = manager.ToolStep; info.maxLevel = 9; info.cost = manager.CostTool;
-                    info.stat = $"홀드 {manager.EffectiveHoldDuration:0.00}초 · {manager.CurrentToolName}";
-                    break;
-                case "sweep":
-                    info.level = manager.LvSweepRadius; info.maxLevel = 10; info.cost = manager.CostSweep;
-                    info.stat = $"반경 {manager.SweepRadius:0.00}m · 동시 {manager.AutoGrabPerTick}개";
-                    break;
-                case "bag":
-                    info.level = manager.LvBagSize; info.maxLevel = 10; info.cost = manager.CostBag;
-                    info.stat = $"수거통 {manager.BinCapacity}개";
-                    break;
-                case "price":
-                    info.level = manager.LvTrashPrice; info.maxLevel = 10; info.cost = manager.CostTrashPrice;
-                    info.stat = $"정산 단가 +{manager.LvTrashPrice * 15}%";
-                    break;
-                case "combo":
-                    info.level = manager.LvComboTime; info.maxLevel = 6; info.cost = manager.CostComboTime;
-                    info.stat = $"유지 {manager.MaxComboWindow:0.0}초 · 스택당 ×1.25";
-                    break;
-                case "speed":
-                    info.level = manager.LvMoveSpeed; info.maxLevel = 8; info.cost = manager.CostMoveSpeed;
-                    info.stat = $"이동 속도 +{manager.LvMoveSpeed * 8}%";
-                    break;
-                case "mask":
-                    info.level = manager.LvMask; info.maxLevel = 10; info.cost = manager.CostMask;
-                    info.stat = $"악취 -{Mathf.Min(82, manager.LvMask * 8)}%";
-                    break;
-                case "fist":
-                    info.level = manager.LvFistPower; info.maxLevel = 10; info.cost = manager.CostFist;
-                    info.stat = $"큰 봉투 타격 {manager.FistDamage:0.0}";
-                    break;
-                case "mop":
-                    info.level = manager.LvMop; info.maxLevel = 3; info.cost = manager.CostMop;
-                    info.stat = manager.HasMopUnlocked ? $"닦기 ×{1f + manager.LvMop * 0.75f:0.00}" : "T자 대걸레 해금";
-                    break;
-                case "scrub":
-                    info.level = manager.LvScrubPower; info.maxLevel = 8; info.cost = manager.CostScrub;
-                    info.stat = $"세정력 +{manager.LvScrubPower * 25}%";
-                    break;
-                case "roomba":
-                    info.level = manager.LvRoomba; info.maxLevel = 2; info.cost = manager.CostRoomba;
-                    info.stat = $"로봇청소기 {manager.RoombaCount}대 (최대 3대)";
-                    break;
-                case "roombaspeed":
-                    info.level = manager.LvRoombaSpeed; info.maxLevel = 6; info.cost = manager.CostRoombaSpeed;
-                    info.stat = $"{manager.RoombaEatInterval:0.00}초에 1개";
-                    break;
-                case "truck":
-                    info.level = manager.LvTruckSize; info.maxLevel = 9; info.cost = manager.CostTruck;
-                    info.stat = manager.CurrentVehicleName;
-                    break;
-                default: // fever — 연속 흡입 게이지
-                    info.level = manager.LvFever; info.maxLevel = 5; info.cost = manager.CostFever;
-                    info.stat = $"연속 흡입 → 범위 +{manager.LvFever * 8}% · 수익 ×{1.15f + manager.LvFever * 0.10f:0.00}";
-                    break;
+                if (_icons[i] == null) continue;
+                Vector3 lp = _icons[i].localPosition;
+                lp.y = 0.95f + bob + (i - 1) * 0.01f;
+                _icons[i].localPosition = lp;
+                _icons[i].Rotate(Vector3.up, 55f * Time.deltaTime, Space.Self);
             }
 
-            info.maxed = info.level >= info.maxLevel;
-            info.affordable = !info.maxed && manager.Money >= info.cost;
-            return info;
+            if (_lamp != null)
+            {
+                _lamp.intensity = 8.5f + Mathf.Sin(_pulseTime * 2.4f) * 1.2f + _buyPulse * 6f;
+            }
+            if (_signMat != null)
+            {
+                float e = 1.05f + 0.25f * Mathf.Sin(_pulseTime * 2.0f) + _buyPulse * 0.9f;
+                if (_signMat.HasProperty("_EmissionColor"))
+                    _signMat.SetColor("_EmissionColor", new Color(0.98f, 0.86f, 0.36f) * e);
+            }
+
+            if (manager == null) return;
+
+            _colorTimer -= Time.deltaTime;
+            if (_colorTimer <= 0f)
+            {
+                _colorTimer = 0.10f;
+                RefreshPadColors();
+            }
         }
 
-        /// <summary>강화 창에서 한 항목을 구매한다.</summary>
-        public bool TryBuy(string nodeId)
+        private void RefreshPadColors()
+        {
+            for (int i = 0; i < _padMats.Length; i++)
+            {
+                Material m = _padMats[i];
+                if (m == null) continue;
+
+                PadInfo info = Describe(i);
+                float e = info.maxed ? 0.35f : info.affordable ? (1.10f + 0.30f * Mathf.Sin(_pulseTime * 5.0f)) : 0.55f;
+                if (m.HasProperty("_EmissionColor"))
+                    m.SetColor("_EmissionColor", info.color * e);
+            }
+        }
+
+        /// <summary>플레이어가 발판 위에 서 있으면 그 발판 정보를 돌려준다.</summary>
+        public bool TryGetStandingPad(Vector3 playerPos, out PadInfo info)
+        {
+            info = new PadInfo();
+            if (manager == null || _pads == null || _pads.Length == 0) return false;
+
+            int best = -1;
+            float bestDist = float.MaxValue;
+            for (int i = 0; i < _pads.Length; i++)
+            {
+                if (_pads[i] == null) continue;
+                Vector3 d = _pads[i].position - playerPos;
+                d.y = 0f;
+                float dist = d.magnitude;
+                if (dist <= PadStandRadius && dist < bestDist)
+                {
+                    bestDist = dist;
+                    best = i;
+                }
+            }
+            if (best < 0) return false;
+
+            info = Describe(best);
+            return true;
+        }
+
+        /// <summary>발판 위에서 [E]를 눌렀을 때 실제 구매 처리.</summary>
+        public bool TryBuy(PadInfo info)
         {
             if (manager == null) return false;
 
-            KioskItem info = new KioskItem();
-            for (int i = 0; i < NodeIds.Length; i++)
-            {
-                if (NodeIds[i] == nodeId) { info = GetItem(i); break; }
-            }
-
-            if (string.IsNullOrEmpty(info.nodeId)) return false;
             if (info.maxed)
             {
-                manager.ShowToast($"{info.title} 강화는 이미 MAX");
+                manager.ShowToast($"{info.label} 강화는 이미 MAX");
                 return false;
             }
             if (manager.Money < info.cost)
             {
                 if (manager.sfx != null) manager.sfx.PlayAlert();
-                manager.ShowToast($"현금 부족 · ${info.cost:N0} 필요 (보유 ${manager.Money:N0})");
+                manager.ShowToast($"현금 부족 · ${info.cost} 필요 (보유 ${manager.Money})");
                 return false;
             }
             if (!manager.BuyNode(info.nodeId))
@@ -254,41 +219,71 @@ namespace TrashCleaner3D
 
             _buyPulse = 1f;
             if (manager.sfx != null) manager.sfx.PlayUpgrade();
-            manager.SpawnFloatingText(transform.position + Vector3.up * 2.3f,
-                $"▲ {info.title} 강화! -${info.cost:N0}", info.color, 1.6f);
+
+            Vector3 fxPos = transform.position + Vector3.up * 2.4f;
+            if (info.padIndex >= 0 && info.padIndex < _pads.Length && _pads[info.padIndex] != null)
+                fxPos = _pads[info.padIndex].position + Vector3.up * 1.5f;
+
+            manager.SpawnFloatingText(fxPos, $"▲ {info.label} 강화! -${info.cost}", info.color, 1.6f);
             return true;
         }
 
-        private void Update()
+        private PadInfo Describe(int i)
         {
-            _pulseTime += Time.deltaTime;
-            if (_buyPulse > 0f) _buyPulse = Mathf.MoveTowards(_buyPulse, 0f, Time.deltaTime * 2.2f);
-
-            if (_lamp != null)
-                _lamp.intensity = 8.5f + Mathf.Sin(_pulseTime * 2.4f) * 1.2f + _buyPulse * 6f;
-
-            if (_signMat != null)
+            PadInfo info = new PadInfo
             {
-                float e = 1.05f + 0.25f * Mathf.Sin(_pulseTime * 2.0f) + _buyPulse * 0.9f;
-                if (_signMat.HasProperty("_EmissionColor"))
-                    _signMat.SetColor("_EmissionColor", new Color(0.98f, 0.86f, 0.36f) * e);
-            }
-            if (_screenMat != null)
+                padIndex = i,
+                nodeId = NodeIds[i],
+                label = Labels[i],
+                color = PadColors[i],
+                level = 0,
+                maxLevel = 1,
+                cost = 0,
+                stat = ""
+            };
+
+            switch (info.nodeId)
             {
-                float e = 1.0f + 0.18f * Mathf.Sin(_pulseTime * 3.4f) + _buyPulse * 0.8f;
-                if (_screenMat.HasProperty("_EmissionColor"))
-                    _screenMat.SetColor("_EmissionColor", new Color(0.36f, 0.88f, 0.78f) * e);
+                case "sweep":
+                    info.level = manager.LvSweepRadius;
+                    info.maxLevel = 10;
+                    info.cost = manager.CostSweep;
+                    info.stat = $"원 반경 {manager.SweepRadius:0.00}m · 동시 {manager.AutoGrabPerTick}개";
+                    break;
+                case "tool":
+                    info.level = manager.ToolStep;
+                    info.maxLevel = 9;
+                    info.cost = manager.CostTool;
+                    info.stat = $"홀드 {manager.EffectiveHoldDuration:0.00}초 · {manager.CurrentToolName}";
+                    break;
+                default:
+                    info.level = manager.LvBagSize;
+                    info.maxLevel = 10;
+                    info.cost = manager.CostBag;
+                    info.stat = $"봉투 {manager.HandBagCapacity}개";
+                    break;
             }
+
+            info.maxed = info.level >= info.maxLevel;
+            info.affordable = !info.maxed && manager.Money >= info.cost;
+            info.title = info.maxed
+                ? $"{info.label} 강화 · MAX"
+                : $"[E] {info.label} 강화  Lv.{info.level} → {info.level + 1}   (${info.cost})";
+            return info;
         }
 
         private GameObject CreateBox(string name, Vector3 localPos, Vector3 localScale, Material mat, bool keepCollider)
         {
             GameObject go = CreatePrimitive(PrimitiveType.Cube, name, transform, localPos, localScale, mat);
-            Collider c = go.GetComponent<Collider>();
-            if (c != null)
+            if (!keepCollider)
             {
-                if (keepCollider) c.isTrigger = true;   // 강화소는 플레이어 이동을 막지 않는다
-                else Object.Destroy(c);
+                Collider c = go.GetComponent<Collider>();
+                if (c != null) Object.Destroy(c);
+            }
+            else
+            {
+                Collider c = go.GetComponent<Collider>();
+                if (c != null) c.isTrigger = true; // 강화 존은 플레이어 이동을 막지 않는다
             }
             return go;
         }

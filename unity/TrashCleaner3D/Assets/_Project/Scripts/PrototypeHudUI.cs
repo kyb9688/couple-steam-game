@@ -285,7 +285,7 @@ namespace TrashCleaner3D
             }
 
             bool showExtraRow = manager.ContinuousFever01 > 0.05f || manager.IsLast10Jackpot || manager.CanEarlyCheckout;
-            float cardH = showExtraRow ? 84f : 60f;
+            float cardH = showExtraRow ? 86f : 68f;
             float cardTop = topY + badgeH + 8f;
             Rect tl = new Rect(sideX, cardTop, cardW, cardH);
             DrawReceiptBox(tl);

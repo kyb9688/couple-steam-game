@@ -4,7 +4,7 @@ namespace TrashCleaner3D
     /// v1.0 코어 루프 집중 스위치 — '무더기 밀기 → 트럭에 와르르 환전 → 트럭 옆 현장 강화'.
     ///
     /// CoreLoopOnly = true 이면 코어 손맛을 가리던 부가 기믹이 전부 꺼진다:
-    ///   · 동종 연속 압축(5개/3개 → 수거통 비움 ×2)
+    ///   · 동종 연속 압축(5개/3개 → 봉투 비움 ×2)
     ///   · 의심 게이지 · 80~95% 아드레날린 스릴 구간
     ///   · 막판 10% 잭팟
     ///   · 보물 자동 발견 → [Q] 전달 / [E] 슈킹 · 신뢰도(★) · 암시장(♦) 분기
@@ -25,7 +25,7 @@ namespace TrashCleaner3D
         /// <summary>수거음(도레미파솔)이 한 옥타브를 다 올라간 뒤 다시 '도'로 돌아가는 기준 계단 수.</summary>
         public const int MelodyTopStep = 7;
 
-        /// <summary>트럭에 정산한 순간 돈이 드르르륵 올라가는 기본 연출 시간(초).</summary>
+        /// <summary>트럭에 봉투를 넣은 순간 돈이 드르르륵 올라가는 기본 연출 시간(초).</summary>
         public const float CashCrunchBaseDuration = 0.55f;
         public const float CashCrunchMaxDuration = 1.25f;
     }

@@ -3,16 +3,14 @@ using UnityEngine;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v1.3 서브 자동화 펫: 바닥을 돌며 쓰레기를 자동 수거하는 미니 로봇청소기.
-    /// 요청 #14 반영 — 예전에는 Lv.1·3·5에서 1대씩 추가되고 한 번에 1+LvRoomba개까지 먹어
-    /// 플레이어 주력을 넘어버렸다. 지금은 '초반 1대 · 1초에 1개'로 시작하고,
-    /// 통합 강화소에서 대수(최대 3대)와 속도만 따로 올린다. 언제나 '보조'.
+    /// 스팀 인크리멘탈 핵심 자동화 펫: 방 바닥을 직접 돌아다니며 쓰레기를 자동 흡입하는 3D 미니 로봇청소기!
+    /// 스킬트리에서 해금/강화(Lv.1~3)할 때마다 대수와 작업 속도가 증가합니다.
     /// </summary>
     public class AutoRoombaCleaner : MonoBehaviour
     {
         public GamePrototypeManager manager;
-        public float suckInterval = 1.0f;   // 매니저가 매 프레임 실제 값으로 덮어쓴다
-        public float moveSpeed = 1.85f;
+        public float moveSpeed = 2.1f;
+        public float suckInterval = 0.55f;
 
         private Vector3 _targetPos;
         private float _retargetTimer;
@@ -72,7 +70,7 @@ namespace TrashCleaner3D
             to.y = 0f;
             if (to.sqrMagnitude > 0.02f)
             {
-                float spd = manager.RoombaMoveSpeed;
+                float spd = moveSpeed * (1f + manager.LvRoomba * 0.22f);
                 Vector3 next = transform.position + to.normalized * (spd * dt);
                 next.x = Mathf.Clamp(next.x, -3.15f, 3.15f);
                 next.z = Mathf.Clamp(next.z, -2.55f, 2.45f);
@@ -83,9 +81,8 @@ namespace TrashCleaner3D
 
             if (_suckTimer <= 0f && manager.Phase == GamePhase.Phase1_TrashRemoval)
             {
-                // v1.3: 한 번에 1개, 간격은 1.00초 → 최대 강화해도 0.55초 (플레이어보다 항상 느린 보조)
-                _suckTimer = manager.RoombaEatInterval;
-                int eaten = manager.trashSwarm.SuckNearestForRobot(transform.position, 0.85f, transform, 1);
+                _suckTimer = Mathf.Max(0.18f, suckInterval - manager.LvRoomba * 0.11f);
+                int eaten = manager.trashSwarm.SuckNearestForRobot(transform.position, 0.85f, transform, 1 + manager.LvRoomba);
                 if (eaten > 0)
                 {
                     manager.OnRobotAutoCleaned(eaten, transform.position);

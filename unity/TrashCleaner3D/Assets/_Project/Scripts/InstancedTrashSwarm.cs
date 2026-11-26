@@ -137,7 +137,6 @@ namespace TrashCleaner3D
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
             if (_units == null || _units.Length == 0) SpawnInitialSwarm(InitialSwarmCount);
             else EnsureRenderBuffers();
-            BuildClusterZoneMarkers();   // 요청 #11: 5구역 바닥 색 구분
         }
 
         public void InitializeCapacity(int capacity)
@@ -461,108 +460,6 @@ namespace TrashCleaner3D
             "침대 앞",
             "싱크대 앞"
         };
-
-        /// <summary>ClusterCenters와 같은 순서의 구역 마트 색 (요청 #11: 눈으로 확연히 구분되는 5구역).</summary>
-        private static readonly Color[] ClusterTints =
-        {
-            new Color(0.98f, 0.62f, 0.18f),   // 현관 앞 — 주황
-            new Color(0.32f, 0.58f, 0.96f),   // 서쪽 벽 — 파랑
-            new Color(0.66f, 0.42f, 0.92f),   // 책상 앞 — 보라
-            new Color(0.30f, 0.80f, 0.46f),   // 침대 앞 — 초록
-            new Color(0.96f, 0.82f, 0.22f)    // 싱크대 앞 — 노랑
-        };
-
-        private Transform _zoneMarkerRoot;
-
-        public static Color ClusterTint(int idx)
-        {
-            return idx >= 0 && idx < ClusterTints.Length ? ClusterTints[idx] : Color.white;
-        }
-
-        /// <summary>
-        /// v1.3 (요청 #11): 5개 무더기 구역이 눈으로 구분되도록 바닥에 구역별 색 매트 + 테이프 링을 깐다.
-        /// 콜라이더가 없어 이동·레이캐스트에 영향이 없고, 씬 재빌드 없이 런타임에 생성된다.
-        /// </summary>
-        private void BuildClusterZoneMarkers()
-        {
-            if (_zoneMarkerRoot != null) return;
-
-            GameObject root = new GameObject("ClusterZoneMarkers");
-            root.transform.SetParent(transform, false);
-            _zoneMarkerRoot = root.transform;
-
-            Shader sh = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Sprites/Default");
-            if (sh == null) return;
-
-            Mesh disc = BuildRingMesh(48, 0f, 1f);
-            Mesh ring = BuildRingMesh(48, 0.90f, 1.0f);
-
-            for (int i = 0; i < ClusterCenters.Length; i++)
-            {
-                Color tint = ClusterTints[i];
-                Vector3 c = ClusterCenters[i];
-
-                // 바닥 매트 (은은한 색 판)
-                AddZoneQuad(_zoneMarkerRoot, disc, $"ZoneMat_{i + 1}_{ClusterNames[i]}",
-                    new Vector3(c.x, 0.010f, c.z), 1.10f,
-                    new Color(tint.r, tint.g, tint.b, 0.34f), sh);
-
-                // 테이프 링 (구역 경계선)
-                AddZoneQuad(_zoneMarkerRoot, ring, $"ZoneTape_{i + 1}_{ClusterNames[i]}",
-                    new Vector3(c.x, 0.016f, c.z), 1.16f,
-                    new Color(tint.r, tint.g, tint.b, 0.92f), sh);
-
-                // 안쪽 짧은 테이프 4개 — '공사 구역 테이프' 느낌으로 시선을 잡아준다
-                for (int k = 0; k < 4; k++)
-                {
-                    float ang = 45f + k * 90f;
-                    GameObject stripe = GameObject.CreatePrimitive(PrimitiveType.Quad);
-                    stripe.name = $"ZoneStripe_{i + 1}_{k + 1}";
-                    stripe.transform.SetParent(_zoneMarkerRoot, false);
-                    stripe.transform.localPosition = new Vector3(c.x, 0.014f, c.z);
-                    stripe.transform.localRotation = Quaternion.Euler(90f, ang, 0f);
-                    stripe.transform.localScale = new Vector3(0.34f, 0.055f, 1f);
-                    Collider stripeCol = stripe.GetComponent<Collider>();
-                    if (stripeCol != null) { stripeCol.enabled = false; Object.Destroy(stripeCol); }   // 조준 레이를 막지 않도록 즉시 비활성
-                    var mr = stripe.GetComponent<MeshRenderer>();
-                    if (mr != null)
-                    {
-                        mr.sharedMaterial = MakeZoneMaterial(sh, new Color(1f, 1f, 1f, 0.55f));
-                        mr.shadowCastingMode = ShadowCastingMode.Off;
-                        mr.receiveShadows = false;
-                    }
-                }
-            }
-        }
-
-        private void AddZoneQuad(Transform parent, Mesh mesh, string name, Vector3 pos, float radius, Color color, Shader sh)
-        {
-            GameObject go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = pos;
-            go.transform.localRotation = Quaternion.identity;   // 링/원판 메쉬는 XZ 평면
-            go.transform.localScale = new Vector3(radius, 1f, radius);
-            go.AddComponent<MeshFilter>().sharedMesh = mesh;
-            var mr = go.AddComponent<MeshRenderer>();
-            mr.sharedMaterial = MakeZoneMaterial(sh, color);
-            mr.shadowCastingMode = ShadowCastingMode.Off;
-            mr.receiveShadows = false;
-        }
-
-        private static Material MakeZoneMaterial(Shader sh, Color color)
-        {
-            Material mat = new Material(sh);
-            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", color);
-            if (mat.HasProperty("_Color")) mat.SetColor("_Color", color);
-            if (mat.HasProperty("_Surface")) mat.SetFloat("_Surface", 1f);
-            if (mat.HasProperty("_SrcBlend")) mat.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-            if (mat.HasProperty("_DstBlend")) mat.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
-            if (mat.HasProperty("_ZWrite")) mat.SetFloat("_ZWrite", 0f);
-            if (mat.HasProperty("_Cull")) mat.SetFloat("_Cull", (float)CullMode.Off);   // 위에서 내려다봐도 항상 보이게
-            mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            mat.renderQueue = (int)RenderQueue.Transparent + 4;
-            return mat;
-        }
 
         public void SpawnInitialSwarm(int count)
         {
@@ -1052,8 +949,7 @@ namespace TrashCleaner3D
                 _auraRingMat.SetColor("_BaseColor", auraCol);
 
                 float spin = tier >= 2 ? now * 110f : (_isHoldingNow ? now * 55f : 0f);
-                // v1.3 (요청 #6): 홀드 중 반경이 줄었다 늘었다 하던 '링 흔들림' 제거 — 반경은 항상 고정.
-                float rScale = _auraRadius;
+                float rScale = _auraRadius * (_isHoldingNow ? (1f - MaxSelectedCharge01 * 0.12f) : 1f);
                 Vector3 ringPos = new Vector3(_auraCenter.x, Mathf.Max(0.04f, _auraCenter.y + 0.04f), _auraCenter.z);
                 Matrix4x4 ringMtx = Matrix4x4.TRS(ringPos, Quaternion.Euler(0f, spin, 0f), new Vector3(rScale, 1f, rScale));
                 Graphics.DrawMesh(_auraRingMesh, ringMtx, _auraRingMat, 0);
