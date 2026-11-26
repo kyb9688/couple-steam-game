@@ -14,6 +14,41 @@ namespace TrashCleaner3D.Editor
     {
         private const string BaseScenePath = "Assets/_Project/Scenes/Room01_PlayablePrototype.unity";
 
+        [MenuItem("TrashCleaner/Build Stage Skeleton/★ Build ALL Stage 2-7 & Register Test Scenes")]
+        public static void BuildAllAndRegister()
+        {
+            BuildStage2();
+            BuildStage3();
+            BuildStage4();
+            BuildStage5();
+            BuildStage6();
+            BuildStage7();
+
+            string[] paths = new[]
+            {
+                "Assets/_Project/Scenes/Room01_PlayablePrototype.unity",
+                "Assets/_Project/Scenes/Stage02_Layout_Eunju.unity",
+                "Assets/_Project/Scenes/Stage03_Layout_Eunju.unity",
+                "Assets/_Project/Scenes/Stage04_Layout_Eunju.unity",
+                "Assets/_Project/Scenes/Stage05_Layout_Eunju.unity",
+                "Assets/_Project/Scenes/Stage06_Layout_Eunju.unity",
+                "Assets/_Project/Scenes/Stage07_Layout_Eunju.unity"
+            };
+            var list = new System.Collections.Generic.List<EditorBuildSettingsScene>();
+            foreach (string p in paths)
+            {
+                if (File.Exists(Path.GetFullPath(p)))
+                    list.Add(new EditorBuildSettingsScene(p, true));
+            }
+            EditorBuildSettings.scenes = list.ToArray();
+            EditorSceneManager.OpenScene(paths[0], OpenSceneMode.Single);
+            EditorUtility.DisplayDialog(
+                "테스트용 Stage 1~7 등록 완료!",
+                "이제 Play(▶)를 누른 상태에서 키보드 [F1] ~ [F7]을 누르면\nStage 1~7 방을 자유롭게 이동하며 구경할 수 있습니다!",
+                "확인"
+            );
+        }
+
         [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 2 - 택배 중독 오피스텔 (4.2x6.8m)")]
         public static void BuildStage2()
         {
@@ -377,7 +412,7 @@ namespace TrashCleaner3D.Editor
             // 플레이어를 닫힌 현관문 앞(바깥쪽)으로 이동
             Vector3 spawnPos = new Vector3(doorCenterX, 0.05f, d / 2f + 1.35f);
             Quaternion spawnRot = Quaternion.Euler(0f, 180f, 0f);
-            GameObject player = GameObject.Find("Player");
+            GameObject player = GameObject.Find("Player_FPS") ?? GameObject.Find("Player");
             if (player != null)
             {
                 CharacterController cc = player.GetComponent<CharacterController>();

@@ -357,16 +357,16 @@ namespace TrashCleaner3D
             UpdateVehicleStageVisuals();
             if (spawnFieldUpgradeStation) EnsureFieldUpgradeStation();
             ApplyAtmosphereImmediate();
-            EnsureEntranceDoorOpen();
+            EnsureEntranceDoorClosedAtStart();
         }
 
-        private void EnsureEntranceDoorOpen()
+        private void EnsureEntranceDoorClosedAtStart()
         {
             var door = FindFirstObjectByType<InteractiveDoor>();
             if (door != null)
             {
                 door.manager = this;
-                door.SetOpen(true);
+                door.SetOpen(false);
             }
         }
 
