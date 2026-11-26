@@ -28,7 +28,7 @@ namespace TrashCleaner3D
         private float _life = 1.4f;
 
         /// <summary>
-        /// origin에서 goal 방향으로 count/2개(5~18개)의 다발을 뿌린다. goal이 없으면 아무것도 하지 않는다.
+        /// origin에서 goal 방향으로 count/2개(6~26개)의 다발을 뿌린다. goal이 없으면 아무것도 하지 않는다.
         /// </summary>
         public static void Spawn(Vector3 origin, Transform goal, int count, Color tint)
         {
@@ -37,7 +37,8 @@ namespace TrashCleaner3D
             GameObject root = new GameObject("TruckPourBurst");
             root.transform.position = origin;
             var fx = root.AddComponent<TruckPourBurst>();
-            fx.Build(origin, goal, Mathf.Clamp(count / 2, 5, 18), tint);
+            // v1.3 (요청 #4·#12): 수거통을 통째로 비우는 정산이라 다발도 더 많이 뿌린다.
+            fx.Build(origin, goal, Mathf.Clamp(count / 2, 6, 26), tint);
         }
 
         private void Build(Vector3 origin, Transform goal, int count, Color tint)
