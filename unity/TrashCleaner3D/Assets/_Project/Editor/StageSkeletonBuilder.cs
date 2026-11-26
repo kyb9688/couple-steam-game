@@ -35,14 +35,26 @@ namespace TrashCleaner3D.Editor
             CreateBox("Large_WindowGlass", new Vector3(0f, 1.45f, -d / 2f + 0.02f), new Vector3(3.2f, 2.1f, 0.04f), glass, root);
             AddLight(root, new Vector3(0f, h - 0.25f, 0f), 12f, 12f);
 
-            // 컨셉 가구·소품 자동 배치 (택배박스 산더미 + 노트북 + 펫캠 CCTV)
+            // 화장실 칸 (북서쪽: x -2.1 ~ -0.6, z 1.8 ~ 3.4)
+            CreateBox("Floor_BathroomTile", new Vector3(-1.35f, 0.008f, 2.60f), new Vector3(1.50f, 0.02f, 1.60f), tile, root);
+            CreateBox("BathWall_South", new Vector3(-1.35f, h / 2f, 1.80f), new Vector3(1.50f, h, 0.12f), wall, root);
+            CreateBox("BathWall_East", new Vector3(-0.60f, h / 2f, 2.95f), new Vector3(0.12f, h, 0.90f), wall, root);
+
+            // 컨셉 가구·소품 자동 배치 (화장실 + 침대 + 냉장고 + 싱크대 + 택배박스 + 펫캠 CCTV)
             Transform furn = root.Find("Furniture_Stage02_Eunju");
+            PlacePrefabByName("RR_Toilet_01", new Vector3(-1.75f, 0f, 2.95f), new Vector3(0, 90, 0), furn);
+            PlacePrefabByName("RR_Sink_01", new Vector3(-1.75f, 0f, 2.20f), new Vector3(0, 90, 0), furn);
+            PlacePrefabByName("RR_ToiletPaperDispenser", new Vector3(-1.75f, 0.7f, 2.65f), new Vector3(0, 90, 0), furn);
+            PlacePrefabByName("Bed_Apt_01_01", new Vector3(-1.35f, 0f, -2.10f), new Vector3(0, 90, 0), furn);
+            PlacePrefabByName("Fridge_01", new Vector3(-0.20f, 0f, 2.95f), new Vector3(0, 180, 0), furn);
+            PlacePrefabByName("Cabinet_Base_Sink_01", new Vector3(-1.55f, 0f, 0.90f), new Vector3(0, 90, 0), furn);
+
             PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(1.1f, 0f, 1.5f), new Vector3(0, 15, 0), 0.55f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(1.4f, 0f, 0.9f), new Vector3(0, -25, 0), 0.65f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(1.25f, 0.55f, 1.2f), new Vector3(0, 40, 0), 0.48f, furn);
-            PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(-1.3f, 0f, -1.8f), new Vector3(0, 10, 0), 0.70f, furn);
-            PlaceAsset("Assets/_Project/Art/Models/Trash/pizza_box", new Vector3(-0.6f, 0f, -0.5f), new Vector3(0, 30, 0), 0.12f, furn);
-            PlaceAsset("Assets/_Project/Art/Models/Props/classic_laptop", new Vector3(-1.5f, 0f, -2.5f), new Vector3(0, 20, 0), 0.28f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(-0.2f, 0f, -0.5f), new Vector3(0, 10, 0), 0.70f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/pizza_box", new Vector3(0.3f, 0f, -1.5f), new Vector3(0, 30, 0), 0.12f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/classic_laptop", new Vector3(-1.5f, 0f, -0.4f), new Vector3(0, 20, 0), 0.28f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_01", new Vector3(1.85f, 2.35f, 3.1f), new Vector3(25, -145, 0), 0.32f, furn);
 
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage02_Layout_Eunju.unity", "Stage 2 오피스텔 (4.2x6.8m)");
@@ -66,8 +78,10 @@ namespace TrashCleaner3D.Editor
             CreateBox("PickupCounter_Front", new Vector3(-0.9f, 0.50f, 1.65f), new Vector3(2.4f, 1.0f, 0.65f), counter, root);
             AddLight(root, new Vector3(0f, h - 0.2f, 0f), 14f, 12f);
 
-            // 컨셉 가구·소품 자동 배치 (조리대 위 프라이팬·냄비 + 식자재 상자 + 스티로폼 용기 + CCTV)
+            // 컨셉 가구·소품 자동 배치 (조리대 위 프라이팬·냄비 + 업소용 냉장고 + 싱크대 + 식자재 상자 + CCTV)
             Transform furn = root.Find("Furniture_Stage03_Eunju");
+            PlacePrefabByName("Fridge_01", new Vector3(2.15f, 0f, -1.95f), new Vector3(0, 0, 0), furn);
+            PlacePrefabByName("Cabinet_Base_Sink_01", new Vector3(-2.30f, 0f, 1.15f), new Vector3(0, 90, 0), furn);
             PlaceAsset("Assets/_Project/Art/Models/Props/brass_pan_01", new Vector3(-2.30f, 0.90f, -0.8f), new Vector3(0, 35, 0), 0.14f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Props/brass_pot_01", new Vector3(-2.30f, 0.90f, 0.2f), new Vector3(0, -20, 0), 0.26f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Props/brass_pot_01", new Vector3(-0.6f, 0.90f, -2.05f), new Vector3(0, 15, 0), 0.28f, furn);
@@ -100,8 +114,21 @@ namespace TrashCleaner3D.Editor
             AddLight(root, new Vector3(1.2f, h - 0.25f, 0f), 14f, 14f);
             AddLight(root, new Vector3(-2.1f, h - 0.25f, -1.0f), 10f, 10f);
 
-            // 컨셉 가구·소품 자동 배치 (거실 택배박스 + 물병 + 세제 + 빗자루 + 베이비캠)
+            // 화장실 칸 (북서쪽: x -3.6 ~ -1.8, z 1.1 ~ 2.9)
+            CreateBox("Floor_BathroomTile", new Vector3(-2.70f, 0.008f, 2.00f), new Vector3(1.80f, 0.02f, 1.80f), tile, root);
+            CreateBox("BathWall_South", new Vector3(-2.70f, h / 2f, 1.10f), new Vector3(1.80f, h, 0.12f), wall, root);
+            CreateBox("BathWall_East", new Vector3(-1.80f, h / 2f, 2.30f), new Vector3(0.12f, h, 1.20f), wall, root);
+
+            // 컨셉 가구·소품 자동 배치 (화장실 + 부부 침대 + 주방 냉장고·싱크대 + 식탁 + 생활 소품)
             Transform furn = root.Find("Furniture_Stage04_Eunju");
+            PlacePrefabByName("RR_Toilet_01", new Vector3(-3.20f, 0f, 2.45f), new Vector3(0, 90, 0), furn);
+            PlacePrefabByName("RR_Sink_01", new Vector3(-3.20f, 0f, 1.60f), new Vector3(0, 90, 0), furn);
+            PlacePrefabByName("BathTub_Base_01", new Vector3(-2.25f, 0f, 2.35f), new Vector3(0, 0, 0), furn);
+            PlacePrefabByName("Bed_Apt_02_01", new Vector3(-2.25f, 0f, -1.75f), new Vector3(0, 90, 0), furn);
+            PlacePrefabByName("Fridge_01", new Vector3(0.35f, 0f, 2.45f), new Vector3(0, 180, 0), furn);
+            PlacePrefabByName("Cabinet_Base_Sink_01", new Vector3(-0.65f, 0f, 2.45f), new Vector3(0, 180, 0), furn);
+            PlacePrefabByName("BPS_Table_01", new Vector3(2.40f, 0f, -2.00f), new Vector3(0, 0, 0), furn);
+
             PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(2.5f, 0f, 1.4f), new Vector3(0, 20, 0), 0.50f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Trash/water_bottles", new Vector3(0.8f, 0f, -0.4f), new Vector3(0, -15, 0), 0.35f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Tools/all_purpose_cleaner", new Vector3(2.8f, 0f, -2.2f), new Vector3(0, 45, 0), 0.28f, furn);
@@ -225,13 +252,28 @@ namespace TrashCleaner3D.Editor
             CreateBox("3F_VaultRoom_North", new Vector3(-3.4f, fh * 2f + fh / 2f, -1.0f), new Vector3(3.2f, fh, 0.18f), wall, root);
             CreateBox("3F_VaultRoom_East", new Vector3(-1.8f, fh * 2f + fh / 2f, -2.9f), new Vector3(0.18f, fh, 2.2f), wall, root);
 
+            // 2층 고급 화장실 칸 (북동쪽: x 2.5 ~ 4.8, z 1.6 ~ 3.8)
+            Material tile = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.84f, 0.84f, 0.82f));
+            CreateBox("2F_BathroomTile", new Vector3(3.65f, fh + 0.12f, 2.70f), new Vector3(2.30f, 0.02f, 2.20f), tile, root);
+            CreateBox("2F_BathWall_South", new Vector3(3.65f, fh + fh / 2f, 1.60f), new Vector3(2.30f, fh, 0.14f), wall, root);
+            CreateBox("2F_BathWall_West", new Vector3(2.50f, fh + fh / 2f, 3.05f), new Vector3(0.14f, fh, 1.50f), wall, root);
+
             // 1·2·3층 조명
             AddLight(root, new Vector3(0.5f, fh - 0.3f, 0f), 18f, 16f);
             AddLight(root, new Vector3(0.5f, fh * 2f - 0.3f, 0f), 18f, 16f);
             AddLight(root, new Vector3(-1.5f, fh * 3f - 0.3f, -1.0f), 16f, 16f);
 
-            // 컨셉 가구·소품 자동 배치 (바 의자 4개 + 1·2·3층 샹들리에 + 3층 VIP 보물 + CCTV 2대)
+            // 컨셉 가구·소품 자동 배치 (1층 바+의자+테이블 / 2층 화장실+침실 / 3층 VIP 보물+샹들리에)
             Transform furn = root.Find("Furniture_Stage07_Eunju");
+            PlacePrefabByName("BarCabinet_Apt_01_Filled Variant", new Vector3(4.25f, 0f, -1.2f), new Vector3(0, -90, 0), furn);
+            PlacePrefabByName("BPS_Table_01", new Vector3(0f, 0f, -1.2f), new Vector3(0, 0, 0), furn);
+            PlacePrefabByName("Lamp_Table_Apt_01", new Vector3(0.3f, 0.75f, -1.2f), new Vector3(0, 0, 0), furn);
+            // 2층 화장실 & 마스터 침실
+            float y2f = fh + 0.11f;
+            PlacePrefabByName("RR_Toilet_01", new Vector3(4.35f, y2f, 3.30f), new Vector3(0, -90, 0), furn);
+            PlacePrefabByName("RR_Sink_01", new Vector3(4.35f, y2f, 2.35f), new Vector3(0, -90, 0), furn);
+            PlacePrefabByName("BathTub_Base_01", new Vector3(3.20f, y2f, 3.20f), new Vector3(0, 0, 0), furn);
+            PlacePrefabByName("Bed_Apt_02_01", new Vector3(0.2f, y2f, -2.4f), new Vector3(0, 0, 0), furn);
             for (int i = 0; i < 4; i++)
             {
                 PlaceAsset("Assets/_Project/Art/Models/Furniture/bar_chair_round_01", new Vector3(2.4f, 0f, -2.3f + i * 0.75f), new Vector3(0, 90, 0), 0.78f, furn);
@@ -399,6 +441,37 @@ namespace TrashCleaner3D.Editor
                 Bounds nb = rends[0].bounds;
                 for (int i = 1; i < rends.Length; i++) nb.Encapsulate(rends[i].bounds);
                 Vector3 delta = worldPos - new Vector3(nb.center.x, nb.min.y, nb.center.z);
+                inst.transform.position += delta;
+            }
+            else
+            {
+                inst.transform.position = worldPos;
+            }
+
+            foreach (MeshFilter mf in inst.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh != null && mf.GetComponent<Collider>() == null)
+                    mf.gameObject.AddComponent<MeshCollider>();
+            }
+        }
+
+        private static void PlacePrefabByName(string prefabName, Vector3 worldPos, Vector3 eulerRot, Transform parent)
+        {
+            string[] guids = AssetDatabase.FindAssets($"{prefabName} t:Prefab", new[] { "Assets/Brick Project Studio" });
+            if (guids == null || guids.Length == 0) return;
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(AssetDatabase.GUIDToAssetPath(guids[0]));
+            if (prefab == null) return;
+
+            GameObject inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
+            if (inst == null) inst = Object.Instantiate(prefab, parent);
+            inst.transform.localEulerAngles = eulerRot;
+
+            Renderer[] rends = inst.GetComponentsInChildren<Renderer>();
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                Vector3 delta = worldPos - new Vector3(b.center.x, b.min.y, b.center.z);
                 inst.transform.position += delta;
             }
             else
