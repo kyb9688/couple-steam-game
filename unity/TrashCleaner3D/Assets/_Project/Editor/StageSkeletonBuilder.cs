@@ -125,30 +125,76 @@ namespace TrashCleaner3D.Editor
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage06_Layout_Eunju.unity", "Stage 6 시골집 농막 (4.2x3.6m)");
         }
 
-        [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 7 - 졸부 파티광 펜트하우스 (10.0x8.0m)")]
+        [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 7 - 졸부 3층 복층 펜트하우스 (10x8m, 3층)")]
         public static void BuildStage7()
         {
-            Transform root = PrepareScene(7, "Stage07_Penthouse", out Scene scene);
+            Transform root = PrepareScene(7, "Stage07_Penthouse_3F", out Scene scene);
             Material wall = CreateColorMat("Mat_Penthouse_CreamMarble", new Color(0.94f, 0.91f, 0.86f), 0.35f);
             Material floor = CreateColorMat("Mat_Penthouse_MarbleFloor", new Color(0.86f, 0.84f, 0.80f), 0.65f);
             Material ceil = LoadMat("Assets/_Project/Materials/Mat_Ceiling_Ivory.mat", new Color(0.95f, 0.94f, 0.92f));
             Material glass = CreateGlassMat();
             Material goldTrim = CreateColorMat("Mat_Penthouse_Gold", new Color(0.88f, 0.70f, 0.22f), 0.8f);
+            Material stairMat = CreateColorMat("Mat_Penthouse_Stairs", new Color(0.32f, 0.25f, 0.20f), 0.4f);
 
-            // 대형 럭셔리 펜트하우스: 10.0m x 8.0m x 3.2m
-            float w = 10.0f, d = 8.0f, h = 3.2f;
-            BuildShell(root, w, d, h, 3.20f, wall, floor, ceil);
-            // 안쪽 비밀 금고방 (남서쪽: x -5.0 ~ -2.0, z -4.0 ~ -1.0)
-            CreateBox("VaultRoom_North", new Vector3(-3.5f, h / 2f, -1.0f), new Vector3(3.0f, h, 0.18f), wall, root);
-            CreateBox("VaultRoom_East_Part", new Vector3(-2.0f, h / 2f, -3.0f), new Vector3(0.18f, h, 2.0f), wall, root);
-            // 바(Bar) 카운터 뼈대 (동쪽)
-            CreateBox("PartyBar_Counter", new Vector3(3.4f, 0.55f, -1.2f), new Vector3(0.8f, 1.1f, 3.4f), goldTrim, root);
-            // 남쪽 파노라마 통창
-            CreateBox("Panorama_WindowGlass", new Vector3(1.5f, 1.65f, -d / 2f + 0.02f), new Vector3(6.0f, 2.6f, 0.04f), glass, root);
-            AddLight(root, new Vector3(1.0f, h - 0.3f, 0f), 20f, 18f);
-            AddLight(root, new Vector3(-3.2f, h - 0.3f, -2.2f), 12f, 10f);
+            // 3층 복층 럭셔리 펜트하우스: 10.0m x 8.0m, 층고 3.0m x 3층 = 총 9.0m
+            float w = 10.0f, d = 8.0f, fh = 3.0f, totalH = fh * 3f;
 
-            FinishScene(scene, root, "Assets/_Project/Scenes/Stage07_Layout_Eunju.unity", "Stage 7 졸부 펜트하우스 (10.0x8.0m)");
+            // 외벽 4면 (3층 전체 높이, 1층 북쪽 현관문 구멍만 뚫림)
+            CreateBox("Floor_1F", new Vector3(0f, -0.15f, 0f), new Vector3(w + 0.4f, 0.3f, d + 0.4f), floor, root);
+            CreateBox("Ceiling_3F", new Vector3(0f, totalH + 0.15f, 0f), new Vector3(w + 0.4f, 0.3f, d + 0.4f), ceil, root);
+            CreateBox("Wall_South_Full", new Vector3(0f, totalH / 2f, -d / 2f - 0.15f), new Vector3(w + 0.4f, totalH, 0.3f), wall, root);
+            CreateBox("Wall_East_Full", new Vector3(w / 2f + 0.15f, totalH / 2f, 0f), new Vector3(0.3f, totalH, d + 0.4f), wall, root);
+            CreateBox("Wall_West_Full", new Vector3(-w / 2f - 0.15f, totalH / 2f, 0f), new Vector3(0.3f, totalH, d + 0.4f), wall, root);
+
+            // 북쪽 벽 (1층 현관문 x: 2.7~3.7, y: 0~2.15 제외하고 3층까지)
+            CreateBox("Wall_North_Left", new Vector3(-1.25f, totalH / 2f, d / 2f + 0.15f), new Vector3(7.9f, totalH, 0.3f), wall, root);
+            CreateBox("Wall_North_Right", new Vector3(4.45f, totalH / 2f, d / 2f + 0.15f), new Vector3(1.5f, totalH, 0.3f), wall, root);
+            CreateBox("Wall_North_AboveDoor", new Vector3(3.20f, (2.15f + totalH) * 0.5f, d / 2f + 0.15f), new Vector3(1.0f, totalH - 2.15f, 0.3f), wall, root);
+
+            // 1층: 바(Bar) 카운터 & 파노라마 창
+            CreateBox("1F_PartyBar_Counter", new Vector3(3.4f, 0.55f, -1.2f), new Vector3(0.8f, 1.1f, 3.4f), goldTrim, root);
+            CreateBox("1F_Panorama_Glass", new Vector3(0f, 1.55f, -d / 2f + 0.02f), new Vector3(6.8f, 2.4f, 0.04f), glass, root);
+
+            // 2층 바닥 (계단 구멍 x: -4.6 ~ -2.8, z: -3.6 ~ 0.6 비워둠) + 유리 난간
+            CreateBox("Floor_2F_Main", new Vector3(1.1f, fh, 0f), new Vector3(7.8f, 0.22f, d), floor, root);
+            CreateBox("Floor_2F_WestLanding", new Vector3(-3.9f, fh, 2.3f), new Vector3(2.2f, 0.22f, 3.4f), floor, root);
+            CreateBox("2F_Stair_Railing", new Vector3(-2.75f, fh + 0.55f, -1.5f), new Vector3(0.06f, 0.9f, 4.2f), glass, root);
+            BuildStairs(root, "Stairs_1F_to_2F", new Vector3(-3.9f, 0f, -3.2f), fh, 3.6f, 12, stairMat);
+
+            // 3층 바닥 (계단 구멍 x: 2.8 ~ 4.6, z: -3.6 ~ 0.6 비워둠) + VIP 금고방
+            CreateBox("Floor_3F_Main", new Vector3(-1.1f, fh * 2f, 0f), new Vector3(7.8f, 0.22f, d), floor, root);
+            CreateBox("Floor_3F_EastLanding", new Vector3(3.9f, fh * 2f, 2.3f), new Vector3(2.2f, 0.22f, 3.4f), floor, root);
+            CreateBox("3F_Stair_Railing", new Vector3(2.75f, fh * 2f + 0.55f, -1.5f), new Vector3(0.06f, 0.9f, 4.2f), glass, root);
+            BuildStairs(root, "Stairs_2F_to_3F", new Vector3(3.9f, fh, -3.2f), fh, 3.6f, 12, stairMat);
+
+            // 3층 안쪽 VIP 금고방 파티션 (남서쪽)
+            CreateBox("3F_VaultRoom_North", new Vector3(-3.4f, fh * 2f + fh / 2f, -1.0f), new Vector3(3.2f, fh, 0.18f), wall, root);
+            CreateBox("3F_VaultRoom_East", new Vector3(-1.8f, fh * 2f + fh / 2f, -2.9f), new Vector3(0.18f, fh, 2.2f), wall, root);
+
+            // 1·2·3층 조명
+            AddLight(root, new Vector3(0.5f, fh - 0.3f, 0f), 18f, 16f);
+            AddLight(root, new Vector3(0.5f, fh * 2f - 0.3f, 0f), 18f, 16f);
+            AddLight(root, new Vector3(-1.5f, fh * 3f - 0.3f, -1.0f), 16f, 16f);
+
+            FinishScene(scene, root, "Assets/_Project/Scenes/Stage07_Layout_Eunju.unity", "Stage 7 졸부 3층 복층 펜트하우스 (10x8m, 3층)");
+        }
+
+        private static void BuildStairs(Transform root, string name, Vector3 startPos, float height, float runLength, int steps, Material mat)
+        {
+            GameObject group = new GameObject(name);
+            group.transform.SetParent(root, false);
+            float stepH = height / steps;
+            float stepD = runLength / steps;
+            for (int i = 0; i < steps; i++)
+            {
+                CreateBox(
+                    $"Step_{i + 1:00}",
+                    startPos + new Vector3(0f, stepH * (i + 0.5f), stepD * (i + 0.5f)),
+                    new Vector3(1.7f, stepH, stepD + 0.04f),
+                    mat,
+                    group.transform
+                );
+            }
         }
 
         // --- Helpers ---
