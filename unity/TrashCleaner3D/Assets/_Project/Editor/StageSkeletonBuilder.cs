@@ -35,6 +35,16 @@ namespace TrashCleaner3D.Editor
             CreateBox("Large_WindowGlass", new Vector3(0f, 1.45f, -d / 2f + 0.02f), new Vector3(3.2f, 2.1f, 0.04f), glass, root);
             AddLight(root, new Vector3(0f, h - 0.25f, 0f), 12f, 12f);
 
+            // 컨셉 가구·소품 자동 배치 (택배박스 산더미 + 노트북 + 펫캠 CCTV)
+            Transform furn = root.Find("Furniture_Stage02_Eunju");
+            PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(1.1f, 0f, 1.5f), new Vector3(0, 15, 0), 0.55f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(1.4f, 0f, 0.9f), new Vector3(0, -25, 0), 0.65f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(1.25f, 0.55f, 1.2f), new Vector3(0, 40, 0), 0.48f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(-1.3f, 0f, -1.8f), new Vector3(0, 10, 0), 0.70f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/pizza_box", new Vector3(-0.6f, 0f, -0.5f), new Vector3(0, 30, 0), 0.12f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/classic_laptop", new Vector3(-1.5f, 0f, -2.5f), new Vector3(0, 20, 0), 0.28f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_01", new Vector3(1.85f, 2.35f, 3.1f), new Vector3(25, -145, 0), 0.32f, furn);
+
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage02_Layout_Eunju.unity", "Stage 2 오피스텔 (4.2x6.8m)");
         }
 
@@ -55,6 +65,15 @@ namespace TrashCleaner3D.Editor
             CreateBox("Counter_South", new Vector3(-0.3f, 0.45f, -2.05f), new Vector3(3.6f, 0.90f, 0.80f), counter, root);
             CreateBox("PickupCounter_Front", new Vector3(-0.9f, 0.50f, 1.65f), new Vector3(2.4f, 1.0f, 0.65f), counter, root);
             AddLight(root, new Vector3(0f, h - 0.2f, 0f), 14f, 12f);
+
+            // 컨셉 가구·소품 자동 배치 (조리대 위 프라이팬·냄비 + 식자재 상자 + 스티로폼 용기 + CCTV)
+            Transform furn = root.Find("Furniture_Stage03_Eunju");
+            PlaceAsset("Assets/_Project/Art/Models/Props/brass_pan_01", new Vector3(-2.30f, 0.90f, -0.8f), new Vector3(0, 35, 0), 0.14f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/brass_pot_01", new Vector3(-2.30f, 0.90f, 0.2f), new Vector3(0, -20, 0), 0.26f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/brass_pot_01", new Vector3(-0.6f, 0.90f, -2.05f), new Vector3(0, 15, 0), 0.28f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/plastic_crate_01", new Vector3(1.8f, 0f, -1.8f), new Vector3(0, -10, 0), 0.42f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/styrofoam_container", new Vector3(-0.9f, 1.0f, 1.65f), new Vector3(0, 25, 0), 0.15f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_02", new Vector3(2.4f, 2.45f, 2.1f), new Vector3(25, -135, 0), 0.32f, furn);
 
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage03_Layout_Eunju.unity", "Stage 3 치킨집 주방 (5.5x5.0m)");
         }
@@ -81,6 +100,14 @@ namespace TrashCleaner3D.Editor
             AddLight(root, new Vector3(1.2f, h - 0.25f, 0f), 14f, 14f);
             AddLight(root, new Vector3(-2.1f, h - 0.25f, -1.0f), 10f, 10f);
 
+            // 컨셉 가구·소품 자동 배치 (거실 택배박스 + 물병 + 세제 + 빗자루 + 베이비캠)
+            Transform furn = root.Find("Furniture_Stage04_Eunju");
+            PlaceAsset("Assets/_Project/Art/Models/Trash/cardboard_box_01", new Vector3(2.5f, 0f, 1.4f), new Vector3(0, 20, 0), 0.50f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/water_bottles", new Vector3(0.8f, 0f, -0.4f), new Vector3(0, -15, 0), 0.35f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Tools/all_purpose_cleaner", new Vector3(2.8f, 0f, -2.2f), new Vector3(0, 45, 0), 0.28f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Tools/plastic_broom", new Vector3(-0.3f, 0f, 2.3f), new Vector3(10, 0, 8), 1.25f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_01", new Vector3(3.2f, 2.4f, -2.5f), new Vector3(20, -45, 0), 0.30f, furn);
+
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage04_Layout_Eunju.unity", "Stage 4 육아 전쟁 맞벌이 집 (7.2x5.8m)");
         }
 
@@ -104,6 +131,23 @@ namespace TrashCleaner3D.Editor
             AddLight(root, new Vector3(1.0f, h - 0.25f, 0f), 16f, 16f);
             AddLight(root, new Vector3(-2.5f, h - 0.25f, -1.5f), 12f, 12f);
 
+            // 컨셉 가구·소품 자동 배치 (중앙 사무실 책상 6개 + 노트북 + 서류 바인더 + 대표실 책상 + CCTV 2대)
+            Transform furn = root.Find("Furniture_Stage05_Eunju");
+            float[] deskXs = new[] { 0.2f, 1.8f, 3.3f };
+            foreach (float dx in deskXs)
+            {
+                PlaceAsset("Assets/_Project/Art/Models/Furniture/metal_office_desk", new Vector3(dx, 0f, 0.8f), new Vector3(0, 0, 0), 0.78f, furn);
+                PlaceAsset("Assets/_Project/Art/Models/Props/classic_laptop", new Vector3(dx, 0.78f, 0.8f), new Vector3(0, 180, 0), 0.28f, furn);
+                PlaceAsset("Assets/_Project/Art/Models/Furniture/metal_office_desk", new Vector3(dx, 0f, -0.5f), new Vector3(0, 180, 0), 0.78f, furn);
+                PlaceAsset("Assets/_Project/Art/Models/Props/binder_notebook", new Vector3(dx + 0.25f, 0.78f, -0.5f), new Vector3(0, 25, 0), 0.12f, furn);
+            }
+            // 대표실 책상 + 노트북
+            PlaceAsset("Assets/_Project/Art/Models/Furniture/metal_office_desk", new Vector3(-2.8f, 0f, -2.2f), new Vector3(0, 0, 0), 0.80f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/classic_laptop", new Vector3(-2.8f, 0.80f, -2.2f), new Vector3(0, 15, 0), 0.30f, furn);
+            // CCTV 2대
+            PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_02", new Vector3(3.9f, 2.55f, 3.1f), new Vector3(25, -135, 0), 0.32f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_02", new Vector3(-3.9f, 2.55f, -3.1f), new Vector3(25, 45, 0), 0.32f, furn);
+
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage05_Layout_Eunju.unity", "Stage 5 스타트업 사무실 (8.5x7.0m)");
         }
 
@@ -121,6 +165,16 @@ namespace TrashCleaner3D.Editor
             // 처마 앞 야외 작업 발판
             CreateBox("Outdoor_WoodenDeck", new Vector3(0.8f, 0.02f, 2.4f), new Vector3(3.2f, 0.06f, 1.2f), floor, root);
             AddLight(root, new Vector3(0f, h - 0.25f, 0f), 9f, 9f);
+
+            // 컨셉 가구·소품 자동 배치 (드럼통 + 농막 상자 + 빗자루 + 쓰레받기 + 방범 CCTV)
+            Transform furn = root.Find("Furniture_Stage06_Eunju");
+            PlaceAsset("Assets/_Project/Art/Models/Props/Barrel_01", new Vector3(-1.4f, 0f, -1.1f), new Vector3(0, 20, 0), 0.92f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/Barrel_01", new Vector3(-1.3f, 0f, -0.1f), new Vector3(0, -40, 0), 0.92f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/plastic_crate_01", new Vector3(1.4f, 0f, -1.2f), new Vector3(0, 15, 0), 0.45f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/plastic_crate_01", new Vector3(1.4f, 0.45f, -1.2f), new Vector3(0, -10, 0), 0.45f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Tools/dustpan", new Vector3(0.4f, 0f, -1.2f), new Vector3(0, 30, 0), 0.22f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Tools/plastic_broom", new Vector3(1.7f, 0f, 0.8f), new Vector3(8, 0, -8), 1.25f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_01", new Vector3(1.7f, 2.2f, 1.5f), new Vector3(20, -135, 0), 0.30f, furn);
 
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage06_Layout_Eunju.unity", "Stage 6 시골집 농막 (4.2x3.6m)");
         }
@@ -175,6 +229,22 @@ namespace TrashCleaner3D.Editor
             AddLight(root, new Vector3(0.5f, fh - 0.3f, 0f), 18f, 16f);
             AddLight(root, new Vector3(0.5f, fh * 2f - 0.3f, 0f), 18f, 16f);
             AddLight(root, new Vector3(-1.5f, fh * 3f - 0.3f, -1.0f), 16f, 16f);
+
+            // 컨셉 가구·소품 자동 배치 (바 의자 4개 + 1·2·3층 샹들리에 + 3층 VIP 보물 + CCTV 2대)
+            Transform furn = root.Find("Furniture_Stage07_Eunju");
+            for (int i = 0; i < 4; i++)
+            {
+                PlaceAsset("Assets/_Project/Art/Models/Furniture/bar_chair_round_01", new Vector3(2.4f, 0f, -2.3f + i * 0.75f), new Vector3(0, 90, 0), 0.78f, furn);
+            }
+            PlaceAsset("Assets/_Project/Art/Models/Props/Chandelier_01", new Vector3(0.5f, fh - 0.85f, 0f), Vector3.zero, 0.75f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/Chandelier_01", new Vector3(0.5f, fh * 2f - 0.85f, 0f), Vector3.zero, 0.75f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/Chandelier_01", new Vector3(-0.5f, fh * 3f - 0.85f, 0f), Vector3.zero, 0.75f, furn);
+            // 3층 VIP 금고방 보물 (지폐 + 회중시계)
+            PlaceAsset("Assets/_Project/Art/Models/Valuables/usd_money", new Vector3(-3.6f, fh * 2f + 0.11f, -2.6f), new Vector3(0, 25, 0), 0.16f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Valuables/pocket_watch", new Vector3(-3.2f, fh * 2f + 0.11f, -2.4f), new Vector3(0, -15, 0), 0.14f, furn);
+            // 1층 & 3층 CCTV
+            PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_02", new Vector3(4.5f, 2.65f, 3.6f), new Vector3(25, -135, 0), 0.34f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_02", new Vector3(-4.5f, fh * 2f + 2.65f, -0.7f), new Vector3(25, 45, 0), 0.34f, furn);
 
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage07_Layout_Eunju.unity", "Stage 7 졸부 3층 복층 펜트하우스 (10x8m, 3층)");
         }
@@ -301,6 +371,46 @@ namespace TrashCleaner3D.Editor
             m.SetFloat("_Surface", 1f);
             m.renderQueue = 3000;
             return m;
+        }
+
+        private static void PlaceAsset(string folderPath, Vector3 worldPos, Vector3 eulerRot, float targetHeight, Transform parent)
+        {
+            string[] guids = AssetDatabase.FindAssets("t:Model", new[] { folderPath });
+            if (guids == null || guids.Length == 0) return;
+            string assetPath = AssetDatabase.GUIDToAssetPath(guids[0]);
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+            if (prefab == null) return;
+
+            GameObject inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
+            if (inst == null) inst = Object.Instantiate(prefab, parent);
+            inst.transform.localEulerAngles = eulerRot;
+
+            Renderer[] rends = inst.GetComponentsInChildren<Renderer>();
+            if (rends.Length > 0)
+            {
+                Bounds b = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) b.Encapsulate(rends[i].bounds);
+                float h = Mathf.Max(0.01f, b.size.y);
+                float scale = targetHeight / h;
+                inst.transform.localScale *= scale;
+
+                // Recompute bounds after scale so bottom sits cleanly at worldPos.y
+                rends = inst.GetComponentsInChildren<Renderer>();
+                Bounds nb = rends[0].bounds;
+                for (int i = 1; i < rends.Length; i++) nb.Encapsulate(rends[i].bounds);
+                Vector3 delta = worldPos - new Vector3(nb.center.x, nb.min.y, nb.center.z);
+                inst.transform.position += delta;
+            }
+            else
+            {
+                inst.transform.position = worldPos;
+            }
+
+            foreach (MeshFilter mf in inst.GetComponentsInChildren<MeshFilter>())
+            {
+                if (mf.sharedMesh != null && mf.GetComponent<Collider>() == null)
+                    mf.gameObject.AddComponent<MeshCollider>();
+            }
         }
     }
 }
