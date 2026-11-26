@@ -97,7 +97,7 @@ namespace TrashCleaner3D
         public int BlackMarketPts { get; private set; } = 0;
 
         // ===== 사용자 설정 ([ESC]) =====
-        public float MouseSensitivity { get; private set; } = 0.07f;
+        public float MouseSensitivity { get; private set; } = 0.14f;
         public float MasterVolume { get; private set; } = 0.85f;
 
         // ===== 악취 & 시야 안개 =====
@@ -336,7 +336,7 @@ namespace TrashCleaner3D
         private void Awake()
         {
             if (sfx == null) sfx = gameObject.AddComponent<ProceduralSfx>();
-            MouseSensitivity = PlayerPrefs.GetFloat("TC3D_MouseSens_v2", 0.07f);
+            MouseSensitivity = PlayerPrefs.GetFloat("TC3D_MouseSens", 0.14f);
             MasterVolume = PlayerPrefs.GetFloat("TC3D_MasterVol", 0.85f);
             AudioListener.volume = MasterVolume;
         }
@@ -377,9 +377,9 @@ namespace TrashCleaner3D
 
         public void SetMouseSensitivity(float val)
         {
-            MouseSensitivity = Mathf.Clamp(val, 0.02f, 0.35f);
+            MouseSensitivity = Mathf.Clamp(val, 0.03f, 0.45f);
             if (player != null) player.mouseSensitivity = MouseSensitivity;
-            PlayerPrefs.SetFloat("TC3D_MouseSens_v2", MouseSensitivity);
+            PlayerPrefs.SetFloat("TC3D_MouseSens", MouseSensitivity);
         }
 
         public void SetMasterVolume(float val)

@@ -28,7 +28,7 @@ namespace TrashCleaner3D
         public GameObject mopVisual;
         public Light flashlight;
         public float baseMoveSpeed = 3.85f;
-        public float mouseSensitivity = 0.07f;
+        public float mouseSensitivity = 0.14f;
         public float jumpHeight = 0.85f;
         public float gravity = -18.5f;
 
@@ -88,8 +88,6 @@ namespace TrashCleaner3D
         private const float BaseScrubPower = 0.55f;
         private bool _isHoldingTrashNow;
         private bool _isVacuumingNow;
-        private int _skipLookFrames;
-        private Vector2 _smoothedLook;
 
         private void Awake()
         {
@@ -188,10 +186,8 @@ namespace TrashCleaner3D
 #endif
         }
 
-        private void LockCursorStrict()
+        private static void LockCursorStrict()
         {
-            if (Cursor.lockState != CursorLockMode.Locked)
-                _skipLookFrames = 2; // 커서 중앙 워프 직후 델타 스파이크(화면 휙 돌아감) 방지
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
@@ -419,26 +415,12 @@ namespace TrashCleaner3D
                                  (AimIsStain || _scrubMotionWeight > 0.01f);
             Vector2 cameraLook = mopCameraLock ? Vector2.zero : lookDelta;
 
-            if (_skipLookFrames > 0)
-            {
-                _skipLookFrames--;
-                cameraLook = Vector2.zero;
-                _smoothedLook = Vector2.zero;
-            }
-            else
-            {
-                // 마우스 델타 스파이크 방지 + 부드러운 시점 보간으로 3D 멀미/어지러움 완화
-                cameraLook.x = Mathf.Clamp(cameraLook.x, -35f, 35f);
-                cameraLook.y = Mathf.Clamp(cameraLook.y, -35f, 35f);
-            }
-
-            _smoothedLook = Vector2.Lerp(_smoothedLook, cameraLook, Mathf.Clamp01(Time.deltaTime * 22f));
             float activeSens = manager.MouseSensitivity;
             float sens = (_scrubMotionWeight > 0.2f) ? activeSens * 0.55f : activeSens;
-            transform.Rotate(Vector3.up * (_smoothedLook.x * sens));
+            transform.Rotate(Vector3.up * (cameraLook.x * sens));
             if (cameraTransform != null)
             {
-                _pitch = Mathf.Clamp(_pitch - _smoothedLook.y * sens, -82f, 82f);
+                _pitch = Mathf.Clamp(_pitch - cameraLook.y * sens, -82f, 82f);
                 float coughOffset = manager.CoughKick01 * 2.6f;
                 cameraTransform.localRotation = Quaternion.Euler(Mathf.Clamp(_pitch + coughOffset, -84f, 84f), 0f, 0f);
             }
