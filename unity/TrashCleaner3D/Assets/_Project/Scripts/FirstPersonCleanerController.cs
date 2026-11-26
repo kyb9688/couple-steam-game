@@ -88,6 +88,7 @@ namespace TrashCleaner3D
         private const float BaseScrubPower = 0.55f;
         private bool _isHoldingTrashNow;
         private bool _isVacuumingNow;
+        private int _skipLookFrames;
 
         private void Awake()
         {
@@ -186,8 +187,10 @@ namespace TrashCleaner3D
 #endif
         }
 
-        private static void LockCursorStrict()
+        private void LockCursorStrict()
         {
+            if (Cursor.lockState != CursorLockMode.Locked)
+                _skipLookFrames = 2; // 커서 중앙 워프 직후 델타 스파이크(화면 휙 돌아감) 방지
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
@@ -414,6 +417,18 @@ namespace TrashCleaner3D
             bool mopCameraLock = lmbHeldNow && manager.Phase == GamePhase.Phase2_FloorMopping &&
                                  (AimIsStain || _scrubMotionWeight > 0.01f);
             Vector2 cameraLook = mopCameraLock ? Vector2.zero : lookDelta;
+
+            if (_skipLookFrames > 0)
+            {
+                _skipLookFrames--;
+                cameraLook = Vector2.zero;
+            }
+            else
+            {
+                // 마우스 델타 스파이크(에디터 포커스/프레임 드랍 시 화면 휙 튐) 방지
+                cameraLook.x = Mathf.Clamp(cameraLook.x, -45f, 45f);
+                cameraLook.y = Mathf.Clamp(cameraLook.y, -45f, 45f);
+            }
 
             float activeSens = manager.MouseSensitivity;
             float sens = (_scrubMotionWeight > 0.2f) ? activeSens * 0.55f : activeSens;
