@@ -230,7 +230,8 @@ namespace TrashCleaner3D.Editor
             // 북쪽 벽 (1층 현관문 x: 2.7~3.7, y: 0~2.15 제외하고 3층까지)
             CreateBox("Wall_North_Left", new Vector3(-1.25f, totalH / 2f, d / 2f + 0.15f), new Vector3(7.9f, totalH, 0.3f), wall, root);
             CreateBox("Wall_North_Right", new Vector3(4.45f, totalH / 2f, d / 2f + 0.15f), new Vector3(1.5f, totalH, 0.3f), wall, root);
-            CreateBox("Wall_North_AboveDoor", new Vector3(3.20f, (2.15f + totalH) * 0.5f, d / 2f + 0.15f), new Vector3(1.0f, totalH - 2.15f, 0.3f), wall, root);
+            CreateBox("Wall_North_Top", new Vector3(3.20f, (2.15f + totalH) * 0.5f, d / 2f + 0.15f), new Vector3(1.0f, totalH - 2.15f, 0.3f), wall, root);
+            SetupClosedEntranceDoor(root, 3.20f, d);
 
             // 1층: 바(Bar) 카운터 & 파노라마 창
             CreateBox("1F_PartyBar_Counter", new Vector3(3.4f, 0.55f, -1.2f), new Vector3(0.8f, 1.1f, 3.4f), goldTrim, root);
@@ -354,6 +355,41 @@ namespace TrashCleaner3D.Editor
             CreateBox("Wall_North_Right", new Vector3((rightStart + rightEnd) * 0.5f, h / 2f, d / 2f + 0.15f), new Vector3(rightW, h, 0.3f), wall, root);
 
             CreateBox("Wall_North_Top", new Vector3(doorCenterX, (2.15f + h) * 0.5f, d / 2f + 0.15f), new Vector3(1.0f, h - 2.15f, 0.3f), wall, root);
+            SetupClosedEntranceDoor(root, doorCenterX, d);
+        }
+
+        private static void SetupClosedEntranceDoor(Transform root, float doorCenterX, float d)
+        {
+            // 닫힌 현관문 (InteractiveDoor) + 현관문 앞(바깥쪽) 스폰 지점 세팅
+            Material doorMat = LoadMat("Assets/_Project/Materials/Mat_Door_MustardYellow.mat", new Color(0.78f, 0.62f, 0.16f));
+            GameObject hinge = new GameObject("Door_Entrance_Hinge");
+            hinge.transform.SetParent(root, false);
+            hinge.transform.localPosition = new Vector3(doorCenterX - 0.5f, 0f, d / 2f + 0.15f);
+
+            GameObject doorLeaf = CreateBox("Door_Entrance", new Vector3(0.5f, 1.075f, 0f), new Vector3(0.98f, 2.13f, 0.08f), doorMat, hinge.transform);
+            InteractiveDoor idoor = hinge.AddComponent<InteractiveDoor>();
+            idoor.hingePivot = hinge.transform;
+            idoor.doorCollider = doorLeaf.GetComponent<Collider>();
+            idoor.closedAngleY = 0f;
+            idoor.openAngleY = -98f;
+            idoor.manager = Object.FindFirstObjectByType<GamePrototypeManager>();
+
+            // 플레이어를 닫힌 현관문 앞(바깥쪽)으로 이동
+            Vector3 spawnPos = new Vector3(doorCenterX, 0.05f, d / 2f + 1.35f);
+            Quaternion spawnRot = Quaternion.Euler(0f, 180f, 0f);
+            GameObject player = GameObject.Find("Player");
+            if (player != null)
+            {
+                CharacterController cc = player.GetComponent<CharacterController>();
+                if (cc != null) cc.enabled = false;
+                player.transform.SetPositionAndRotation(spawnPos, spawnRot);
+                if (cc != null) cc.enabled = true;
+            }
+            GamePrototypeManager mgr = Object.FindFirstObjectByType<GamePrototypeManager>();
+            if (mgr != null && mgr.playerSpawnPoint != null)
+            {
+                mgr.playerSpawnPoint.SetPositionAndRotation(spawnPos, spawnRot);
+            }
         }
 
         private static void FinishScene(Scene scene, Transform root, string savePath, string label)
