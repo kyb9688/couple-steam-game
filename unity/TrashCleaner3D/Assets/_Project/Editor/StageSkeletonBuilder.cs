@@ -19,6 +19,18 @@ namespace TrashCleaner3D.Editor
         public static void BuildAllAndRegister()
         {
             if (GuardPlayMode()) return;
+            BuildAllAndRegisterSilent();
+
+            EditorUtility.DisplayDialog(
+                "Stage 2~7 버그 수정 & 일괄 재빌드 완료!",
+                "원룸(Stage 1)은 그대로 유지하고,\nStage 2~7의 공중 쓰레기·문 열림 방향·투명 벽·계단 버그를 모두 수정해 재등록했습니다!\n\n이제 Play(▶) 후 7종 스테이지 마인드맵 또는 [F1] ~ [F7]으로 확인해 보세요!",
+                "확인"
+            );
+        }
+
+        /// <summary>배치모드/WebGL 빌드에서 다이얼로그 없이 Stage 2~7 씬을 생성하고 7종 전체를 Build Settings에 등록합니다.</summary>
+        public static string[] BuildAllAndRegisterSilent()
+        {
             BuildStage2Internal(false);
             BuildStage3Internal(false);
             BuildStage4Internal(false);
@@ -45,12 +57,7 @@ namespace TrashCleaner3D.Editor
             EditorBuildSettings.scenes = list.ToArray();
             if (File.Exists(Path.GetFullPath(paths[0])))
                 EditorSceneManager.OpenScene(paths[0], OpenSceneMode.Single);
-
-            EditorUtility.DisplayDialog(
-                "Stage 2~7 버그 수정 & 일괄 재빌드 완료!",
-                "원룸(Stage 1)은 그대로 유지하고,\nStage 2~7의 공중 쓰레기·문 열림 방향·투명 벽·계단 버그를 모두 수정해 재등록했습니다!\n\n이제 Play(▶) 후 [F1] ~ [F7]으로 확인해 보세요!",
-                "확인"
-            );
+            return paths;
         }
 
         [MenuItem("TrashCleaner/Build Stage Skeleton/Stage 2 - 택배 중독 오피스텔 (4.2x6.8m)")]

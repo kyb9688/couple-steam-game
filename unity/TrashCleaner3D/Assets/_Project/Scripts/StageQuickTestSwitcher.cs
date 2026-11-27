@@ -53,7 +53,14 @@ namespace TrashCleaner3D
 
         private void Awake()
         {
-            _krFont = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "NanumGothic", "Segoe UI" }, 13);
+            if (Application.platform == RuntimePlatform.WebGLPlayer)
+                _krFont = Resources.Load<Font>("Fonts/KRFont");
+            if (_krFont == null)
+            {
+                try { _krFont = Font.CreateDynamicFontFromOSFont(new[] { "Malgun Gothic", "NanumGothic", "Segoe UI" }, 13); }
+                catch { _krFont = null; }
+            }
+            if (_krFont == null) _krFont = Resources.Load<Font>("Fonts/KRFont");
         }
 
         private void Update()
@@ -94,6 +101,9 @@ namespace TrashCleaner3D
                 _noticeTimer = 4.5f;
                 return;
             }
+            var mgr = FindFirstObjectByType<GamePrototypeManager>();
+            if (mgr != null) mgr.SaveStateToCampaignStore();
+            CampaignProgressStore.OpenMindMapOnNextLoad = false;
             SceneManager.LoadScene(sceneName);
         }
 
@@ -125,6 +135,11 @@ namespace TrashCleaner3D
 
         private void OnGUI()
         {
+            // 스테이지 마인드맵 / 강화 트리 / 클리어 허브가 열려 있을 때는 하단 테스트 바를 숨겨 겹침 방지!
+            var mgr = FindFirstObjectByType<GamePrototypeManager>();
+            if (mgr != null && mgr.Phase != GamePhase.Phase1_TrashRemoval && mgr.Phase != GamePhase.Phase2_FloorMopping)
+                return;
+
             EnsureStyles();
             string current = SceneManager.GetActiveScene().name;
 
@@ -132,6 +147,13 @@ namespace TrashCleaner3D
             float y = Screen.height - 34f;
             float btnW = 86f;
             float gap = 4f;
+
+            // 좌측 첫 버튼: [M] 7종 스테이지 마인드맵 열기
+            if (GUI.Button(new Rect(x, y, 96f, 24f), "[M] 스테이지 맵", _activeBtnStyle))
+            {
+                if (mgr != null) mgr.OpenStageMindMap();
+            }
+            x += 100f;
 
             for (int i = 0; i < StageLabels.Length; i++)
             {

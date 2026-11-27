@@ -21,6 +21,7 @@ namespace TrashCleaner3D
         {
             public string name;
             public float minX, maxX, minZ, maxZ;
+            public float floorY;
             public Vector3 center;
             public int countToSpawn;
         }
@@ -131,19 +132,64 @@ namespace TrashCleaner3D
         public bool IsRoomCleared(int idx) => idx >= 0 && idx < _roomClearedFlags.Length && _roomClearedFlags[idx];
         public Vector3 GetRoomCenter(int idx) => (idx >= 0 && idx < _rooms.Length) ? _rooms[idx].center : Vector3.zero;
 
-        // Stage 1: +30% 확장 원룸 (9.36 x 7.80, x: -4.68..+4.68, z: -3.90..+3.90)
+        // Stage 1: +30% 확장 원룸 (9.36 x 7.80, x: -4.68..+4.68, z: -3.90..+3.90) — 기존 원룸 그대로 유지!
         private static readonly RoomZoneDef[] Stage1Rooms =
         {
-            new RoomZoneDef { name = "원룸", minX = -4.35f, maxX = 4.35f, minZ = -3.60f, maxZ = 3.55f, center = new Vector3(0f, 0f, 0f), countToSpawn = Stage1SwarmCount }
+            new RoomZoneDef { name = "반지하 원룸", minX = -4.35f, maxX = 4.35f, minZ = -3.60f, maxZ = 3.55f, floorY = 0f, center = new Vector3(0f, 0f, 0f), countToSpawn = Stage1SwarmCount }
         };
 
-        // Stage 2: 4방 가정집 아파트 (15.4 x 12.8, x: -7.70..+7.70, z: -8.90..+3.90) — 총 8,000개!
+        // Stage 2: 택배 중독 오피스텔 (4.2 x 6.8, 문 x=1.10 z=3.60, 북서 화장실 x:-2.1..-0.55 z:1.7..3.4)
         private static readonly RoomZoneDef[] Stage2Rooms =
         {
-            new RoomZoneDef { name = "거실",   minX =  0.05f, maxX = 7.35f, minZ = -1.95f, maxZ =  3.55f, center = new Vector3( 3.70f, 0f,  0.80f), countToSpawn = 2600 },
-            new RoomZoneDef { name = "주방",   minX = -7.35f, maxX = -0.45f, minZ = -1.95f, maxZ =  3.55f, center = new Vector3(-3.90f, 0f,  0.80f), countToSpawn = 1900 },
-            new RoomZoneDef { name = "안방",   minX = -7.35f, maxX =  1.25f, minZ = -8.55f, maxZ = -2.45f, center = new Vector3(-3.05f, 0f, -5.50f), countToSpawn = 2300 },
-            new RoomZoneDef { name = "화장실", minX =  1.75f, maxX =  7.35f, minZ = -8.55f, maxZ = -2.45f, center = new Vector3( 4.55f, 0f, -5.50f), countToSpawn = 1200 },
+            new RoomZoneDef { name = "오피스텔 본실", minX = -1.75f, maxX = 1.75f, minZ = -3.05f, maxZ = 1.45f, floorY = 0f, center = new Vector3(0f, 0f, -0.80f), countToSpawn = 1450 },
+            new RoomZoneDef { name = "현관 복도",     minX =  0.30f, maxX = 1.75f, minZ =  1.45f, maxZ = 2.35f, floorY = 0f, center = new Vector3(1.05f, 0f, 1.90f), countToSpawn = 350 }
+        };
+
+        // Stage 3: 치킨집 주방 (5.5 x 5.0, 문 x=1.55 z=2.70, 서/남/전면 조리대 회피)
+        private static readonly RoomZoneDef[] Stage3Rooms =
+        {
+            new RoomZoneDef { name = "치킨집 주방", minX = -1.55f, maxX = 2.30f, minZ = -1.40f, maxZ = 1.95f, floorY = 0f, center = new Vector3(0.40f, 0f, 0.25f), countToSpawn = 2200 }
+        };
+
+        // Stage 4: 육아 전쟁 맞벌이 집 (7.2 x 5.8, 문 x=2.20 z=3.10, 안방 남서 + 화장실 북서)
+        private static readonly RoomZoneDef[] Stage4Rooms =
+        {
+            new RoomZoneDef { name = "거실·놀이매트", minX = -0.35f, maxX =  3.20f, minZ = -2.55f, maxZ = 2.15f, floorY = 0f, center = new Vector3( 1.40f, 0f, -0.20f), countToSpawn = 1900 },
+            new RoomZoneDef { name = "안방",          minX = -3.20f, maxX = -0.95f, minZ = -2.55f, maxZ = 0.25f, floorY = 0f, center = new Vector3(-2.10f, 0f, -1.15f), countToSpawn = 1100 }
+        };
+
+        // Stage 5: 야근 지옥 스타트업 사무실 (8.5 x 7.0, 문 x=2.60 z=3.70, 대표실 남서 + 탕비실 북서)
+        private static readonly RoomZoneDef[] Stage5Rooms =
+        {
+            new RoomZoneDef { name = "오픈 오피스", minX = -1.00f, maxX =  3.85f, minZ = -3.15f, maxZ =  2.65f, floorY = 0f, center = new Vector3( 1.45f, 0f, -0.25f), countToSpawn = 2700 },
+            new RoomZoneDef { name = "대표실",      minX = -3.85f, maxX = -1.55f, minZ = -3.15f, maxZ = -0.80f, floorY = 0f, center = new Vector3(-2.70f, 0f, -1.95f), countToSpawn = 900 },
+            new RoomZoneDef { name = "탕비실",      minX = -3.85f, maxX = -2.45f, minZ =  0.20f, maxZ =  3.10f, floorY = 0f, center = new Vector3(-3.15f, 0f,  1.65f), countToSpawn = 600 }
+        };
+
+        // Stage 6: 시골집 농막 (4.2 x 3.6, 문 x=1.10 z=2.00)
+        private static readonly RoomZoneDef[] Stage6Rooms =
+        {
+            new RoomZoneDef { name = "시골 농막", minX = -1.75f, maxX = 1.75f, minZ = -1.45f, maxZ = 1.15f, floorY = 0f, center = new Vector3(0f, 0f, -0.15f), countToSpawn = 2400 }
+        };
+
+        // Stage 7: 졸부 파티광 3층 복층 펜트하우스 (10 x 8 x 3층 — 1F y=0, 2F y=3.11, 3F y=6.11!)
+        private static readonly RoomZoneDef[] Stage7Rooms =
+        {
+            new RoomZoneDef { name = "1층 거실·바",     minX = -2.35f, maxX = 4.35f, minZ = -3.55f, maxZ = 2.75f, floorY = 0.00f, center = new Vector3( 1.00f, 0.00f, -0.40f), countToSpawn = 2200 },
+            new RoomZoneDef { name = "2층 파티홀",      minX = -2.35f, maxX = 2.20f, minZ = -3.55f, maxZ = 3.45f, floorY = 3.11f, center = new Vector3( 0.00f, 3.11f, -0.05f), countToSpawn = 2000 },
+            new RoomZoneDef { name = "3층 VIP 금고방",  minX = -4.55f, maxX = 2.35f, minZ = -3.55f, maxZ = 3.45f, floorY = 6.11f, center = new Vector3(-1.10f, 6.11f, -0.05f), countToSpawn = 1800 }
+        };
+
+        private static RoomZoneDef[] GetRoomsForStage(int stage) => stage switch
+        {
+            1 => Stage1Rooms,
+            2 => Stage2Rooms,
+            3 => Stage3Rooms,
+            4 => Stage4Rooms,
+            5 => Stage5Rooms,
+            6 => Stage6Rooms,
+            7 => Stage7Rooms,
+            _ => Stage1Rooms
         };
 
         private static int PackCell(int cx, int cz) => (cx + 1024) * 4096 + (cz + 1024);
@@ -325,15 +371,15 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// 스테이지에 맞춰 1단계 원룸(1,650개) 또는 2단계 4방 아파트(8,000개!)를 무렉으로 스폰!
+        /// 스테이지 1~7 각 방 규격(3층 복층 펜트하우스 층별 높이 포함)에 맞춰 무렉 GPU-Instanced 쓰레기 스폰!
         /// </summary>
         public void SpawnForStage(int stage)
         {
             if (meshTypes.Count == 0) BuildProceduralTypes();
             if (meshTypes.Count == 0) return;
 
-            _currentStageLayout = stage >= 2 ? 2 : 1;
-            _rooms = _currentStageLayout == 1 ? Stage1Rooms : Stage2Rooms;
+            _currentStageLayout = Mathf.Clamp(stage, 1, 7);
+            _rooms = GetRoomsForStage(_currentStageLayout);
             _roomRemaining = new int[_rooms.Length];
             _roomInitial = new int[_rooms.Length];
             _roomClearedFlags = new bool[_rooms.Length];
@@ -347,15 +393,18 @@ namespace TrashCleaner3D
             {
                 RoomZoneDef room = _rooms[r];
                 int n = room.countToSpawn;
+                float baseY = room.floorY;
 
-                // 각 방마다 자연스러운 쓰레기 언덕 3~4곳 + 바닥 전체 밀집 배치
                 Vector3[] mounds =
                 {
-                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.30f), 0f, Mathf.Lerp(room.minZ, room.maxZ, 0.35f)),
-                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.70f), 0f, Mathf.Lerp(room.minZ, room.maxZ, 0.40f)),
-                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.45f), 0f, Mathf.Lerp(room.minZ, room.maxZ, 0.72f)),
-                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.65f), 0f, Mathf.Lerp(room.minZ, room.maxZ, 0.75f))
+                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.30f), baseY, Mathf.Lerp(room.minZ, room.maxZ, 0.35f)),
+                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.70f), baseY, Mathf.Lerp(room.minZ, room.maxZ, 0.40f)),
+                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.45f), baseY, Mathf.Lerp(room.minZ, room.maxZ, 0.72f)),
+                    new Vector3(Mathf.Lerp(room.minX, room.maxX, 0.65f), baseY, Mathf.Lerp(room.minZ, room.maxZ, 0.75f))
                 };
+
+                float spanMin = Mathf.Min(room.maxX - room.minX, room.maxZ - room.minZ);
+                float maxRad = Mathf.Clamp(spanMin * 0.36f, 0.9f, 2.0f);
 
                 for (int i = 0; i < n; i++)
                 {
@@ -363,13 +412,12 @@ namespace TrashCleaner3D
                     if (i < n * 0.72f)
                     {
                         Vector3 m = mounds[i % mounds.Length];
-                        float maxRad = _currentStageLayout == 1 ? 1.85f : 2.15f;
                         Vector2 off = Random.insideUnitCircle * Random.Range(0.08f, maxRad);
                         float dist01 = Mathf.Clamp01(off.magnitude / maxRad);
-                        float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.05f, _currentStageLayout == 2 ? 0.82f : 0.68f);
+                        float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.05f, _currentStageLayout >= 5 ? 0.78f : 0.62f);
                         pos = new Vector3(
                             Mathf.Clamp(m.x + off.x, room.minX, room.maxX),
-                            0.055f + yStack,
+                            baseY + 0.055f + yStack,
                             Mathf.Clamp(m.z + off.y, room.minZ, room.maxZ)
                         );
                     }
@@ -377,25 +425,18 @@ namespace TrashCleaner3D
                     {
                         pos = new Vector3(
                             Random.Range(room.minX, room.maxX),
-                            0.055f + Random.Range(0f, 0.14f),
+                            baseY + 0.055f + Random.Range(0f, 0.14f),
                             Random.Range(room.minZ, room.maxZ)
                         );
                     }
 
-                    // 현관문 스윙 공간(x: 1.4..2.9, z > 2.65)은 살짝 비워 문 열림을 깔끔하게!
-                    if (pos.x > 1.35f && pos.x < 2.95f && pos.z > 2.60f) pos.z -= 1.15f;
-
-                    // 1단계 원룸 가구(침대 위 올리기 & 냉장고/싱크대/책상 회피)
+                    // 1단계 원룸 가구 및 현관문 스윙 공간 회피
                     if (_currentStageLayout == 1)
                     {
+                        if (pos.x > 1.35f && pos.x < 2.95f && pos.z > 2.60f) pos.z -= 1.15f;
                         if (pos.x < -1.95f && pos.z < -1.10f) pos.y += 0.56f; // 침대 위
                         if (pos.x > -1.25f && pos.x < 1.35f && pos.z > 2.65f) pos.z = Random.Range(1.40f, 2.55f); // 냉장고·싱크대 앞
                         if (pos.x > -0.45f && pos.x < 1.45f && pos.z < -2.65f) pos.z = Random.Range(-2.55f, -1.35f); // PC 책상 앞
-                    }
-                    else
-                    {
-                        // 2단계 안방 침대 위
-                        if (r == 2 && pos.x < -4.80f && pos.z < -6.00f) pos.y += 0.56f;
                     }
 
                     int tIdx = (i < n * 0.45f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
@@ -589,6 +630,7 @@ namespace TrashCleaner3D
                         {
                             int idx = bucket[b];
                             if (_units[idx].state != 0 || _selectedSet.Contains(idx)) continue;
+                            if (Mathf.Abs(_units[idx].pos.y - aimPoint.y) > 1.45f) continue;
                             Vector3 d = _units[idx].pos - aimPoint;
                             d.y = 0f;
                             float dSq = d.sqrMagnitude;
@@ -921,14 +963,14 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 5) 바닥 커서 링 (y=0.03 고정, 흔들림 없음)
+            // 5) 바닥 커서 링 (다층 바닥 높이 대응: 1F/2F/3F 모두 정확히 밀착!)
             if (_auraRingMesh != null)
             {
                 if (_cursorRingVisible && _cursorRingMat != null && _cursorRingRadius > 0.04f)
                 {
                     Color c = _isHoldingNow ? new Color(1.0f, 0.88f, 0.28f, 0.78f) : new Color(1.0f, 0.96f, 0.86f, 0.42f);
                     _cursorRingMat.SetColor("_BaseColor", c);
-                    Vector3 rPos = new Vector3(_cursorRingCenter.x, 0.03f, _cursorRingCenter.z);
+                    Vector3 rPos = new Vector3(_cursorRingCenter.x, _cursorRingCenter.y + 0.03f, _cursorRingCenter.z);
                     Graphics.DrawMesh(_auraRingMesh, Matrix4x4.TRS(rPos, Quaternion.identity, new Vector3(_cursorRingRadius, 1f, _cursorRingRadius)), _cursorRingMat, 0);
                 }
                 if (_auraVisible && _isHoldingNow && _auraRingMat != null && _auraRadius > 0.04f)
@@ -937,7 +979,7 @@ namespace TrashCleaner3D
                     Color ac = tier >= 2 ? new Color(0.28f, 0.94f, 1.0f, 0.72f) : tier == 1 ? new Color(0.45f, 0.96f, 0.56f, 0.65f) : new Color(1.0f, 0.88f, 0.30f, 0.72f);
                     _auraRingMat.SetColor("_BaseColor", ac);
                     float rScale = _auraRadius * (1f - MaxSelectedCharge01 * 0.10f);
-                    Vector3 rPos = new Vector3(_auraCenter.x, 0.035f, _auraCenter.z);
+                    Vector3 rPos = new Vector3(_auraCenter.x, _auraCenter.y + 0.035f, _auraCenter.z);
                     Graphics.DrawMesh(_auraRingMesh, Matrix4x4.TRS(rPos, Quaternion.Euler(0f, now * 65f, 0f), new Vector3(rScale, 1f, rScale)), _auraRingMat, 0);
                 }
             }

@@ -129,7 +129,8 @@ namespace TrashCleaner3D
             if (manager != null) mouseSensitivity = manager.MouseSensitivity;
             EnsureVacuumVortex();
 #if !UNITY_WEBGL || UNITY_EDITOR
-            LockCursorStrict();
+            if (manager == null || (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping))
+                LockCursorStrict();
 #endif
         }
 
@@ -225,9 +226,19 @@ namespace TrashCleaner3D
 
             if (WasEscPressed() || (manager.KioskOpen && WasKeyEPressed()))
             {
-                // 키오스크가 열려 있을 때의 ESC/E는 '강화 창 닫기'가 먼저다.
+                // 키오스크/마인드맵이 열려 있을 때의 ESC/E는 닫기 우선
                 if (manager.KioskOpen) manager.CloseUpgradeKiosk();
+                else if (manager.IsStageMindMapOpen) manager.CloseStageMindMap();
                 else manager.ToggleSettingsMenu();
+                ClearHighlight();
+                return;
+            }
+
+            if (WasKeyMPressed() &&
+                (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping || manager.IsStageMindMapOpen))
+            {
+                if (manager.IsStageMindMapOpen) manager.CloseStageMindMap();
+                else manager.OpenStageMindMap();
                 ClearHighlight();
                 return;
             }
@@ -333,6 +344,15 @@ namespace TrashCleaner3D
             return Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame;
 #else
             return Input.GetKeyDown(KeyCode.E);
+#endif
+        }
+
+        private static bool WasKeyMPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            return Keyboard.current != null && Keyboard.current.mKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.M);
 #endif
         }
 
@@ -501,12 +521,13 @@ namespace TrashCleaner3D
             fDown = Input.GetKeyDown(KeyCode.F);
 #endif
 
-            // ===== 바닥 조준점(링·흡입 선택 공용) — v1.3 요청 #6 =====
-            // 예전에는 레이캐스트가 쓰레기/가구 표면을 맞은 그 높이를 그대로 링 중심으로 써서
-            // 링이 바닥에서 위아래로 튀고(흔들림) 반경도 홀드 중에 줄었다 늘었다 했다.
-            // 이제 카메라 광선을 바닥 평면(y=0)에 고정 투영하고, 벽/문에 가로막히면 그 앞에서 멈춘다.
+            // 바닥 조준점(다층 복층 펜트하우스 1F/2F/3F 바닥 높이 자동 대응!)
             Ray aimRay = new Ray(cameraTransform.position, cameraTransform.forward);
-            float planeT = aimRay.direction.y < -0.02f ? -aimRay.origin.y / aimRay.direction.y : -1f;
+            float floorPlaneY = Mathf.Max(0f, Mathf.Round(transform.position.y * 10f) / 10f);
+            if (floorPlaneY < 1.2f) floorPlaneY = 0f;
+            else if (floorPlaneY < 4.5f) floorPlaneY = 3.11f;
+            else floorPlaneY = 6.11f;
+            float planeT = aimRay.direction.y < -0.02f ? (floorPlaneY - aimRay.origin.y) / aimRay.direction.y : -1f;
 
             CleanableTarget hitPile = null;
             CleanableTarget hitStain = null;
@@ -554,7 +575,7 @@ namespace TrashCleaner3D
                 if (useT > 0.25f)
                 {
                     aimPoint = aimRay.GetPoint(useT);
-                    aimPoint.y = 0f;
+                    aimPoint.y = floorPlaneY;
                     hasAimPoint = true;
                 }
             }

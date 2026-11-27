@@ -6,7 +6,25 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/SampleScene.unity
-    guid: 99c9720ab356a0642a771bea13969a05
+    path: Assets/_Project/Scenes/Room01_PlayablePrototype.unity
+    guid: ece72d5f0df326a4398e63d3060b33ec
+  - enabled: 1
+    path: Assets/_Project/Scenes/Stage02_Layout_Eunju.unity
+    guid: 219eb7ccf409ef14fa28e007c378ec4c
+  - enabled: 1
+    path: Assets/_Project/Scenes/Stage03_Layout_Eunju.unity
+    guid: 629810aab0fe5264fa1e65d3f34800f2
+  - enabled: 1
+    path: Assets/_Project/Scenes/Stage04_Layout_Eunju.unity
+    guid: b7e798a8112d14a4cbabf6fdf3fc3464
+  - enabled: 1
+    path: Assets/_Project/Scenes/Stage05_Layout_Eunju.unity
+    guid: fed51a3bacd1c7a42862d6e431db84f1
+  - enabled: 1
+    path: Assets/_Project/Scenes/Stage06_Layout_Eunju.unity
+    guid: bfb098f1d0401d946a6a58660ebc9756
+  - enabled: 1
+    path: Assets/_Project/Scenes/Stage07_Layout_Eunju.unity
+    guid: 3c98846dcfdf83540bed0b76c6570976
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

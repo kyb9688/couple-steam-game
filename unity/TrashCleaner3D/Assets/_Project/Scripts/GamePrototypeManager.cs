@@ -1,10 +1,12 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace TrashCleaner3D
 {
     public enum GamePhase
     {
+        StageMindMap,
         Phase1_TrashRemoval,
         Phase2_FloorMopping,
         TreasureDecision,
@@ -78,17 +80,12 @@ namespace TrashCleaner3D
         private GamePhase _phaseBeforeOverlay = GamePhase.Phase1_TrashRemoval;
 
         public bool KioskOpen => Phase == GamePhase.MindMapUpgrade;
+        public bool IsStageMindMapOpen => Phase == GamePhase.StageMindMap;
         public int CurrentStage { get; private set; } = 1;
         public float StageRewardMult => 1f + (CurrentStage - 1) * 0.35f;
 
-        private static readonly (string hint, string itemName, int val)[] StageClientHints =
-        {
-            ("1단계 원룸 의뢰 · 깔끔하게 비워주세요!", "남편의 비밀 비상금 봉투", 115),
-            ("2단계 쓰리룸 아파트 · 방 4곳(거실·주방·안방·화장실) 8,000개 대청소!", "어머니의 순금 가락지", 180),
-            ("3단계 대형 의뢰 · 묵은 쓰레기를 완전히 치워주세요!", "스위스 명품 손목시계", 240),
-            ("4단계 장기 방치 의뢰 · 끝까지 부탁드립니다!", "현금 보증금 돈봉투", 310)
-        };
-        public string CurrentClientHint => StageClientHints[(CurrentStage - 1) % StageClientHints.Length].hint;
+        public string CurrentClientHint => CampaignProgressStore.GetInfo(CurrentStage).clientMemo;
+        public string CurrentStageTitle => CampaignProgressStore.GetInfo(CurrentStage).title;
 
         // ===== 재화 & 카운트업 연출 =====
         public int Money { get; private set; } = 0;
@@ -111,7 +108,7 @@ namespace TrashCleaner3D
         public float StenchMoveSpeedMult => StenchStage == 4 ? 0.45f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.72f : StenchStage == 1 ? 0.85f : 1.0f;
         public float StenchWorkSpeedMult => StenchStage == 4 ? 0.42f : StenchStage == 3 ? 0.52f : StenchStage == 2 ? 0.68f : StenchStage == 1 ? 0.84f : 1.0f;
         public float StenchBlur01 => IsOutsideVentilating ? 0f : Mathf.Clamp01((StenchPercent - 22f) / 78f);
-        public float StenchGainPerSec => CoreLoopConfig.EnableStenchGimmick ? 3.2f * Mathf.Max(0.18f, 1f - TotalMaskLv * 0.10f) : 0f;
+        public float StenchGainPerSec => CoreLoopConfig.EnableStenchGimmick ? (CurrentStage == 6 ? 5.1f : 3.2f) * Mathf.Max(0.18f, 1f - TotalMaskLv * 0.10f) : 0f;
 
         // ===== 의심 (CoreLoopConfig 제어) =====
         public float SuspicionPercent { get; private set; } = 0f;
@@ -343,7 +340,22 @@ namespace TrashCleaner3D
 
         private void Start()
         {
-            if (trashSwarm == null) trashSwarm = FindFirstObjectByType<InstancedTrashSwarm>();
+            // 현재 로드된 씬 이름(Room01 / Stage02~07)으로 스테이지 번호 자동 판별
+            CurrentStage = CampaignProgressStore.DetectStageFromActiveScene();
+            RestoreStateFromCampaignStore();
+
+            // Stage 2~7 뼈대 씬에서는 Stage 1용 스웜이 비활성화돼 있으므로, 찾아서 활성화 후 해당 스테이지 규격으로 스폰!
+            if (trashSwarm == null)
+            {
+                trashSwarm = FindFirstObjectByType<InstancedTrashSwarm>(FindObjectsInactive.Include);
+            }
+            if (trashSwarm != null)
+            {
+                if (!trashSwarm.gameObject.activeSelf) trashSwarm.gameObject.SetActive(true);
+                trashSwarm.manager = this;
+                trashSwarm.SpawnForStage(CurrentStage);
+            }
+
             if (player != null) player.mouseSensitivity = MouseSensitivity;
             if (truckTrashVisual == null) truckTrashVisual = gameObject.AddComponent<InstancedTruckTrash>();
             if (trashSwarm != null)
@@ -358,6 +370,103 @@ namespace TrashCleaner3D
             if (spawnFieldUpgradeStation) EnsureFieldUpgradeStation();
             ApplyAtmosphereImmediate();
             EnsureEntranceDoorClosedAtStart();
+
+            // 로봇청소기 보유 수만큼 현재 스테이지에 자동 배치
+            RespawnOwnedRoombas();
+
+            // Play 시작 시(또는 스테이지 맵 복귀 시) 7종 스테이지 마인드맵 즉시 오픈!
+            if (CampaignProgressStore.OpenMindMapOnNextLoad)
+            {
+                _phaseBeforeOverlay = GamePhase.Phase1_TrashRemoval;
+                Phase = GamePhase.StageMindMap;
+                UnlockCursor(true);
+            }
+            else
+            {
+                Phase = GamePhase.Phase1_TrashRemoval;
+            }
+        }
+
+        private void RespawnOwnedRoombas()
+        {
+            _roombas.Clear();
+            for (int i = 0; i < LvRoombaCount; i++)
+            {
+                _roombas.Add(AutoRoombaCleaner.Spawn(this, new Vector3(Random.Range(-1.2f, 1.2f), 0.05f, Random.Range(-1.2f, 1.2f)), i + 1));
+            }
+        }
+
+        public void SaveStateToCampaignStore()
+        {
+            CampaignProgressStore.HasSavedPlayerState = true;
+            CampaignProgressStore.SavedMoney = Money;
+            CampaignProgressStore.SavedTrustTokens = TrustTokens;
+            CampaignProgressStore.SavedBlackMarketPts = BlackMarketPts;
+            CampaignProgressStore.LvHold1 = LvHold1;
+            CampaignProgressStore.LvRad1 = LvRad1;
+            CampaignProgressStore.HasBroom = HasBroom;
+            CampaignProgressStore.LvHold2 = LvHold2;
+            CampaignProgressStore.LvRad2 = LvRad2;
+            CampaignProgressStore.HasVacuum = HasVacuum;
+            CampaignProgressStore.LvHold3 = LvHold3;
+            CampaignProgressStore.LvFever = LvFever;
+            CampaignProgressStore.LvBin1 = LvBin1;
+            CampaignProgressStore.LvPrice1 = LvPrice1;
+            CampaignProgressStore.HasCart = HasCart;
+            CampaignProgressStore.LvBin2 = LvBin2;
+            CampaignProgressStore.LvPrice2 = LvPrice2;
+            CampaignProgressStore.HasDamas = HasDamas;
+            CampaignProgressStore.LvBin3 = LvBin3;
+            CampaignProgressStore.LvComboTime = LvComboTime;
+            CampaignProgressStore.HasTruck1Ton = HasTruck1Ton;
+            CampaignProgressStore.LvSpeed1 = LvSpeed1;
+            CampaignProgressStore.LvMask1 = LvMask1;
+            CampaignProgressStore.HasMopUnlocked = HasMopUnlocked;
+            CampaignProgressStore.LvSpeed2 = LvSpeed2;
+            CampaignProgressStore.LvMask2 = LvMask2;
+            CampaignProgressStore.LvScrubPower = LvScrubPower;
+            CampaignProgressStore.LvFist1 = LvFist1;
+            CampaignProgressStore.LvRoombaCount = LvRoombaCount;
+            CampaignProgressStore.LvRoombaSpd1 = LvRoombaSpd1;
+            CampaignProgressStore.LvFist2 = LvFist2;
+            CampaignProgressStore.LvRoombaSpd2 = LvRoombaSpd2;
+        }
+
+        private void RestoreStateFromCampaignStore()
+        {
+            if (!CampaignProgressStore.HasSavedPlayerState) return;
+            Money = CampaignProgressStore.SavedMoney;
+            DisplayMoney = Money;
+            TrustTokens = CampaignProgressStore.SavedTrustTokens;
+            BlackMarketPts = CampaignProgressStore.SavedBlackMarketPts;
+            LvHold1 = CampaignProgressStore.LvHold1;
+            LvRad1 = CampaignProgressStore.LvRad1;
+            HasBroom = CampaignProgressStore.HasBroom;
+            LvHold2 = CampaignProgressStore.LvHold2;
+            LvRad2 = CampaignProgressStore.LvRad2;
+            HasVacuum = CampaignProgressStore.HasVacuum;
+            LvHold3 = CampaignProgressStore.LvHold3;
+            LvFever = CampaignProgressStore.LvFever;
+            LvBin1 = CampaignProgressStore.LvBin1;
+            LvPrice1 = CampaignProgressStore.LvPrice1;
+            HasCart = CampaignProgressStore.HasCart;
+            LvBin2 = CampaignProgressStore.LvBin2;
+            LvPrice2 = CampaignProgressStore.LvPrice2;
+            HasDamas = CampaignProgressStore.HasDamas;
+            LvBin3 = CampaignProgressStore.LvBin3;
+            LvComboTime = CampaignProgressStore.LvComboTime;
+            HasTruck1Ton = CampaignProgressStore.HasTruck1Ton;
+            LvSpeed1 = CampaignProgressStore.LvSpeed1;
+            LvMask1 = CampaignProgressStore.LvMask1;
+            HasMopUnlocked = CampaignProgressStore.HasMopUnlocked;
+            LvSpeed2 = CampaignProgressStore.LvSpeed2;
+            LvMask2 = CampaignProgressStore.LvMask2;
+            LvScrubPower = CampaignProgressStore.LvScrubPower;
+            LvFist1 = CampaignProgressStore.LvFist1;
+            LvRoombaCount = CampaignProgressStore.LvRoombaCount;
+            LvRoombaSpd1 = CampaignProgressStore.LvRoombaSpd1;
+            LvFist2 = CampaignProgressStore.LvFist2;
+            LvRoombaSpd2 = CampaignProgressStore.LvRoombaSpd2;
         }
 
         private void EnsureEntranceDoorClosedAtStart()
@@ -420,9 +529,17 @@ namespace TrashCleaner3D
 
         private void ApplyStageContainerVisibility()
         {
-            bool isSt2 = CurrentStage >= 2;
-            if (stage1Container != null) stage1Container.SetActive(!isSt2);
-            if (stage2Container != null) stage2Container.SetActive(isSt2);
+            // 독립 씬(Stage 2~7)에서는 stage2Container == null이므로 현재 방(stage1Container)을 반드시 활성 유지!
+            if (stage2Container != null)
+            {
+                bool isSt2 = CurrentStage >= 2;
+                if (stage1Container != null) stage1Container.SetActive(!isSt2);
+                stage2Container.SetActive(isSt2);
+            }
+            else if (stage1Container != null)
+            {
+                stage1Container.SetActive(true);
+            }
 
             // 방 조명 초기 'Before' 칙칙한 상태로 리셋
             ResetRoomLightsToDirty();
@@ -451,7 +568,7 @@ namespace TrashCleaner3D
         {
             _activeBigPiles.Clear();
             _activeStains.Clear();
-            GameObject activeRoot = CurrentStage >= 2 ? stage2Container : stage1Container;
+            GameObject activeRoot = (stage2Container != null && CurrentStage >= 2) ? stage2Container : stage1Container;
             if (activeRoot != null)
             {
                 foreach (var c in activeRoot.GetComponentsInChildren<CleanableTarget>(true))
@@ -734,6 +851,11 @@ namespace TrashCleaner3D
                     CollectingCount = 0;
                     CollectingPendingValue = 0;
                 }
+                if (Phase2Total <= 0)
+                {
+                    FinishRoomComplete();
+                    return;
+                }
                 Phase = GamePhase.Phase2_FloorMopping;
                 sfx.PlayFanfare();
                 ShowToast("2단계 · 바닥 얼룩 닦기!");
@@ -770,9 +892,60 @@ namespace TrashCleaner3D
 
         public void ToggleSettingsMenu()
         {
-            if (Phase == GamePhase.RoomCompleted || Phase == GamePhase.TreasureDecision) return;
+            if (Phase == GamePhase.RoomCompleted || Phase == GamePhase.TreasureDecision || Phase == GamePhase.StageMindMap) return;
             if (Phase == GamePhase.SettingsMenu || Phase == GamePhase.MindMapUpgrade) { Phase = _phaseBeforeOverlay; UnlockCursor(false); }
             else { _phaseBeforeOverlay = Phase; Phase = GamePhase.SettingsMenu; UnlockCursor(true); }
+        }
+
+        public void OpenStageMindMap()
+        {
+            SaveStateToCampaignStore();
+            if (Phase == GamePhase.Phase1_TrashRemoval || Phase == GamePhase.Phase2_FloorMopping)
+                _phaseBeforeOverlay = Phase;
+            Phase = GamePhase.StageMindMap;
+            UnlockCursor(true);
+        }
+
+        public void CloseStageMindMap()
+        {
+            if (Phase != GamePhase.StageMindMap) return;
+            CampaignProgressStore.OpenMindMapOnNextLoad = false;
+            Phase = _phaseBeforeOverlay == GamePhase.Phase2_FloorMopping
+                ? GamePhase.Phase2_FloorMopping
+                : GamePhase.Phase1_TrashRemoval;
+            UnlockCursor(false);
+        }
+
+        public bool EnterStageFromMindMap(int stageNum)
+        {
+            stageNum = Mathf.Clamp(stageNum, 1, CampaignProgressStore.TotalStages);
+            if (!CampaignProgressStore.IsStageUnlocked(stageNum))
+            {
+                ShowToast($"Stage {stageNum - 1}을 먼저 클리어해야 해금됩니다!");
+                return false;
+            }
+
+            var info = CampaignProgressStore.GetInfo(stageNum);
+            SaveStateToCampaignStore();
+            CampaignProgressStore.OpenMindMapOnNextLoad = false;
+
+            if (SceneManager.GetActiveScene().name == info.sceneName)
+            {
+                CurrentStage = stageNum;
+                Phase = GamePhase.Phase1_TrashRemoval;
+                UnlockCursor(false);
+                ShowToast($"▶ STAGE {stageNum} · {info.title}");
+                return true;
+            }
+
+            if (!Application.CanStreamedLevelBeLoaded(info.sceneName))
+            {
+                ShowToast($"Stage {stageNum} 씬({info.sceneName})이 빌드에 미등록 상태입니다!");
+                return false;
+            }
+
+            SceneManager.LoadScene(info.sceneName);
+            return true;
         }
 
         public void TriggerEarlyCheckout()
@@ -784,6 +957,9 @@ namespace TrashCleaner3D
             LastClearBonus = Mathf.RoundToInt(baseCleanReward * StageRewardMult * (OverallCleanPercent / 100f) * 0.85f);
             Money += LastClearBonus;
             DisplayMoney = Money;
+            LastStarRating = OverallCleanPercent >= 95f ? 5 : OverallCleanPercent >= 88f ? 4 : 3;
+            CampaignProgressStore.MarkStageCleared(CurrentStage, LastStarRating);
+            SaveStateToCampaignStore();
             sfx.PlayFanfare();
             Phase = GamePhase.RoomCompleted;
             UnlockCursor(true);
@@ -958,6 +1134,7 @@ namespace TrashCleaner3D
                 default: return false;
             }
             sfx.PlayChime();
+            SaveStateToCampaignStore();
             return true;
         }
 
@@ -977,6 +1154,9 @@ namespace TrashCleaner3D
             LastClearBonus = Mathf.RoundToInt(baseCleanReward * StageRewardMult);
             Money += LastClearBonus;
             DisplayMoney = Money;
+            LastStarRating = 5;
+            CampaignProgressStore.MarkStageCleared(CurrentStage, LastStarRating);
+            SaveStateToCampaignStore();
             sfx.PlayFanfare();
             Phase = GamePhase.RoomCompleted;
             UnlockCursor(true);
@@ -984,16 +1164,28 @@ namespace TrashCleaner3D
 
         public void StartNextStage()
         {
-            CurrentStage++;
-            ResetRoomForRun();
-            ShowToast(CurrentStage == 2 ? "★ STAGE 2 · 4방 아파트 (8,000개 대청소!)" : $"★ STAGE {CurrentStage} 시작!");
+            int next = Mathf.Min(CampaignProgressStore.TotalStages, CurrentStage + 1);
+            if (!EnterStageFromMindMap(next))
+            {
+                OpenStageMindMap();
+            }
         }
 
         public void JumpToStage(int stage)
         {
-            CurrentStage = Mathf.Clamp(stage, 1, 6);
-            ResetRoomForRun();
-            ShowToast(CurrentStage == 2 ? "★ STAGE 2 · 4방 아파트 (8,000개) 이동!" : $"★ STAGE {CurrentStage} 원룸 이동!");
+            stage = Mathf.Clamp(stage, 1, CampaignProgressStore.TotalStages);
+            var info = CampaignProgressStore.GetInfo(stage);
+            SaveStateToCampaignStore();
+            CampaignProgressStore.OpenMindMapOnNextLoad = false;
+            if (Application.CanStreamedLevelBeLoaded(info.sceneName))
+            {
+                SceneManager.LoadScene(info.sceneName);
+            }
+            else
+            {
+                CurrentStage = stage;
+                ResetRoomForRun();
+            }
         }
 
         public void ReplayRoomKeepUpgrades()

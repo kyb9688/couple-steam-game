@@ -27,6 +27,7 @@ namespace TrashCleaner3D
         private Font _krFont;
         private Texture2D _whiteTex;
         private Texture2D _dimTex;
+        private Texture2D[] _stageThumbs;
 
         private GUIStyle _inkLeft;
         private GUIStyle _inkBold;
@@ -80,6 +81,12 @@ namespace TrashCleaner3D
                 }
             }
             if (_krFont == null) _krFont = Resources.Load<Font>("Fonts/KRFont");
+
+            _stageThumbs = new Texture2D[CampaignProgressStore.TotalStages];
+            for (int i = 0; i < CampaignProgressStore.TotalStages; i++)
+            {
+                _stageThumbs[i] = Resources.Load<Texture2D>(CampaignProgressStore.Stages[i].thumbResourcePath);
+            }
         }
 
         private static Texture2D MakeTex(Color c)
@@ -165,7 +172,8 @@ namespace TrashCleaner3D
             DrawScreenOverlays(w, h);
             DrawFloatingWorldPopups(w, h);
 
-            if (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping)
+            if (manager.Phase == GamePhase.StageMindMap) DrawStageMindMap(w, h);
+            else if (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping)
             {
                 DrawHud(w, h);
                 DrawCrosshairAndPrompt(w, h);
@@ -271,8 +279,9 @@ namespace TrashCleaner3D
             Rect tl = new Rect(sideX, cardTop, cardW, cardH);
             DrawReceiptBox(tl);
 
-            string stageLabel = manager.CurrentStage == 1 ? "ST.1 원룸" : $"ST.{manager.CurrentStage} 아파트";
-            GUI.Label(new Rect(tl.x + 10, tl.y + 4, 150, 22), stageLabel, _inkBold);
+            var stInfo = CampaignProgressStore.GetInfo(manager.CurrentStage);
+            string stageLabel = $"ST.{manager.CurrentStage} {stInfo.shortName}";
+            GUI.Label(new Rect(tl.x + 10, tl.y + 4, 185, 22), stageLabel, _inkBold);
             GUI.Label(new Rect(tl.x + cardW - 66, tl.y + 4, 56, 22), $"{manager.OverallCleanPercent:0}%", _inkRight);
 
             Rect progBg = new Rect(tl.x + 10, tl.y + 28, cardW - 20, 11);
@@ -377,7 +386,7 @@ namespace TrashCleaner3D
             }
             else
             {
-                GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 6, postItRect.width - 20, 20), "■ 의뢰인 메모 [H] · 설정 [ESC]", _inkBold);
+                GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 6, postItRect.width - 20, 20), "■ 의뢰 메모 [H] · 맵 [M] · 설정 [ESC]", _inkBold);
                 GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 28, postItRect.width - 20, 44), manager.CurrentClientHint, _inkWrap);
             }
 
@@ -809,18 +818,278 @@ namespace TrashCleaner3D
             if (_postTab == PostRoundTab.Receipt) DrawReceiptSummaryCard(w, h);
             else DrawUpgradeKioskTree(w, h, true);
 
-            int btnCount = 3;
-            float barW = Mathf.Min(640f, w - 40f);
-            float btnGap = 12f;
+            int btnCount = 4;
+            float barW = Mathf.Min(780f, w - 40f);
+            float btnGap = 10f;
             float btnW = Mathf.Floor((barW - btnGap * (btnCount - 1)) / btnCount);
             float startX = Mathf.Round((w - (btnW * btnCount + btnGap * (btnCount - 1))) * 0.5f);
             float btnY = Mathf.Round(h - 60f);
 
             int bi = 0;
             DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), "다시 시작", false, new Color(0.28f, 0.32f, 0.38f), () => manager.ReplayRoomKeepUpgrades());
-            string nextLabel = manager.CurrentStage == 1 ? "STAGE 2 아파트 ▶" : $"STAGE {manager.CurrentStage + 1} ▶";
-            DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), nextLabel, false, new Color(0.16f, 0.56f, 0.30f), () => manager.StartNextStage());
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), "◈ 7종 스테이지 맵", false, new Color(0.22f, 0.48f, 0.80f), () => manager.OpenStageMindMap());
+            string nextLabel = manager.CurrentStage < CampaignProgressStore.TotalStages
+                ? $"ST.{manager.CurrentStage + 1} {CampaignProgressStore.GetInfo(manager.CurrentStage + 1).shortName} ▶"
+                : "★ 전체 캠페인 완료!";
+            DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), nextLabel, false, new Color(0.16f, 0.56f, 0.30f), () =>
+            {
+                if (manager.CurrentStage < CampaignProgressStore.TotalStages) manager.StartNextStage();
+                else manager.OpenStageMindMap();
+            });
             DrawHubButton(new Rect(startX + (btnW + btnGap) * bi++, btnY, btnW, 44), "$ 강화 트리", _postTab == PostRoundTab.CashUpgrades, new Color(0.78f, 0.54f, 0.10f), () => _postTab = PostRoundTab.CashUpgrades);
+        }
+
+        // ===== v1.5 Play 시작 즉시 노출 · 7종 캠페인 스테이지 마인드맵 (순차 해금 + 색상 구별 + 썸네일 슬롯) =====
+        private void DrawStageMindMap(float w, float h)
+        {
+            GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
+
+            float pw = Mathf.Min(w - 28f, 1180f);
+            float ph = Mathf.Min(h - 28f, 690f);
+            Rect panel = new Rect(Mathf.Round((w - pw) * 0.5f), Mathf.Round((h - ph) * 0.5f), pw, ph);
+
+            // 외곽 카드
+            DrawBorderedBox(panel, new Color(0.095f, 0.088f, 0.076f, 0.978f), new Color(0.961f, 0.620f, 0.043f), 3);
+
+            // 상단 헤더 바
+            Rect hdr = new Rect(panel.x + 14, panel.y + 12, panel.width - 28, 54);
+            DrawReceiptBox(hdr);
+            GUI.color = new Color(0.56f, 0.36f, 0.03f);
+            GUI.Label(new Rect(hdr.x + 14, hdr.y + 6, 460, 26), "★ TrashCleaner3D · 7단계 캠페인 스테이지 마인드맵", _kioskHeaderStyle);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(hdr.x + 14, hdr.y + 30, 520, 18),
+                $"앞 스테이지를 클리어하면 다음 스테이지가 해금됩니다 · 진행률 {CampaignProgressStore.ClearedStageCount}/{CampaignProgressStore.TotalStages}", _inkSmall);
+
+            // 우측 보유 현금 배지
+            Rect cash = new Rect(hdr.xMax - 196, hdr.y + 9, 184, 36);
+            DrawBorderedBox(cash, new Color(0.043f, 0.243f, 0.149f), new Color(0.98f, 0.845f, 0.35f), 2);
+            GUI.Label(new Rect(cash.x + 10, cash.y + 4, 164, 28), $"${manager.Money:N0}", _moneyBadgeStyle);
+
+            // 상태 색상 범례 + 테스트 토글 바
+            Color colLocked    = new Color(0.392f, 0.455f, 0.545f); // #64748B
+            Color colAvailable = new Color(0.961f, 0.620f, 0.043f); // #F59E0B
+            Color colCleared   = new Color(0.063f, 0.725f, 0.506f); // #10B981
+
+            float legY = hdr.yMax + 8f;
+            DrawLegendChip(new Rect(panel.x + 16, legY, 152, 24), colLocked,    "■ 잠김 (미클리어)");
+            DrawLegendChip(new Rect(panel.x + 176, legY, 164, 24), colAvailable, "▶ 도전 가능 (클릭)");
+            DrawLegendChip(new Rect(panel.x + 348, legY, 174, 24), colCleared,   "✓ 클리어 (재방문 가능)");
+
+            // 테스트용 전체 잠금해제 토글 & 진행 초기화 버튼
+            Rect resetR = new Rect(panel.xMax - 118, legY, 102, 24);
+            DrawBorderedBox(resetR, new Color(0.24f, 0.16f, 0.16f), new Color(0.75f, 0.35f, 0.35f), 1);
+            GUI.color = new Color(1f, 0.80f, 0.80f);
+            GUI.Label(resetR, "진행 초기화", _nodeSubStyle);
+            GUI.color = Color.white;
+            if (GUI.Button(resetR, GUIContent.none, GUIStyle.none))
+            {
+                CampaignProgressStore.ResetCampaignProgress();
+                manager.ShowToast("캠페인 진행을 초기화했습니다 (Stage 1부터 시작)");
+            }
+
+            Rect unlockR = new Rect(resetR.x - 172, legY, 164, 24);
+            bool devAll = CampaignProgressStore.DevUnlockAll;
+            DrawBorderedBox(unlockR, devAll ? new Color(0.18f, 0.34f, 0.22f) : new Color(0.20f, 0.20f, 0.22f),
+                devAll ? colCleared : new Color(0.55f, 0.55f, 0.60f), 1);
+            GUI.color = devAll ? new Color(0.65f, 1f, 0.75f) : new Color(0.84f, 0.84f, 0.88f);
+            GUI.Label(unlockR, devAll ? "테스트 전체해금: ON" : "테스트 전체해금: OFF", _nodeSubStyle);
+            GUI.color = Color.white;
+            if (GUI.Button(unlockR, GUIContent.none, GUIStyle.none))
+            {
+                CampaignProgressStore.DevUnlockAll = !CampaignProgressStore.DevUnlockAll;
+                manager.ShowToast(CampaignProgressStore.DevUnlockAll ? "테스트 모드: Stage 1~7 전체 해금 ON" : "정상 순차 해금 모드로 복귀");
+            }
+
+            // 7개 노드 좌표 배치 (상단 4개: ST.1~4, 하단 3개: ST.5~7 — 연결 로드맵!)
+            float mapTop = legY + 34f;
+            float infoH = 62f;
+            float mapBottom = panel.yMax - infoH - 18f;
+            float mapH = Mathf.Max(280f, mapBottom - mapTop);
+            float mapW = panel.width - 36f;
+
+            float gapX = Mathf.Round(Mathf.Clamp(mapW * 0.025f, 14f, 30f));
+            float cardW = Mathf.Round(Mathf.Min(256f, (mapW - gapX * 3f) / 4f));
+            float gapY = Mathf.Round(Mathf.Clamp(mapH * 0.11f, 22f, 44f));
+            float cardH = Mathf.Round(Mathf.Min(182f, (mapH - gapY) * 0.5f));
+
+            float row1TotalW = cardW * 4f + gapX * 3f;
+            float row1StartX = Mathf.Round(panel.x + (panel.width - row1TotalW) * 0.5f);
+            float row1Y = Mathf.Round(mapTop + (mapH - (cardH * 2f + gapY)) * 0.5f);
+
+            float row2TotalW = cardW * 3f + gapX * 2f;
+            float row2StartX = Mathf.Round(panel.x + (panel.width - row2TotalW) * 0.5f);
+            float row2Y = Mathf.Round(row1Y + cardH + gapY);
+
+            Rect[] rects = new Rect[7];
+            for (int i = 0; i < 4; i++)
+                rects[i] = new Rect(row1StartX + i * (cardW + gapX), row1Y, cardW, cardH);
+            for (int i = 0; i < 3; i++)
+                rects[4 + i] = new Rect(row2StartX + i * (cardW + gapX), row2Y, cardW, cardH);
+
+            // 로드맵 연결선 (ST.1→2→3→4 ──┐ └── ST.5→6→7)
+            for (int i = 0; i < 6; i++)
+            {
+                bool nextUnlocked = CampaignProgressStore.IsStageUnlocked(i + 2);
+                bool curCleared = CampaignProgressStore.IsStageCleared(i + 1);
+                Color lineCol = curCleared ? colCleared : nextUnlocked ? colAvailable : new Color(0.39f, 0.45f, 0.55f, 0.45f);
+                float lw = curCleared || nextUnlocked ? 4f : 2.5f;
+
+                if (i == 3)
+                {
+                    // ST.4 하단 중앙 → 중간 꺾임선 → ST.5 상단 중앙
+                    Vector2 a = new Vector2(rects[3].center.x, rects[3].yMax);
+                    Vector2 b = new Vector2(rects[4].center.x, rects[4].y);
+                    float midY = (a.y + b.y) * 0.5f;
+                    DrawLine(a, new Vector2(a.x, midY), lineCol, lw);
+                    DrawLine(new Vector2(a.x, midY), new Vector2(b.x, midY), lineCol, lw);
+                    DrawLine(new Vector2(b.x, midY), b, lineCol, lw);
+                }
+                else
+                {
+                    Vector2 a = new Vector2(rects[i].xMax, rects[i].center.y);
+                    Vector2 b = new Vector2(rects[i + 1].x, rects[i + 1].center.y);
+                    DrawLine(a, b, lineCol, lw);
+                }
+            }
+
+            // 7개 스테이지 카드 렌더
+            int hoveredStage = -1;
+            Vector2 mPos = Event.current.mousePosition;
+            float pulse = 0.72f + 0.28f * Mathf.Sin(Time.time * 4.5f);
+
+            for (int i = 0; i < 7; i++)
+            {
+                int stageNum = i + 1;
+                var info = CampaignProgressStore.Stages[i];
+                var state = CampaignProgressStore.GetStageState(stageNum);
+                Rect r = rects[i];
+                bool isHover = r.Contains(mPos);
+                if (isHover) hoveredStage = stageNum;
+
+                Color accent = state == StageUnlockState.Cleared ? colCleared
+                             : state == StageUnlockState.Available ? colAvailable
+                             : colLocked;
+
+                Color cardBg = state == StageUnlockState.Locked
+                    ? new Color(0.16f, 0.18f, 0.21f, 0.96f)
+                    : state == StageUnlockState.Cleared
+                        ? new Color(0.11f, 0.21f, 0.17f, 0.98f)
+                        : new Color(0.22f, 0.17f, 0.09f, 0.98f);
+
+                // 진행 가능 노드는 은은한 글로우 외곽
+                if (state == StageUnlockState.Available)
+                {
+                    DrawRect(new Rect(r.x - 3, r.y - 3, r.width + 6, r.height + 6), new Color(colAvailable.r, colAvailable.g, colAvailable.b, 0.28f * pulse));
+                }
+                else if (isHover && state != StageUnlockState.Locked)
+                {
+                    DrawRect(new Rect(r.x - 2, r.y - 2, r.width + 4, r.height + 4), new Color(accent.r, accent.g, accent.b, 0.30f));
+                }
+
+                DrawBorderedBox(r, cardBg, accent, state == StageUnlockState.Available ? 3 : 2);
+
+                // 상단 썸네일 영역 (커스텀 PNG 썸네일이 있으면 표시, 없으면 방 분위기 컬러 헤더!)
+                float thumbH = Mathf.Round(r.height * 0.38f);
+                Rect thumbR = new Rect(r.x + 3, r.y + 3, r.width - 6, thumbH);
+                Texture2D thumbTex = (_stageThumbs != null && i < _stageThumbs.Length) ? _stageThumbs[i] : null;
+                if (thumbTex != null)
+                {
+                    Color prev = GUI.color;
+                    GUI.color = state == StageUnlockState.Locked ? new Color(0.45f, 0.48f, 0.54f, 0.85f) : Color.white;
+                    GUI.DrawTexture(thumbR, thumbTex, ScaleMode.ScaleAndCrop);
+                    GUI.color = prev;
+                }
+                else
+                {
+                    Color bannerCol = state == StageUnlockState.Locked
+                        ? new Color(0.24f, 0.27f, 0.32f)
+                        : Color.Lerp(info.themeColor, new Color(0.16f, 0.14f, 0.12f), 0.32f);
+                    DrawRect(thumbR, bannerCol);
+                    DrawRect(new Rect(thumbR.x, thumbR.yMax - 3, thumbR.width, 3), accent);
+                }
+
+                // 썸네일 위 좌상단 STAGE 배지 + 우상단 상태 배지
+                Rect stBadge = new Rect(thumbR.x + 6, thumbR.y + 5, 68, 20);
+                DrawBorderedBox(stBadge, new Color(0.10f, 0.10f, 0.12f, 0.88f), accent, 1);
+                GUI.color = Color.white;
+                GUI.Label(stBadge, $"STAGE {stageNum}", _nodeSubStyle);
+
+                string statusTag = state == StageUnlockState.Cleared ? $"✓ {new string('★', Mathf.Max(1, CampaignProgressStore.GetStageStars(stageNum)))}"
+                                 : state == StageUnlockState.Available ? "▶ 도전 가능"
+                                 : "■ 잠김";
+                Rect statBadge = new Rect(thumbR.xMax - 86, thumbR.y + 5, 80, 20);
+                DrawBorderedBox(statBadge, accent, new Color(0.10f, 0.10f, 0.10f, 0.6f), 1);
+                GUI.color = ReadableOn(accent);
+                GUI.Label(statBadge, statusTag, _nodeSubStyle);
+                GUI.color = Color.white;
+
+                // 썸네일 하단 태그 (3층 복층 / 튜토리얼 / 최강 악취 등)
+                string subFeat = stageNum == 1 ? "튜토리얼 · 기본 원룸"
+                               : stageNum == 6 ? "최강 악취 · 방독면 필수"
+                               : stageNum == 7 ? "★ FINAL · 3층 복층!"
+                               : info.cctvLabel;
+                GUI.color = new Color(0.96f, 0.96f, 0.94f, state == StageUnlockState.Locked ? 0.55f : 0.95f);
+                GUI.Label(new Rect(thumbR.x + 8, thumbR.yMax - 22, thumbR.width - 16, 18), subFeat, _lightSmall);
+                GUI.color = Color.white;
+
+                // 카드 본문: 방 이름 + 규격/쓰레기 수
+                float bodyY = thumbR.yMax + 6f;
+                GUI.color = state == StageUnlockState.Locked ? new Color(0.62f, 0.66f, 0.72f) : Color.white;
+                GUI.Label(new Rect(r.x + 10, bodyY, r.width - 20, 22), info.title, _lightBold);
+                GUI.color = state == StageUnlockState.Locked ? new Color(0.50f, 0.54f, 0.60f) : new Color(0.84f, 0.83f, 0.78f);
+                GUI.Label(new Rect(r.x + 10, bodyY + 22, r.width - 20, 18), $"{info.sizeLabel}", _lightSmall);
+                GUI.Label(new Rect(r.x + 10, bodyY + 40, r.width - 20, 18), $"{info.trashLabel}", _lightSmall);
+                GUI.color = Color.white;
+
+                // 하단 클릭 액션 버튼 스트립
+                Rect actR = new Rect(r.x + 8, r.yMax - 30, r.width - 16, 23);
+                Color actBg = state == StageUnlockState.Locked ? new Color(0.22f, 0.25f, 0.30f) : accent;
+                DrawBorderedBox(actR, actBg, new Color(0.12f, 0.12f, 0.12f, 0.65f), 1);
+                GUI.color = state == StageUnlockState.Locked ? new Color(0.64f, 0.68f, 0.74f) : ReadableOn(actBg);
+                string actLabel = state == StageUnlockState.Locked ? $"ST.{stageNum - 1} 클리어 후 해금"
+                                : state == StageUnlockState.Cleared ? "✓ 클릭하여 재입장"
+                                : "▶ 클릭하여 청소 시작";
+                GUI.Label(actR, actLabel, _nodeSubStyle);
+                GUI.color = Color.white;
+
+                if (GUI.Button(r, GUIContent.none, GUIStyle.none))
+                {
+                    manager.EnterStageFromMindMap(stageNum);
+                }
+            }
+
+            // 하단 의뢰인 메모 상세 영수증 바
+            Rect infoR = new Rect(panel.x + 14, panel.yMax - infoH - 10, panel.width - 28, infoH);
+            DrawReceiptBox(infoR);
+            int focusStage = hoveredStage > 0 ? hoveredStage : manager.CurrentStage;
+            var fInfo = CampaignProgressStore.GetInfo(focusStage);
+            var fState = CampaignProgressStore.GetStageState(focusStage);
+            string fBadge = fState == StageUnlockState.Cleared ? "[✓ 클리어 완료]"
+                          : fState == StageUnlockState.Available ? "[▶ 입장 가능 · 클릭 시작]"
+                          : $"[■ 잠김 · Stage {focusStage - 1} 클리어 필요]";
+            GUI.Label(new Rect(infoR.x + 14, infoR.y + 6, infoR.width - 28, 22),
+                $"STAGE {fInfo.stageNumber} · {fInfo.title}   {fBadge}   ({fInfo.sizeLabel} · {fInfo.cctvLabel})", _inkBold);
+            GUI.Label(new Rect(infoR.x + 14, infoR.y + 30, infoR.width - 28, 24),
+                $"의뢰인 메모: \"{fInfo.clientMemo}\"", _inkSmall);
+
+            if (!string.IsNullOrEmpty(manager.ToastMessage))
+            {
+                Rect toastR = new Rect(Mathf.Round(w * 0.5f - 220), panel.y - 34, 440, 28);
+                if (toastR.y < 8f) toastR.y = hdr.yMax + 6f;
+                DrawPaperCard(toastR, colAvailable, 2);
+                GUI.color = new Color(0.46f, 0.28f, 0.02f);
+                GUI.Label(toastR, manager.ToastMessage, _lightCenter);
+                GUI.color = Color.white;
+            }
+        }
+
+        private void DrawLegendChip(Rect r, Color accent, string label)
+        {
+            DrawBorderedBox(r, new Color(0.16f, 0.15f, 0.14f, 0.94f), accent, 1);
+            DrawRect(new Rect(r.x + 4, r.y + 4, 8, r.height - 8), accent);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(r.x + 16, r.y, r.width - 18, r.height), label, _lightSmall);
+            GUI.color = Color.white;
         }
 
         private void DrawReceiptSummaryCard(float w, float h)
@@ -869,12 +1138,10 @@ namespace TrashCleaner3D
             float nv = GUI.HorizontalSlider(new Rect(r.x + 22, r.y + 132, 346, 18), manager.MasterVolume, 0f, 1f);
             if (!Mathf.Approximately(nv, manager.MasterVolume)) manager.SetMasterVolume(nv);
 
-            // 빠른 스테이지 테스트 전환 (1단계 원룸 ↔ 2단계 4방 8,000개 아파트)
-            GUI.Label(new Rect(r.x + 22, r.y + 168, 346, 20), "맵 바로 이동 (테스트용)", _inkBold);
-            if (GUI.Button(new Rect(r.x + 22, r.y + 194, 166, 34), "ST.1 원룸 (1,650)", _btnStyle))
-                manager.JumpToStage(1);
-            if (GUI.Button(new Rect(r.x + 202, r.y + 194, 166, 34), "ST.2 아파트 (8,000)", _btnStyle))
-                manager.JumpToStage(2);
+            // 7종 스테이지 마인드맵 바로 열기
+            GUI.Label(new Rect(r.x + 22, r.y + 168, 346, 20), "캠페인 스테이지 이동", _inkBold);
+            if (GUI.Button(new Rect(r.x + 22, r.y + 194, 346, 36), "◈ 7종 스테이지 마인드맵 열기 [M]", _btnStyle))
+                manager.OpenStageMindMap();
 
             if (GUI.Button(new Rect(r.x + 115, r.y + 252, 160, 38), "계속하기 [ESC]", _btnStyle))
                 manager.ToggleSettingsMenu();
