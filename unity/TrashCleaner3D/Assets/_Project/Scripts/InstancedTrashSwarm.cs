@@ -417,6 +417,7 @@ namespace TrashCleaner3D
                 return;
             }
 
+            Debug.Log($"[TrashCleaner3D] Stage {_currentStageLayout} 스폰 시작: {totalSpawn:N0}개 · t={Time.realtimeSinceStartup:0.00}s");
             _spawnRoutine = StartCoroutine(CoSpawnStage(true));
         }
 
@@ -466,7 +467,7 @@ namespace TrashCleaner3D
             _staticDirty = true;
             SpawnInProgress = false;
             _spawnRoutine = null;
-            Debug.Log($"[TrashCleaner3D] Stage {_currentStageLayout} 스폰 완료: {_unitCount:N0}개 · {(Time.realtimeSinceStartup - stageStart) * 1000f:0}ms");
+            Debug.Log($"[TrashCleaner3D] Stage {_currentStageLayout} 스폰 완료: {_unitCount:N0}개 · {(Time.realtimeSinceStartup - stageStart) * 1000f:0}ms · t={Time.realtimeSinceStartup:0.00}s");
         }
 
         private void SpawnOneUnit(RoomZoneDef room, int i, int n, float baseY, float maxRad, Vector3[] mounds, byte roomIdx)

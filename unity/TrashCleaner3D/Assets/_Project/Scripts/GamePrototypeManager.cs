@@ -359,6 +359,9 @@ namespace TrashCleaner3D
 
         private void Start()
         {
+            // v1.5.1 진단용: 스테이지 진입 시각을 남겨, 로딩/스폰/첫 렌더 중 어디서 멈추는지 콘솔에서 구분한다.
+            Debug.Log($"[TrashCleaner3D] Stage 진입 · {SceneManager.GetActiveScene().name} · t={Time.realtimeSinceStartup:0.00}s");
+
             // 현재 로드된 씬 이름(Room01 / Stage02~07)으로 스테이지 번호 자동 판별
             UiCursorFree = false;
             CurrentStage = CampaignProgressStore.DetectStageFromActiveScene();
