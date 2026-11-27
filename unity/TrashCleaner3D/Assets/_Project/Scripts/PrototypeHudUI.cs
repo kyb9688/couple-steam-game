@@ -591,7 +591,7 @@ namespace TrashCleaner3D
             }
             else if (controller.AimIsPile)
             {
-                prompt = "[LMB] 봉투 💥";
+                prompt = "[LMB] 봉투 ✹";
             }
             else if (manager.Phase == GamePhase.Phase1_TrashRemoval && manager.Mode == GearMode.Orb && !controller.OrbCharging)
             {
