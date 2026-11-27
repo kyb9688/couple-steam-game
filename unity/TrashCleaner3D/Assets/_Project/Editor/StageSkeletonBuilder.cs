@@ -94,16 +94,16 @@ namespace TrashCleaner3D.Editor
             Transform root = PrepareScene(2, "Stage02_Officetel", out Scene scene);
             Material wall = LoadMat("Assets/_Project/Materials/Mat_Wall_KoreanIvory.mat", new Color(0.95f, 0.94f, 0.90f));
             Material floor = LoadMat("Assets/_Project/Materials/Mat_Floor_PlankFlooring.mat", new Color(0.78f, 0.70f, 0.56f));
-            Material tile = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.75f, 0.75f, 0.75f));
+            Material tile = LoadMat("Assets/_Project/Materials/Mat_Floor_BathroomTile.mat", new Color(0.75f, 0.75f, 0.75f));
             Material ceil = LoadMat("Assets/_Project/Materials/Mat_Ceiling_Ivory.mat", new Color(0.92f, 0.92f, 0.90f));
             Material glass = CreateGlassMat();
 
             float w = 4.2f, d = 6.8f, h = 2.7f;
             BuildShell(root, w, d, h, 1.10f, wall, floor, ceil);
-            CreateBox("Floor_EntranceCorridor", new Vector3(1.10f, 0.012f, 2.25f), new Vector3(1.80f, 0.016f, 2.30f), tile, root, false);
-            CreateBox("Corridor_PartitionWall", new Vector3(0.05f, h / 2f, 2.25f), new Vector3(0.20f, h, 2.20f), wall, root, true);
+            CreateBox("Corridor_PartitionWall", new Vector3(-0.25f, h / 2f, 2.05f), new Vector3(0.20f, h, 1.75f), wall, root, true);
             CreateBox("Large_WindowGlass", new Vector3(0f, 1.45f, -d / 2f + 0.04f), new Vector3(3.2f, 2.1f, 0.04f), glass, root, false);
             AddLight(root, new Vector3(0f, h - 0.25f, 0f), 14f, 14f);
+            AddLight(root, new Vector3(1.10f, h - 0.25f, 2.25f), 11f, 10f);
 
             // 북서쪽 화장실 칸 (두꺼운 벽 0.20m) — 바닥 타일은 Floor_Main(y=0) 위로 2cm 명확히 띄워 Z-fighting 완전 제거!
             CreateBox("Floor_BathroomTile", new Vector3(-1.30f, 0.012f, 2.55f), new Vector3(1.50f, 0.016f, 1.60f), tile, root, false);
@@ -131,17 +131,18 @@ namespace TrashCleaner3D.Editor
         private static void BuildStage3Internal(bool showDialog)
         {
             Transform root = PrepareScene(3, "Stage03_ChickenKitchen", out Scene scene);
-            Material wall = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.86f, 0.88f, 0.88f));
-            Material floor = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.68f, 0.70f, 0.70f));
+            Material wall = LoadMat("Assets/_Project/Materials/Mat_Floor_BathroomTile.mat", new Color(0.86f, 0.88f, 0.88f));
+            Material floor = CreateTintedCopy("Assets/_Project/Materials/Mat_Floor_BathroomTile.mat", "Mat_Floor_KitchenSlateTile", new Color(0.54f, 0.56f, 0.58f), 0.10f, 0.35f);
             Material ceil = LoadMat("Assets/_Project/Materials/Mat_Ceiling_Ivory.mat", new Color(0.88f, 0.88f, 0.86f));
-            Material counter = CreateColorMat("Mat_Kitchen_Steel", new Color(0.72f, 0.75f, 0.78f), 0.7f);
+            Material counter = CreateColorMat("Mat_Kitchen_Steel", new Color(0.76f, 0.79f, 0.82f), 0.78f, 0.68f);
 
             float w = 5.5f, d = 5.0f, h = 2.8f;
             BuildShell(root, w, d, h, 1.55f, wall, floor, ceil);
             CreateBox("Counter_West", new Vector3(-2.25f, 0.45f, -0.4f), new Vector3(0.80f, 0.90f, 3.6f), counter, root, true);
             CreateBox("Counter_South", new Vector3(-0.3f, 0.45f, -2.00f), new Vector3(3.4f, 0.90f, 0.80f), counter, root, true);
-            CreateBox("PickupCounter_Front", new Vector3(-1.05f, 0.50f, 1.50f), new Vector3(2.2f, 1.0f, 0.65f), counter, root, true);
+            CreateBox("PickupCounter_Front", new Vector3(-0.25f, 0.50f, 1.50f), new Vector3(1.40f, 1.0f, 0.65f), counter, root, true);
             AddLight(root, new Vector3(0f, h - 0.2f, 0f), 16f, 14f);
+            AddLight(root, new Vector3(1.30f, h - 0.2f, 1.20f), 12f, 12f);
 
             Transform furn = root.Find("Furniture_Stage03_Eunju");
             PlacePrefabByName("Fridge_01", new Vector3(2.15f, 0f, -1.90f), new Vector3(0, 0, 0), furn);
@@ -150,7 +151,7 @@ namespace TrashCleaner3D.Editor
             PlaceAsset("Assets/_Project/Art/Models/Props/brass_pot_01", new Vector3(-2.25f, 0.90f, 0.2f), new Vector3(0, -20, 0), 0.26f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Props/brass_pot_01", new Vector3(-0.6f, 0.90f, -2.00f), new Vector3(0, 15, 0), 0.28f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Props/plastic_crate_01", new Vector3(1.9f, 0f, -0.8f), new Vector3(0, -10, 0), 0.42f, furn);
-            PlaceAsset("Assets/_Project/Art/Models/Trash/styrofoam_container", new Vector3(-1.05f, 1.0f, 1.50f), new Vector3(0, 25, 0), 0.15f, furn);
+            PlaceAsset("Assets/_Project/Art/Models/Trash/styrofoam_container", new Vector3(-0.25f, 1.0f, 1.50f), new Vector3(0, 25, 0), 0.15f, furn);
             PlaceAsset("Assets/_Project/Art/Models/Props/security_camera_02", new Vector3(2.4f, 2.45f, 2.1f), new Vector3(25, -135, 0), 0.30f, furn);
 
             FinishScene(scene, root, "Assets/_Project/Scenes/Stage03_Layout_Eunju.unity", "Stage 3 치킨집 주방 (5.5x5.0m)", showDialog);
@@ -161,7 +162,7 @@ namespace TrashCleaner3D.Editor
             Transform root = PrepareScene(4, "Stage04_FamilyHome", out Scene scene);
             Material wall = LoadMat("Assets/_Project/Materials/Mat_Wall_KoreanIvory.mat", new Color(0.96f, 0.94f, 0.88f));
             Material floor = LoadMat("Assets/_Project/Materials/Mat_Floor_PlankFlooring.mat", new Color(0.82f, 0.72f, 0.56f));
-            Material tile = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.78f, 0.78f, 0.76f));
+            Material tile = LoadMat("Assets/_Project/Materials/Mat_Floor_BathroomTile.mat", new Color(0.78f, 0.78f, 0.76f));
             Material ceil = LoadMat("Assets/_Project/Materials/Mat_Ceiling_Ivory.mat", new Color(0.94f, 0.93f, 0.90f));
             Material mat = CreateColorMat("Mat_BabyPlayMat", new Color(0.86f, 0.82f, 0.68f), 0.1f);
 
@@ -201,7 +202,7 @@ namespace TrashCleaner3D.Editor
         {
             Transform root = PrepareScene(5, "Stage05_StartupOffice", out Scene scene);
             Material wall = LoadMat("Assets/_Project/Materials/Mat_Wall_KoreanIvory.mat", new Color(0.92f, 0.93f, 0.95f));
-            Material floor = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.45f, 0.48f, 0.52f));
+            Material floor = CreateTintedCopy("Assets/_Project/Materials/Mat_Floor_BathroomTile.mat", "Mat_Floor_OfficeTile", new Color(0.50f, 0.53f, 0.58f), 0.08f, 0.30f);
             Material ceil = LoadMat("Assets/_Project/Materials/Mat_Ceiling_Ivory.mat", new Color(0.92f, 0.92f, 0.94f));
             Material glass = CreateGlassMat();
 
@@ -297,7 +298,7 @@ namespace TrashCleaner3D.Editor
             CreateBox("3F_VaultRoom_East", new Vector3(-1.8f, fh * 2f + fh / 2f, -2.9f), new Vector3(0.22f, fh, 2.2f), wall, root, true);
 
             // 2층 럭셔리 화장실
-            Material tile = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.84f, 0.84f, 0.82f));
+            Material tile = LoadMat("Assets/_Project/Materials/Mat_Floor_BathroomTile.mat", new Color(0.84f, 0.84f, 0.82f));
             CreateBox("2F_BathroomTile", new Vector3(3.65f, fh + 0.12f, 2.70f), new Vector3(2.30f, 0.02f, 2.20f), tile, root, false);
             CreateBox("2F_BathWall_South", new Vector3(3.65f, fh + fh / 2f, 1.60f), new Vector3(2.30f, fh, 0.20f), wall, root, true);
             CreateBox("2F_BathWall_West", new Vector3(2.50f, fh + fh / 2f, 3.05f), new Vector3(0.20f, fh, 1.50f), wall, root, true);
@@ -421,7 +422,7 @@ namespace TrashCleaner3D.Editor
             }
 
             // 문 앞 안전 바닥 발판: 실내 Floor_Main(y=0)과 절대 겹치지 않도록 문 바깥(z >= doorZ+0.25)에 배치 + 높이 -0.025m 분리!
-            Material porchMat = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.55f, 0.55f, 0.55f));
+            Material porchMat = LoadMat("Assets/_Project/Materials/Mat_Floor_BathroomTile.mat", new Color(0.55f, 0.55f, 0.55f));
             CreateBox("Entrance_PorchFloor", new Vector3(doorCenterX, -0.225f, doorZ + 3.55f), new Vector3(12.0f, 0.4f, 6.6f), porchMat, root, true);
 
             GameObject outside = GameObject.Find("Outside_Truck_Area");
@@ -528,10 +529,23 @@ namespace TrashCleaner3D.Editor
             return m != null ? m : CreateColorMat("Fallback", fallback, 0.15f);
         }
 
-        private static Material CreateColorMat(string name, Color col, float smoothness)
+        private static Material CreateTintedCopy(string basePath, string name, Color tint, float metallic, float smoothness)
+        {
+            Material src = AssetDatabase.LoadAssetAtPath<Material>(basePath);
+            if (src == null) return CreateColorMat(name, tint, smoothness, metallic);
+            Material m = new Material(src) { name = name, color = tint };
+            if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", tint);
+            if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", metallic);
+            if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", smoothness);
+            return m;
+        }
+
+        private static Material CreateColorMat(string name, Color col, float smoothness, float metallic = 0f)
         {
             Shader s = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             Material m = new Material(s) { name = name, color = col };
+            if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", col);
+            if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", metallic);
             if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", smoothness);
             return m;
         }

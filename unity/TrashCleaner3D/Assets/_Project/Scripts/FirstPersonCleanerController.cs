@@ -38,11 +38,14 @@ namespace TrashCleaner3D
         public bool AimIsSwarmNear { get; private set; }
         public bool AimIsStain { get; private set; }
         public InteractiveDoor AimDoor { get; private set; }
+        public TreasureTarget AimTreasure { get; private set; }
+        public SecurityCameraController AimCctv { get; private set; }
         public bool NeedMouseShakeHint { get; private set; }
         public float AimProgress01 { get; private set; } = -1f;
         public bool ShowHelp { get; private set; }
-        /// <summary>조준 중인 큰 쓰레기 봉투의 '남은 체력 비율'(0~1). HUD 체력바가 이 값을 부드럽게 따라간다.</summary>
         public float AimPileHp01 { get; private set; } = 1f;
+
+        private TreasureTarget _lastTreasure;
 
         /// <summary>트럭 정산 구역 안에 서 있는지 (HUD 프롬프트용)</summary>
         public bool SettlementZoneActive { get; private set; }
@@ -362,9 +365,16 @@ namespace TrashCleaner3D
             // 흡입 연출은 1단계 청소 중에만 — 보물 팝업·설정·정산 화면에서는 즉시 끈다
             if (_vacuumVortex != null && manager.Phase != GamePhase.Phase1_TrashRemoval) _vacuumVortex.SetIntensity(0f);
 
+            if (WasTabPressed() &&
+                (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping || manager.KioskOpen))
+            {
+                ClearHighlight();
+                manager.ToggleTabUpgradeTree();
+                return;
+            }
+
             if (WasEscPressed() || (manager.KioskOpen && WasKeyEPressed()))
             {
-                // 키오스크/마인드맵이 열려 있을 때의 ESC/E는 닫기 우선
                 if (manager.KioskOpen) manager.CloseUpgradeKiosk();
                 else if (manager.IsStageMindMapOpen) manager.CloseStageMindMap();
                 else manager.ToggleSettingsMenu();
@@ -388,11 +398,8 @@ namespace TrashCleaner3D
                 return;
             }
 
-            if (WasTabPressed() || WasAltPressed())
+            if (WasAltPressed())
             {
-                // v1.5.1: [Tab]은 '커서 모드' 토글 — 하단 스테이지 퀵 전환 바를 마우스로 누를 수 있게 커서를 풀고,
-                //        다시 누르면 1인칭 포인터 락으로 복귀한다. (기존에는 상시 강화 트리 삭제 안내 토스트만 띄워서
-                //        하단 F1~F7 버튼이 '[Tab]을 눌러도' 눌리지 않았다)
                 if (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping)
                 {
                     ToggleUiCursor();
@@ -543,14 +550,23 @@ namespace TrashCleaner3D
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
-                manager.ShowToast("[Tab] ⌖ · 버튼 클릭 ON");
+                manager.ShowToast("[Alt] 하단 테스트 버튼 클릭 ON");
             }
             else
             {
                 LockCursorStrict();
-                manager.ShowToast("[Tab] ⌖ OFF");
+                manager.ShowToast("[Alt] 1인칭 복귀");
             }
             ClearHighlight();
+        }
+
+        private static bool WasKeyRPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            return Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.R);
+#endif
         }
 
         private static bool WasEscPressed()
@@ -596,14 +612,14 @@ namespace TrashCleaner3D
         private void HandleKiosk()
         {
             KioskActive = false;
-            if (manager == null || manager.fieldStation == null) return;
+            if (manager == null || !manager.spawnFieldUpgradeStation || manager.fieldStation == null) return;
 
             FieldUpgradeStation station = manager.fieldStation;
             if (!station.IsPlayerInRange(transform.position)) return;
 
             KioskActive = true;
             int avail = manager.CountAffordableCashUpgrades();
-            KioskTitle = avail > 0 ? $"[E] 강화 · {avail}" : "[E] 강화";
+            KioskTitle = avail > 0 ? $"[Tab] 강화 · {avail}" : "[Tab] 강화";
             KioskDetail = $"{manager.ToolBadge} · {manager.CollectingCount}/{manager.BinCapacity} · ${manager.Money:N0}";
             KioskColor = new Color(0.95f, 0.78f, 0.24f);
 
@@ -741,12 +757,13 @@ namespace TrashCleaner3D
             if (_scrubSoundCooldown > 0f) _scrubSoundCooldown -= Time.deltaTime;
             if (_binHintCooldown > 0f) _binHintCooldown -= Time.deltaTime;
 
-            // 주의: 매 프레임 스웜 락온을 지우지 않음! (clearSwarmLock: false)
             ClearHighlight(false);
             AimIsPile = false;
             AimIsSwarmNear = false;
             AimIsStain = false;
             AimDoor = null;
+            AimTreasure = null;
+            AimCctv = null;
             NeedMouseShakeHint = false;
             AimProgress01 = -1f;
             _scrubMotionWeight = Mathf.MoveTowards(_scrubMotionWeight, 0f, 6f * Time.deltaTime);
@@ -759,7 +776,7 @@ namespace TrashCleaner3D
                 return;
             }
 
-            bool lmbHeld = false, lmbDown = false, rmbDown = false, fDown = false;
+            bool lmbHeld = false, lmbDown = false, rmbDown = false, fDown = false, rDown = false;
 #if ENABLE_INPUT_SYSTEM
             var mouse = Mouse.current;
             var kb = Keyboard.current;
@@ -769,15 +786,19 @@ namespace TrashCleaner3D
                 lmbDown = mouse.leftButton.wasPressedThisFrame;
                 rmbDown = mouse.rightButton.wasPressedThisFrame;
             }
-            if (kb != null) fDown = kb.fKey.wasPressedThisFrame;
+            if (kb != null)
+            {
+                fDown = kb.fKey.wasPressedThisFrame;
+                rDown = kb.rKey.wasPressedThisFrame;
+            }
 #else
             lmbHeld = Input.GetMouseButton(0);
             lmbDown = Input.GetMouseButtonDown(0);
             rmbDown = Input.GetMouseButtonDown(1);
             fDown = Input.GetKeyDown(KeyCode.F);
+            rDown = Input.GetKeyDown(KeyCode.R);
 #endif
 
-            // 바닥 조준점(다층 복층 펜트하우스 1F/2F/3F 바닥 높이 자동 대응!)
             Ray aimRay = new Ray(cameraTransform.position, cameraTransform.forward);
             float floorPlaneY = Mathf.Max(0f, Mathf.Round(transform.position.y * 10f) / 10f);
             if (floorPlaneY < 1.2f) floorPlaneY = 0f;
@@ -788,12 +809,14 @@ namespace TrashCleaner3D
             CleanableTarget hitPile = null;
             CleanableTarget hitStain = null;
             InteractiveDoor hitDoor = null;
+            TreasureTarget hitTreasure = null;
+            SecurityCameraController hitCctv = null;
             bool blockedByDoor = false;
             float blockerDist = float.MaxValue;
 
-            // [v1.8.1 수정 #6] 사거리 강화(PickupReach: 초반 1.85m → 최대 5.8m) 적용!
+            // [v1.9] 수평(XZ) 거리 기준 사거리 + 3D 레이 길이 여유!
             float maxReach = manager.PickupReach;
-            float rayMax = Mathf.Max(3.6f, maxReach + 0.6f);
+            float rayMax = Mathf.Max(4.8f, maxReach + 2.2f);
             RaycastHit[] hits = Physics.RaycastAll(aimRay, rayMax);
             Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
@@ -804,7 +827,7 @@ namespace TrashCleaner3D
                 var door = h.collider.GetComponentInParent<InteractiveDoor>();
                 if (door != null)
                 {
-                    if (hitDoor == null && h.distance <= 3.0f) hitDoor = door;
+                    if (hitDoor == null && h.distance <= 3.1f) hitDoor = door;
                     if (!door.IsOpen)
                     {
                         blockedByDoor = true;
@@ -814,28 +837,58 @@ namespace TrashCleaner3D
                     continue;
                 }
 
+                var tt = h.collider.GetComponentInParent<TreasureTarget>();
+                if (tt != null && tt.State == TreasureState.HiddenInRoom && h.distance <= 3.4f)
+                {
+                    if (hitTreasure == null) hitTreasure = tt;
+                    continue;
+                }
+
+                var cctv = h.collider.GetComponentInParent<SecurityCameraController>();
+                if (cctv != null && !cctv.IsBlinded && h.distance <= 4.8f)
+                {
+                    if (hitCctv == null) hitCctv = cctv;
+                    continue;
+                }
+
                 var c = h.collider.GetComponentInParent<CleanableTarget>();
                 if (c != null && !c.IsCleaned)
                 {
                     if (c.kind == CleanableKind.TrashPile && hitPile == null) hitPile = c;
                     else if (c.kind == CleanableKind.FloorStain && hitStain == null) hitStain = c;
-                    continue;   // 쓰레기/얼룩은 '장애물'이 아니다
+                    continue;
                 }
 
-                // 벽·가구 등 실제 장애물: 바닥 조준점이 이 뒤로 넘어가지 않게 자른다
                 if (h.distance < blockerDist) blockerDist = h.distance;
             }
 
             Vector3 aimPoint = Vector3.zero;
             bool hasAimPoint = false;
-            if (planeT > 0.05f && planeT <= maxReach)
+            // [v1.9] 1순위: 시선 레이가 3D 쓰레기 더미 표면을 스치면 그 쓰레기 높이에 바로 락온!
+            if (manager.trashSwarm != null && !blockedByDoor &&
+                manager.trashSwarm.TryGetRayTrashHit(aimRay, maxReach, Mathf.Max(0.24f, manager.SweepRadius * 0.45f), out Vector3 trashHitPt))
             {
-                float useT = Mathf.Min(planeT, Mathf.Min(blockerDist - 0.05f, maxReach));
-                if (useT > 0.20f)
+                float td = Vector3.Distance(cameraTransform.position, trashHitPt);
+                if (td < blockerDist - 0.03f)
                 {
-                    aimPoint = aimRay.GetPoint(useT);
-                    aimPoint.y = floorPlaneY;
-                    hasAimPoint = Vector3.Distance(cameraTransform.position, aimPoint) <= maxReach + 0.08f;
+                    aimPoint = trashHitPt;
+                    hasAimPoint = true;
+                }
+            }
+            // 2순위: 바닥 평면 교차점 (수평 거리 maxReach 이내!)
+            if (!hasAimPoint && planeT > 0.05f)
+            {
+                float useT = Mathf.Min(planeT, blockerDist - 0.05f);
+                if (useT > 0.18f)
+                {
+                    Vector3 pt = aimRay.GetPoint(useT);
+                    pt.y = floorPlaneY;
+                    Vector2 hDelta = new Vector2(pt.x - transform.position.x, pt.z - transform.position.z);
+                    if (hDelta.magnitude <= maxReach)
+                    {
+                        aimPoint = pt;
+                        hasAimPoint = true;
+                    }
                 }
             }
 
@@ -845,7 +898,7 @@ namespace TrashCleaner3D
                 manager.trashSwarm.SetCursorRing(showRing, aimPoint, manager.SweepRadius);
             }
 
-            // ===== v1.4 트럭 1:1 정산 구역 (허리 아래 낮은 포물선 — 시야 가림 0%) =====
+            // ===== 트럭 1:1 정산 구역 =====
             SettlementZoneActive = manager.IsPlayerInTruckSettleZone(transform.position);
             SettlementReadyCount = manager.CollectingCount;
 
@@ -864,10 +917,10 @@ namespace TrashCleaner3D
                 {
                     _binHintCooldown = 1.6f;
                     manager.ShowToast(manager.VehicleHasRemoteSettle
-                        ? $"▣ {manager.RemoteSettleFill01 * 100f:0}% 자동"
-                        : manager.VehicleHasPorchSettle ? "▣ 문 앞 자동"
-                            : manager.VehicleHasYardSuction ? "▣ 마당 자동"
-                                : $"▣ [RMB] · {manager.CollectingCount}");
+                        ? $"자동 정산 대기 ({manager.RemoteSettleFill01 * 100f:0}%)"
+                        : manager.VehicleHasPorchSettle ? "현관 앞 자동 정산"
+                            : manager.VehicleHasYardSuction ? "마당 진입 시 자동 정산"
+                                : $"수거통 {manager.CollectingCount}개 · 차량에서 [RMB] 정산");
                 }
             }
 
@@ -882,7 +935,16 @@ namespace TrashCleaner3D
 
             if (blockedByDoor) { ClearSwarmSelection(); return; }
 
-            // 수거통이 가득 차면 '바닥 흡입'만 막는다 — 큰 봉투 타격·문 열기는 그대로 가능(요청 #12).
+            // 1.5) [v1.9] 보물 / 의뢰인 분실물 실시간 선택 ([F] 보관·반환 / [R] 몰래 슈킹!)
+            if (hitTreasure != null)
+            {
+                _lastTreasure = hitTreasure;
+                hitTreasure.SetHighlighted(true);
+                AimTreasure = hitTreasure;
+                if (fDown) { ClearSwarmSelection(); manager.ReturnTreasure(hitTreasure); return; }
+                if (rDown) { ClearSwarmSelection(); manager.StealTreasure(hitTreasure); return; }
+            }
+
             bool binBlocked = manager.IsBinFull;
             if (binBlocked && lmbHeld && _binHintCooldown <= 0f)
             {
@@ -895,21 +957,18 @@ namespace TrashCleaner3D
             // ===== PHASE 1 =====
             if (manager.Phase == GamePhase.Phase1_TrashRemoval)
             {
-                // 요청 #4: 큰 쓰레기 봉투/박스 타격은 오직 [LMB 단타 클릭(lmbDown)] 전용!
-                // (꾹 누르고 있을 때는 큰 봉투에 데미지가 절대 들어가지 않음!)
                 if (hitPile != null && Vector3.Distance(cameraTransform.position, hitPile.transform.position) <= 4.0f)
                 {
                     _lastTarget = hitPile;
                     hitPile.SetHighlighted(true);
                     AimIsPile = true;
                     AimProgress01 = hitPile.CleanProgress01;
-                    AimPileHp01 = hitPile.HpRatio01;   // 요청 #8: 체력바는 '남은 체력'을 그대로 따라간다
+                    AimPileHp01 = hitPile.HpRatio01;
 
                     if (lmbDown && _punchCooldown <= 0f)
                     {
                         _punchCooldown = 0.12f;
                         _punchTimer = 0.15f;
-                        // [v1.7] 봉투 치명타: '급소' 가지 노드로 확률·배율이 열린다.
                         float dmg = manager.RollFistDamage(out bool fistCrit);
                         if (hitPile.ApplyCleanDamage(dmg, null)) manager.OnBigPileBurst(hitPile);
                         else manager.sfx.PlayScrub();
@@ -920,14 +979,12 @@ namespace TrashCleaner3D
                     }
                 }
 
-                // ===== [v1.8] 3·4단계 장비: 원기옥·블랙홀은 전용 기믹으로 갈아탄다 =====
                 if (manager.Mode == GearMode.Orb || manager.Mode == GearMode.BlackHole)
                 {
                     HandleGearMode(lmbHeld, floorPlaneY);
                     return;
                 }
 
-                // [v1.8.1 수정 #4·#5·#6] 사거리(PickupReach) + 엄격 반경 + 카메라 시선 앞쪽/윗쪽 겉면 최우선 락온!
                 _hasReachTarget = false;
                 if (manager.trashSwarm != null && hasAimPoint && !binBlocked)
                 {
@@ -936,10 +993,14 @@ namespace TrashCleaner3D
                     manager.trashSwarm.UpdateHoverSelection(true, lmbHeld, aimPoint, r, grabLimit, cameraTransform.position, cameraTransform.forward);
                     AimIsSwarmNear = manager.trashSwarm.HoveredCount > 0;
 
+                    if (lmbDown && AimIsSwarmNear)
+                    {
+                        manager.trashSwarm.QuickChargeSelectedOnClick(0.65f);
+                    }
+
                     if (AimIsSwarmNear && manager.trashSwarm.TryGetPrimaryTargetPos(out Vector3 targetWorld))
                     {
                         Vector3 localT = cameraTransform.InverseTransformPoint(targetWorld);
-                        // 손이 실제 쓰레기 좌표까지 쭉 뻗어 집도록 자연스러운 팔 리치 범위로 클램프
                         float dist = localT.magnitude;
                         if (dist > 1.25f) localT = localT.normalized * 1.25f;
                         localT.x = Mathf.Clamp(localT.x, -0.58f, 0.58f);
@@ -949,7 +1010,6 @@ namespace TrashCleaner3D
                         _hasReachTarget = true;
                     }
 
-                    // v1.3 (요청 #9): 화면 중앙이 아니라 실제 손/노즐 끝으로 빨려 들어간다.
                     EnsureSuckTarget();
                     Transform dest = _suckTarget != null ? _suckTarget : rightToolPivot;
                     int picked = manager.trashSwarm.TickHoldChargeAndPull(
@@ -992,10 +1052,26 @@ namespace TrashCleaner3D
                     ClearSwarmSelection();
                 }
             }
-            // ===== PHASE 2: 밀대/걸레 바닥 닦기 =====
+            // ===== PHASE 2: 밀대/걸레 바닥 닦기 & CCTV 거품 무력화 =====
             else if (manager.Phase == GamePhase.Phase2_FloorMopping)
             {
                 ClearSwarmSelection();
+                if (hitCctv != null)
+                {
+                    AimCctv = hitCctv;
+                    if (lmbHeld)
+                    {
+                        _scrubMotionWeight = 1f;
+                        _scrubPhase += 10f * Time.deltaTime;
+                        if (_scrubSoundCooldown <= 0f) { _scrubSoundCooldown = 0.16f; manager.sfx.PlayScrub(); }
+                        if (hitCctv.ApplyFoamSpray(Time.deltaTime, 25f))
+                        {
+                            manager.ShowToast("★ CCTV 거품 무력화! (25초간 시야 차단)");
+                            manager.sfx.PlayChime();
+                        }
+                    }
+                    return;
+                }
                 if (hitStain != null)
                 {
                     _lastTarget = hitStain;
@@ -1172,6 +1248,7 @@ namespace TrashCleaner3D
         {
             if (_lastTarget != null) { _lastTarget.SetHighlighted(false); _lastTarget = null; }
             if (_lastDoor != null) { _lastDoor.SetHighlighted(false); _lastDoor = null; }
+            if (_lastTreasure != null) { _lastTreasure.SetHighlighted(false); _lastTreasure = null; }
             if (clearSwarmLock) ClearSwarmSelection();
         }
 

@@ -370,8 +370,8 @@ namespace TrashCleaner3D.Editor
             trashRoot1.transform.SetParent(stage1Container.transform, false);
             Vector3[] pilePos1 = new[]
             {
-                new Vector3( 2.85f, 0f,  1.25f),
-                new Vector3( 1.65f, 0f,  0.95f),
+                new Vector3( 3.15f, 0f,  0.85f),
+                new Vector3( 1.80f, 0f,  0.15f),
                 new Vector3( 3.10f, 0f, -0.65f),
                 new Vector3( 2.75f, 0f, -1.95f),
                 new Vector3( 1.25f, 0f, -0.45f),
@@ -525,16 +525,16 @@ namespace TrashCleaner3D.Editor
             // +30% 확장 원룸 (x: -4.68..+4.68, z: -3.90..+3.90) 핵심 가구 5종 (냉장고·전자레인지·싱크대·침대·책상)
             Bounds fridgeBounds;
             bool hasFridge = PlaceAptPrefab("Furniture/Kitchen/Appliances/Fridge_01.prefab", "Apt_Fridge",
-                new Vector3(0.75f, 0f, 3.35f), 180f, parent, true, -4.55f, 1.42f, -3.78f, 3.78f, out fridgeBounds);
+                new Vector3(-0.35f, 0f, 3.35f), 180f, parent, true, -4.55f, 0.45f, -3.78f, 3.78f, out fridgeBounds);
             if (!hasFridge)
             {
-                GameObject fb = CreateWorldBox("Fridge", new Vector3(0.75f, 0.78f, 3.40f), new Vector3(0.70f, 1.56f, 0.70f), fallbackAppliance, parent, true);
+                GameObject fb = CreateWorldBox("Fridge", new Vector3(-0.35f, 0.78f, 3.40f), new Vector3(0.70f, 1.56f, 0.70f), fallbackAppliance, parent, true);
                 fridgeBounds = fb.GetComponent<Renderer>().bounds;
             }
             BuildRealisticMicrowave(new Vector3(fridgeBounds.center.x, fridgeBounds.max.y, fridgeBounds.center.z), parent);
 
             PlaceAptPrefab("Furniture/Kitchen/Cabinets/Cabinet_Base_Sink_01.prefab", "Apt_KitchenSink",
-                new Vector3(-0.55f, 0f, 3.40f), 180f, parent, true, -4.55f, 1.42f, -3.78f, 3.78f, out _);
+                new Vector3(-1.75f, 0f, 3.40f), 180f, parent, true, -4.55f, 0.45f, -3.78f, 3.78f, out _);
 
             bool hasBed = PlaceAptPrefab("Furniture/Bedroom/Bed_Apt_01_01.prefab", "Apt_Bed",
                 new Vector3(-3.35f, 0f, -2.55f), 90f, parent, true, -4.55f, 4.55f, -3.78f, 3.78f, out _);

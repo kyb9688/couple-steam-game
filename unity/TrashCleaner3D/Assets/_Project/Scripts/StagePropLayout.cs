@@ -4,18 +4,10 @@ using UnityEngine;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v1.7 스테이지별 큰 봉투·바닥 얼룩 배치.
-    ///
-    /// 배경: v1.6에서 Stage 2~7 씬에 비활성으로 묻혀 있던 소품을 실제 방 규격에 맞춰 다시 배치했다.
-    /// v1.7은 방 사용 면적을 방 끝까지 넓히고(스테이지별 +12~80%), 4시간 캠페인에 맞춰
-    /// 큰 봉투·얼룩 개수도 단계적으로 늘린다. 씬에 원본 소품이 모자라면 런타임에 복제해 채운다
-    /// (메시·머티리얼을 공유하므로 추가 메모리·드로우콜 부담은 작다).
-    ///  - ST.2 택배 오피스텔: 택배박스/스티로폼 큰 봉투 비중 대폭 증가
-    ///  - ST.3 치킨집 주방: 바닥 얼룩(행주질) 비중 대폭 증가
-    ///  - ST.4 맞벌이 부부 집: 거실·안방·욕실 3구역에 분산
-    ///  - ST.5 스타트업 사무실: 대량 물량전에 맞춰 봉투 다수
-    ///  - ST.6 시골 농막: 좁은 방에 악취와 함께 굵직한 봉투 위주
-    ///  - ST.7 3층 펜트하우스: 1F·2F·3F(랜딩·욕실·금고방 포함) 층별로 분산
+    /// v1.9 스테이지별 큰 봉투·바닥 얼룩·보물·분실물 선반·CCTV 배치.
+    /// - 스테이지별 내구도 차등화(ST.1 4타 → ST.7 120HP)로 봉투/박스 존재감 및 파쇄 강화 체감 확보
+    /// - 모든 스테이지 현관문 안쪽 1.85m 안전구역 확보(문 열자마자 길막 0%)
+    /// - 의뢰인 지정 분실물 1종 + 숨겨진 귀중품 + 택배박스 파열 시 확률 언박싱 보물 연동!
     /// </summary>
     public static class StagePropLayout
     {
@@ -32,66 +24,36 @@ namespace TrashCleaner3D
         {
             switch (stage)
             {
-                case 1: return new Plan { pileCount = 8,  stainCount = 5,  pileHp = 7f,  stainHp = 2.4f, stainReward = 18 };
-                case 2: return new Plan { pileCount = 30, stainCount = 10, pileHp = 8f,  stainHp = 2.4f, stainReward = 22 };
-                case 3: return new Plan { pileCount = 20, stainCount = 40, pileHp = 8f,  stainHp = 2.2f, stainReward = 24 };
-                case 4: return new Plan { pileCount = 36, stainCount = 20, pileHp = 9f,  stainHp = 2.3f, stainReward = 26 };
-                case 5: return new Plan { pileCount = 45, stainCount = 24, pileHp = 9f,  stainHp = 2.3f, stainReward = 30 };
-                case 6: return new Plan { pileCount = 30, stainCount = 16, pileHp = 10f, stainHp = 2.4f, stainReward = 30 };
-                case 7: return new Plan { pileCount = 60, stainCount = 30, pileHp = 10f, stainHp = 2.4f, stainReward = 34 };
-                default: return new Plan { pileCount = 8, stainCount = 5, pileHp = 7f, stainHp = 2.4f, stainReward = 18 };
+                case 1: return new Plan { pileCount = 8,  stainCount = 6,  pileHp = 5.5f,  stainHp = 2.2f, stainReward = 22 };
+                case 2: return new Plan { pileCount = 26, stainCount = 12, pileHp = 13.0f, stainHp = 2.6f, stainReward = 38 };
+                case 3: return new Plan { pileCount = 18, stainCount = 44, pileHp = 24.0f, stainHp = 2.8f, stainReward = 65 };
+                case 4: return new Plan { pileCount = 32, stainCount = 22, pileHp = 40.0f, stainHp = 3.2f, stainReward = 110 };
+                case 5: return new Plan { pileCount = 38, stainCount = 24, pileHp = 62.0f, stainHp = 3.6f, stainReward = 185 };
+                case 6: return new Plan { pileCount = 26, stainCount = 18, pileHp = 85.0f, stainHp = 4.0f, stainReward = 280 };
+                case 7: return new Plan { pileCount = 48, stainCount = 32, pileHp = 120.0f,stainHp = 4.5f, stainReward = 450 };
+                default: return new Plan { pileCount = 8, stainCount = 6,  pileHp = 5.5f,  stainHp = 2.2f, stainReward = 22 };
             }
         }
 
         private static Transform _root;
         private static readonly List<CleanableTarget> _clones = new List<CleanableTarget>(64);
+        private static readonly List<TreasureTarget> _treasures = new List<TreasureTarget>(16);
+        private static GameObject _shelfObj;
+        private static int _boxTreasuresSpawned;
+        private static int _returnedSlotCounter;
 
-        /// <summary>배치된 큰 봉투·얼룩의 공통 부모(매니저 집계용).</summary>
         public static Transform Root => _root;
+        public static Transform ReturnShelfSlot { get; private set; }
+        public static IReadOnlyList<TreasureTarget> StageTreasures => _treasures;
 
-        /// <summary>
-        /// 현재 스테이지 규격으로 큰 봉투/얼룩을 재배치하고 켜고 끈다. 매니저 Start에서
-        /// 스웜 스폰(방 규격 확정) 뒤, CollectTargets 전에 호출한다.
-        /// </summary>
+        public static int AllocateReturnShelfSlotIndex() => _returnedSlotCounter++;
+
         public static void Apply(GamePrototypeManager mgr, int stage)
         {
             ClearClones();
-
-            var all = Object.FindObjectsByType<CleanableTarget>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            if (all == null || all.Length == 0) return;
-
-            var piles = new List<CleanableTarget>(48);
-            var stains = new List<CleanableTarget>(24);
-            foreach (var c in all)
-            {
-                if (c == null) continue;
-                // v1.7: 지난 스테이지에서 복제한 소품(Destroy 예약분)은 다시 세지 않는다(중복 누적 방지).
-                if (c.name.Contains("_v17_")) continue;
-                // [v1.8.1] 거대 하얀 블록 덩어리로 보이던 스티로폼 큰 봉투는 배치 대상에서 제외하고 숨긴다!
-                if (c.kind == CleanableKind.TrashPile && (c.displayName ?? "").Contains("스티로폼"))
-                {
-                    c.gameObject.SetActive(false);
-                    continue;
-                }
-                if (c.kind == CleanableKind.TrashPile) piles.Add(c);
-                else if (c.kind == CleanableKind.FloorStain) stains.Add(c);
-            }
-            if (piles.Count == 0 && stains.Count == 0) return;
-
-            // 이름 기준 정렬 → 씬/스테이지와 무관하게 항상 같은 선택·같은 배치(재현 가능).
-            piles.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
-            stains.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
-
-            // ST.2는 택배박스/스티로폼 박스를 앞으로 당겨 '큰 봉투 비중 대폭 증가'를 살린다.
-            if (stage == 2 || stage == 5)
-            {
-                piles.Sort((a, b) =>
-                {
-                    int sa = BoxScore(a), sb = BoxScore(b);
-                    if (sa != sb) return sb.CompareTo(sa);
-                    return string.CompareOrdinal(a.name, b.name);
-                });
-            }
+            ClearTreasures();
+            _boxTreasuresSpawned = 0;
+            _returnedSlotCounter = 0;
 
             if (_root == null)
             {
@@ -103,62 +65,255 @@ namespace TrashCleaner3D
                 _root.localScale = Vector3.one;
             }
 
+            var all = Object.FindObjectsByType<CleanableTarget>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            var piles = new List<CleanableTarget>(48);
+            var stains = new List<CleanableTarget>(24);
+            if (all != null)
+            {
+                foreach (var c in all)
+                {
+                    if (c == null) continue;
+                    if (c.name.Contains("_v17_")) continue;
+                    if (c.kind == CleanableKind.TrashPile && (c.displayName ?? "").Contains("스티로폼"))
+                    {
+                        c.gameObject.SetActive(false);
+                        continue;
+                    }
+                    if (c.kind == CleanableKind.TrashPile) piles.Add(c);
+                    else if (c.kind == CleanableKind.FloorStain) stains.Add(c);
+                }
+            }
+
+            piles.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+            stains.Sort((a, b) => string.CompareOrdinal(a.name, b.name));
+
+            if (stage == 2 || stage == 5)
+            {
+                piles.Sort((a, b) =>
+                {
+                    int sa = BoxScore(a), sb = BoxScore(b);
+                    if (sa != sb) return sb.CompareTo(sa);
+                    return string.CompareOrdinal(a.name, b.name);
+                });
+            }
+
             var rooms = InstancedTrashSwarm.RoomsForStage(stage);
             Plan plan = GetPlan(stage);
 
-            // 1) 큰 봉투: 방 구역별로 나눠 배치 (앞쪽일수록 바깥 구역 → 동선 분산)
-            var list = ExpandTo(piles, plan.pileCount);
-            var placed = new List<Vector3>(list.Count);
-            for (int i = 0; i < list.Count; i++)
+            var placed = new List<Vector3>(64);
+            if (piles.Count > 0)
             {
-                var c = list[i];
-                var room = PickRoom(rooms, i, list.Count, stage);
-                Vector3 p = PickPoint(room, placed, 0.85f, 1.6f, stage);
-                c.ConfigureForLayout(_root, p, plan.pileHp, 0);
-                c.gameObject.SetActive(true);
-                placed.Add(p);
+                var list = ExpandTo(piles, plan.pileCount);
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var c = list[i];
+                    var room = PickRoom(rooms, i, list.Count, stage);
+                    Vector3 p = PickPoint(room, placed, 0.85f, 1.55f, stage);
+                    c.ConfigureForLayout(_root, p, plan.pileHp, 0);
+                    c.gameObject.SetActive(true);
+                    placed.Add(p);
+                }
             }
 
-            // 2) 바닥 얼룩: 바닥 높이에 밀착
-            var slist = ExpandTo(stains, plan.stainCount);
-            placed.Clear();
-            for (int i = 0; i < slist.Count; i++)
+            if (stains.Count > 0)
             {
-                var c = slist[i];
-                var room = PickRoom(rooms, i, slist.Count, stage);
-                Vector3 p = PickPoint(room, placed, 0.7f, 1.1f, stage);
-                p.y = room.floorY + 0.012f;
-                c.ConfigureForLayout(_root, p, plan.stainHp, plan.stainReward);
-                c.gameObject.SetActive(true);
-                placed.Add(p);
+                var slist = ExpandTo(stains, plan.stainCount);
+                placed.Clear();
+                for (int i = 0; i < slist.Count; i++)
+                {
+                    var c = slist[i];
+                    var room = PickRoom(rooms, i, slist.Count, stage);
+                    Vector3 p = PickPoint(room, placed, 0.65f, 0.95f, stage);
+                    p.y = room.floorY + 0.014f;
+                    c.ConfigureForLayout(_root, p, plan.stainHp, plan.stainReward);
+                    // Stage 3 치킨집 주방: 진한 황금 갈색 튀김 기름때/양념 얼룩으로 선명하게 강조!
+                    if (stage == 3)
+                    {
+                        c.displayName = i % 3 == 0 ? "치킨 양념 얼룩" : "튀김 기름때";
+                        foreach (var r in c.GetComponentsInChildren<Renderer>(true))
+                        {
+                            if (r != null && r.material != null)
+                            {
+                                Color grease = i % 3 == 0 ? new Color(0.62f, 0.16f, 0.08f, 0.92f) : new Color(0.58f, 0.36f, 0.08f, 0.92f);
+                                if (r.material.HasProperty("_BaseColor")) r.material.SetColor("_BaseColor", grease);
+                                r.material.color = grease;
+                            }
+                        }
+                    }
+                    c.gameObject.SetActive(true);
+                    placed.Add(p);
+                }
             }
 
-            // [v1.8.1] Stage 2~7 장식용 택배박스·피자박스·스티로폼도 전부 공격 가능한 CleanableTarget으로 _root 아래 편입!
             ConvertStaticTrashPropsToAttackable(stage, plan.pileHp, _root);
+
+            // [v1.9] 분실물 보관 선반 + 의뢰인 분실물 1종 + 숨겨진 귀중품 + CCTV 활성화!
+            BuildReturnShelf(mgr, stage, rooms);
+            SpawnStageTreasures(stage, rooms);
+            SecurityCameraController.AutoAttachToStageCameras();
         }
 
-        /// <summary>[v1.7] 씬 원본이 모자라면 원본을 복제해 목표 개수까지 채운다.</summary>
+        public static void ResetBoxTreasures()
+        {
+            _boxTreasuresSpawned = 0;
+            _returnedSlotCounter = 0;
+            for (int i = _treasures.Count - 1; i >= 0; i--)
+            {
+                var t = _treasures[i];
+                if (t == null) { _treasures.RemoveAt(i); continue; }
+                if (t.isFromBox)
+                {
+                    Object.Destroy(t.gameObject);
+                    _treasures.RemoveAt(i);
+                }
+                else
+                {
+                    t.ResetForNewRun();
+                }
+            }
+        }
+
+        public static TreasureTarget TrySpawnBoxTreasure(Vector3 origin, int stage)
+        {
+            if (_boxTreasuresSpawned >= 2) return null;
+            if (Random.value > 0.28f) return null;
+
+            _boxTreasuresSpawned++;
+            int val = Mathf.RoundToInt(GetHiddenBaseValue(stage) * Random.Range(1.05f, 1.45f));
+            string[] names = { "미개봉 명품 향수", "새 스마트워치", "현금 봉투", "백화점 상품권 다발", "순금 반지" };
+            TreasureVisualKind[] kinds = { TreasureVisualKind.SmartWatch, TreasureVisualKind.SmartWatch, TreasureVisualKind.CashBundle, TreasureVisualKind.LuckyTwoDollar, TreasureVisualKind.GoldRing };
+            int k = Random.Range(0, names.Length);
+            Vector3 dropPos = new Vector3(origin.x, Mathf.Max(0f, origin.y) + 0.04f, origin.z);
+            var t = TreasureTarget.SpawnProcedural(_root, kinds[k], dropPos, names[k], val, false, 18f, fromBox: true);
+            _treasures.Add(t);
+            return t;
+        }
+
+        private static int GetHiddenBaseValue(int stage)
+        {
+            switch (stage)
+            {
+                case 1: return 110;
+                case 2: return 320;
+                case 3: return 820;
+                case 4: return 2200;
+                case 5: return 5400;
+                case 6: return 9500;
+                case 7: return 18000;
+                default: return 120;
+            }
+        }
+
+        private static void BuildReturnShelf(GamePrototypeManager mgr, int stage, InstancedTrashSwarm.RoomZoneDef[] rooms)
+        {
+            if (_shelfObj != null) Object.Destroy(_shelfObj);
+
+            float sx = 2.85f, sz = 3.25f;
+            var door = Object.FindFirstObjectByType<InteractiveDoor>();
+            if (door != null)
+            {
+                Vector3 dc = door.doorCollider != null ? door.doorCollider.transform.position : door.transform.position;
+                float sideX = stage == 2 ? dc.x + 0.72f : stage == 7 ? dc.x + 1.05f : dc.x + 0.88f;
+                float minX = -3.8f, maxX = 4.2f;
+                for (int r = 0; r < rooms.Length; r++)
+                {
+                    if (rooms[r].floorY < 0.5f)
+                    {
+                        minX = Mathf.Min(minX, rooms[r].minX);
+                        maxX = Mathf.Max(maxX, rooms[r].maxX);
+                    }
+                }
+                sx = Mathf.Clamp(sideX, minX + 0.4f, maxX - 0.35f);
+                sz = dc.z - 0.58f;
+            }
+
+            _shelfObj = new GameObject("ClientReturnShelf_Indoor");
+            _shelfObj.transform.SetParent(_root, false);
+            _shelfObj.transform.position = new Vector3(sx, 0f, sz);
+
+            Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material wood = new Material(lit);
+            Color wc = new Color(0.56f, 0.40f, 0.24f);
+            if (wood.HasProperty("_BaseColor")) wood.SetColor("_BaseColor", wc);
+            wood.color = wc;
+
+            Material trayMat = new Material(lit);
+            Color tc = new Color(0.24f, 0.62f, 0.42f);
+            if (trayMat.HasProperty("_BaseColor")) trayMat.SetColor("_BaseColor", tc);
+            trayMat.color = tc;
+
+            GameObject stand = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Object.Destroy(stand.GetComponent<Collider>());
+            stand.transform.SetParent(_shelfObj.transform, false);
+            stand.transform.localPosition = new Vector3(0f, 0.44f, 0f);
+            stand.transform.localScale = new Vector3(0.72f, 0.88f, 0.34f);
+            stand.GetComponent<Renderer>().sharedMaterial = wood;
+
+            GameObject tray = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Object.Destroy(tray.GetComponent<Collider>());
+            tray.transform.SetParent(_shelfObj.transform, false);
+            tray.transform.localPosition = new Vector3(0f, 0.89f, 0f);
+            tray.transform.localScale = new Vector3(0.66f, 0.04f, 0.30f);
+            tray.GetComponent<Renderer>().sharedMaterial = trayMat;
+
+            GameObject slot = new GameObject("ReturnShelfSlot");
+            slot.transform.SetParent(_shelfObj.transform, false);
+            slot.transform.localPosition = new Vector3(0f, 0.92f, 0f);
+            ReturnShelfSlot = slot.transform;
+        }
+
+        private static void SpawnStageTreasures(int stage, InstancedTrashSwarm.RoomZoneDef[] rooms)
+        {
+            // 1) 의뢰인 지정 분실물 1종 (우상단 메모 위치에 정확히 배치!)
+            Vector3 lostPos;
+            string lostName;
+            TreasureVisualKind lostKind;
+            switch (stage)
+            {
+                case 1: lostPos = new Vector3(-2.65f, 0.02f, -2.05f); lostName = "엄마가 주신 금반지"; lostKind = TreasureVisualKind.GoldRing; break;
+                case 2: lostPos = new Vector3(-1.05f, 0.02f, -1.65f); lostName = "강아지 은색 인식표"; lostKind = TreasureVisualKind.DogTag; break;
+                case 3: lostPos = new Vector3(-0.35f, 0.02f, 0.85f);  lostName = "개업 기념 2달러 지폐"; lostKind = TreasureVisualKind.LuckyTwoDollar; break;
+                case 4: lostPos = new Vector3(1.65f, 0.02f, -0.45f);  lostName = "아기 첫 돌 금반지"; lostKind = TreasureVisualKind.BabyGoldRing; break;
+                case 5: lostPos = new Vector3(-2.70f, 0.02f, -1.75f); lostName = "법인 인감 도장"; lostKind = TreasureVisualKind.CorporateSeal; break;
+                case 6: lostPos = new Vector3(-1.15f, 0.02f, -0.95f); lostName = "할아버지 회중시계"; lostKind = TreasureVisualKind.PocketWatch; break;
+                default: lostPos = new Vector3(-3.30f, 6.13f, -2.40f); lostName = "스포츠카 차 키"; lostKind = TreasureVisualKind.SportsCarKey; break;
+            }
+            int lostTip = Mathf.RoundToInt(GetHiddenBaseValue(stage) * 1.4f);
+            _treasures.Add(TreasureTarget.SpawnProcedural(_root, lostKind, lostPos, lostName, lostTip, designated: true, suspGain: 100f));
+
+            // 2) 쓰레기 산 아래 숨겨진 보물들 (Stage 1: 3개 → Stage 7: 6개)
+            int hiddenCount = stage <= 2 ? 3 : stage <= 4 ? 4 : stage <= 6 ? 5 : 6;
+            int baseV = GetHiddenBaseValue(stage);
+            string[] hiddenNames = { "5만 원권 다발", "고급 스마트워치", "빈티지 회중시계", "24K 골드바", "비자금 현금뭉치", "미개봉 명품 워치" };
+            TreasureVisualKind[] hiddenKinds = {
+                TreasureVisualKind.CashBundle, TreasureVisualKind.SmartWatch, TreasureVisualKind.PocketWatch,
+                TreasureVisualKind.GoldBar, TreasureVisualKind.CashBundle, TreasureVisualKind.SmartWatch
+            };
+            var placed = new List<Vector3>(hiddenCount) { lostPos };
+            for (int i = 0; i < hiddenCount; i++)
+            {
+                var room = PickRoom(rooms, i + 1, hiddenCount + 1, stage);
+                Vector3 p = PickPoint(room, placed, 0.7f, 1.35f, stage);
+                p.y = room.floorY + 0.025f;
+                placed.Add(p);
+                int val = Mathf.RoundToInt(baseV * Random.Range(0.95f, 1.55f));
+                _treasures.Add(TreasureTarget.SpawnProcedural(_root, hiddenKinds[i % hiddenKinds.Length], p,
+                    hiddenNames[(i + stage) % hiddenNames.Length], val, designated: false, suspGain: Random.Range(16f, 24f)));
+            }
+        }
+
         private static List<CleanableTarget> ExpandTo(List<CleanableTarget> source, int target)
         {
             var list = new List<CleanableTarget>(Mathf.Max(source.Count, target));
             list.AddRange(source);
-            if (target <= 0)
-            {
-                list.Clear();
-                return list;
-            }
-            if (list.Count > target)
-            {
-                list.RemoveRange(target, list.Count - target);
-                return list;
-            }
+            if (target <= 0 || source.Count == 0) { list.Clear(); return list; }
+            if (list.Count > target) { list.RemoveRange(target, list.Count - target); return list; }
             int src = 0;
             while (list.Count < target)
             {
                 var template = source[src % source.Count];
                 src++;
                 if (template == null) break;
-                // 비활성 템플릿도 복제 가능(복제 후 Awake 전에 ConfigureForLayout → SetActive 순서).
                 var clone = Object.Instantiate(template.gameObject);
                 clone.name = template.name + "_v17_" + list.Count;
                 var comp = clone.GetComponent<CleanableTarget>();
@@ -171,12 +326,16 @@ namespace TrashCleaner3D
 
         private static void ClearClones()
         {
-            // 스테이지 재진입/재시작 시 이전에 복제한 소품을 정리(중복 누적 방지)
             for (int i = 0; i < _clones.Count; i++)
-            {
                 if (_clones[i] != null) Object.Destroy(_clones[i].gameObject);
-            }
             _clones.Clear();
+        }
+
+        private static void ClearTreasures()
+        {
+            for (int i = 0; i < _treasures.Count; i++)
+                if (_treasures[i] != null) Object.Destroy(_treasures[i].gameObject);
+            _treasures.Clear();
         }
 
         private static int BoxScore(CleanableTarget c)
@@ -184,7 +343,7 @@ namespace TrashCleaner3D
             string n = c.displayName ?? "";
             if (n.Contains("택배")) return 3;
             if (n.Contains("박스")) return 2;
-            if (c.name.StartsWith("Pile2")) return 1;   // 오피스텔 컨테이너 유래
+            if (c.name.StartsWith("Pile2")) return 1;
             return 0;
         }
 
@@ -192,13 +351,8 @@ namespace TrashCleaner3D
         {
             if (rooms == null || rooms.Length == 0)
                 return new InstancedTrashSwarm.RoomZoneDef { minX = -3f, maxX = 3f, minZ = -3f, maxZ = 3f, floorY = 0f, center = Vector3.zero };
-
             if (rooms.Length == 1) return rooms[0];
-
-            // 방이 여러 개면 라운드로빈으로 고르게 분산 (ST.7은 층별 순서대로)
-            if (stage == 7)
-                return rooms[index % rooms.Length];
-
+            if (stage == 7) return rooms[index % rooms.Length];
             int slot = Mathf.Clamp(index * rooms.Length / Mathf.Max(1, total), 0, rooms.Length - 1);
             return rooms[slot];
         }
@@ -228,14 +382,6 @@ namespace TrashCleaner3D
             return AvoidFurniture(best, room, stage);
         }
 
-        /// <summary>
-        /// 1단계 원룸은 침대·책상·냉장고·현관문 스윙 자리가 있다. 봉투가 그 안에 박히면
-        /// 닿을 수 없어 진행률이 막히므로, InstancedTrashSwarm 이 쓰던 회피 규칙을 그대로 적용한다.
-        /// </summary>
-        /// <summary>
-        /// [v1.8.1] Stage 2~7 가구 폴더에 장식으로 들어가 있던 택배박스·피자박스·스티로폼을
-        /// 플레이어가 클릭으로 때려 터뜨릴 수 있는 CleanableTarget으로 자동 변환한다.
-        /// </summary>
         private static void ConvertStaticTrashPropsToAttackable(int stage, float pileHp, Transform root)
         {
             if (stage <= 1) return;
@@ -261,8 +407,8 @@ namespace TrashCleaner3D
                 ct.displayName = lower.Contains("cardboard") ? "단단한 택배박스"
                                : lower.Contains("pizza") ? "피자 박스"
                                : "배달 쓰레기 박스";
-                ct.maxHp = Mathf.Max(4f, pileHp * 0.75f);
-                ct.burstSpawnCount = 10;
+                ct.maxHp = Mathf.Max(4f, pileHp * 0.78f);
+                ct.burstSpawnCount = 12;
                 ct.cleanWeight = 1.5f;
                 ct.ConfigureForLayout(root, child.position, ct.maxHp, 0);
             }
@@ -272,28 +418,25 @@ namespace TrashCleaner3D
         {
             if (stage == 1)
             {
-                if (p.x < -1.95f && p.z < -1.10f) return new Vector3(Mathf.Max(p.x, -1.65f), p.y, Mathf.Max(p.z, -0.95f)); // 침대
-                if (p.x > -0.45f && p.x < 1.45f && p.z < -2.55f) p.z = Random.Range(-2.45f, -1.85f);                      // PC 책상
-                if (p.x > -1.25f && p.x < 1.35f && p.z > 2.65f) p.z = Random.Range(1.40f, 2.55f);                          // 냉장고·싱크대
-                if (p.x > 1.35f && p.x < 2.95f && p.z > 2.55f) p.z = 2.15f;                                                // 현관문 스윙
+                if (p.x < -1.95f && p.z < -1.10f) return new Vector3(Mathf.Max(p.x, -1.65f), p.y, Mathf.Max(p.z, -0.95f));
+                if (p.x > -0.45f && p.x < 1.45f && p.z < -2.55f) p.z = Random.Range(-2.45f, -1.85f);
+                if (p.x > -2.85f && p.x < -0.10f && p.z > 2.65f) p.z = Random.Range(1.40f, 2.45f);
+                if (p.x > 1.25f && p.x < 3.05f && p.z > 2.05f) p.z = 1.75f; // 현관문 앞 1.85m 비움!
             }
             else if (stage == 2)
             {
-                // Stage 2 현관문 스윙 공간(x: 0.4..1.8, z > 2.0) 회피
-                if (p.x > 0.35f && p.z > 1.95f) p.z = Random.Range(-1.8f, 1.4f);
+                if (p.x > 0.25f && p.z > 1.65f) p.z = Random.Range(-1.8f, 1.3f);
             }
             else if (stage == 3)
             {
-                // Stage 3 치킨집 주방: 현관문(x=1.55, z=2.5) 바로 앞 + 서/남/전면 스틸 카운터 내부 침투 방지!
                 if (p.x < -1.45f) p.x = Random.Range(-1.20f, 1.85f);
                 if (p.z < -1.25f) p.z = Random.Range(-1.10f, 1.35f);
                 if (p.x < 0.35f && p.z > 0.95f) p.z = Random.Range(-0.90f, 0.75f);
-                if (p.x > 0.65f && p.z > 1.35f) p.z = Random.Range(-0.80f, 1.15f);
+                if (p.x > 0.65f && p.z > 0.85f) p.z = Random.Range(-0.80f, 0.70f); // 현관문 스윙 비움!
             }
             else
             {
-                // Stage 4~7 현관문 안쪽 스윙 1.4m 비움
-                if (p.z > room.maxZ - 1.1f && p.x > 0.5f) p.z -= 1.2f;
+                if (room.floorY < 0.8f && p.z > room.maxZ - 1.75f && p.x > 0.2f) p.z -= 1.85f;
             }
             p.x = Mathf.Clamp(p.x, room.minX + 0.45f, room.maxX - 0.45f);
             p.z = Mathf.Clamp(p.z, room.minZ + 0.45f, room.maxZ - 0.45f);

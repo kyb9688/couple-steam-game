@@ -25,6 +25,7 @@ namespace TrashCleaner3D
         private float _sprayProgress;
         private float _phase;
         private Material _coneMat;
+        private Material _orbMat;
 
         private void Awake()
         {
@@ -43,11 +44,22 @@ namespace TrashCleaner3D
                 _blindTimer -= Time.deltaTime;
                 if (visionConeRenderer != null) visionConeRenderer.enabled = false;
                 if (statusLight != null) statusLight.color = new Color(0.55f, 0.85f, 1.0f);
+                if (_orbMat != null)
+                {
+                    Color bc = new Color(0.45f, 0.88f, 1.0f);
+                    if (_orbMat.HasProperty("_BaseColor")) _orbMat.SetColor("_BaseColor", bc);
+                    _orbMat.SetColor("_EmissionColor", bc * 1.8f);
+                }
                 return;
             }
 
             if (visionConeRenderer != null) visionConeRenderer.enabled = true;
             if (statusLight != null) statusLight.color = Color.red;
+            if (_orbMat != null)
+            {
+                if (_orbMat.HasProperty("_BaseColor")) _orbMat.SetColor("_BaseColor", Color.red);
+                _orbMat.SetColor("_EmissionColor", Color.red * 2.2f);
+            }
 
             _phase += Time.deltaTime * sweepSpeed;
             float yaw = Mathf.Sin(_phase) * sweepAngle;
@@ -97,6 +109,51 @@ namespace TrashCleaner3D
         {
             _blindTimer = 0f;
             _sprayProgress = 0f;
+        }
+
+        /// <summary>
+        /// Stage 2~7에 장식용으로 배치된 security_camera 프롭을 실시간 감시/거품 무력화 가능한 CCTV로 자동 연결한다.
+        /// </summary>
+        public static void AutoAttachToStageCameras()
+        {
+            var renderers = FindObjectsByType<MeshRenderer>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            foreach (var r in renderers)
+            {
+                if (r == null) continue;
+                Transform t = r.transform;
+                string lower = t.name.ToLowerInvariant();
+                if (!lower.Contains("security_camera")) continue;
+                if (t.GetComponentInParent<SecurityCameraController>() != null) continue;
+
+                GameObject camGo = t.gameObject;
+                BoxCollider col = camGo.GetComponent<BoxCollider>();
+                if (col == null) col = camGo.AddComponent<BoxCollider>();
+                col.size = new Vector3(0.55f, 0.55f, 0.55f);
+                col.isTrigger = true;
+
+                // 상태 표시용 발광 구슬 (초/파랑 vs 빨강)
+                Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+                GameObject orb = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                Destroy(orb.GetComponent<Collider>());
+                orb.name = "CCTV_StatusOrb";
+                orb.transform.SetParent(camGo.transform, false);
+                orb.transform.localPosition = new Vector3(0f, 0.10f, 0.18f);
+                orb.transform.localScale = Vector3.one * 0.12f;
+                Material orbMat = new Material(lit);
+                orbMat.color = Color.red;
+                if (orbMat.HasProperty("_BaseColor")) orbMat.SetColor("_BaseColor", Color.red);
+                orbMat.EnableKeyword("_EMISSION");
+                orbMat.SetColor("_EmissionColor", Color.red * 2.2f);
+                orb.GetComponent<Renderer>().sharedMaterial = orbMat;
+
+                var ctrl = camGo.AddComponent<SecurityCameraController>();
+                ctrl.pivotTransform = camGo.transform;
+                ctrl._orbMat = orbMat;
+                ctrl.sweepAngle = 28f;
+                ctrl.sweepSpeed = 0.65f;
+                ctrl.viewRange = 7.5f;
+                ctrl.viewHalfAngle = 36f;
+            }
         }
     }
 }

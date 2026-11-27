@@ -14,12 +14,12 @@ namespace TrashCleaner3D
     /// </summary>
     public static class CoreLoopConfig
     {
-        public const bool CoreLoopOnly = true;
+        public const bool CoreLoopOnly = false;
 
-        public const bool EnableStreakCompression = !CoreLoopOnly;
-        public const bool EnableSuspicionBranch = !CoreLoopOnly;
-        public const bool EnableLast10Jackpot = !CoreLoopOnly;
-        public const bool EnableTreasureBranch = !CoreLoopOnly;
+        public const bool EnableStreakCompression = false;
+        public const bool EnableSuspicionBranch = true;
+        public const bool EnableLast10Jackpot = false;
+        public const bool EnableTreasureBranch = true;
         public const bool EnableStenchGimmick = true;
 
         /// <summary>수거음(도레미파솔)이 한 옥타브를 다 올라간 뒤 다시 '도'로 돌아가는 기준 계단 수.</summary>

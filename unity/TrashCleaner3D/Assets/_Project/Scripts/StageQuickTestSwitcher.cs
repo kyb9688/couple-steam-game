@@ -187,10 +187,9 @@ namespace TrashCleaner3D
 
             if (!cursorFree)
             {
-                // 1인칭 포인터 락 중: 눌리지 않는 버튼을 그리지 않고, 무엇을 눌러야 하는지 안내만 한다.
                 float hintW = Mathf.Round(Mathf.Min(360f, Screen.width - 24f));
                 GUI.Box(new Rect(12f, y, hintW, 24f),
-                    "[M] ▣   [Tab] ⌖   [F1~F7]", _hintStyle);
+                    "[M] 맵   [Alt] 하단선택   [F1~F7]", _hintStyle);
             }
             else
             {
@@ -215,7 +214,7 @@ namespace TrashCleaner3D
 
                 float hintX = x + StageLabels.Length * (btnW + gap) + 6f;
                 if (hintX < Screen.width - 120f)
-                    GUI.Box(new Rect(hintX, y, 96f, 24f), "[Tab] ⌖", _hintStyle);
+                    GUI.Box(new Rect(hintX, y, 96f, 24f), "[Alt] 복귀", _hintStyle);
             }
 
             if (_noticeTimer > 0f && !string.IsNullOrEmpty(_notice))
