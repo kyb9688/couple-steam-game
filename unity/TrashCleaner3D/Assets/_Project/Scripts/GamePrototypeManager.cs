@@ -294,17 +294,20 @@ namespace TrashCleaner3D
             HasDamas ? "다마스 (자동흡입)" :
             HasCart ? "리어카" : "공공 쓰레기통";
 
-        // ===== v1.6 수거 차량: 적재량 제한·4초 배차 대기 삭제 → 단가 배수 + 편의성 해금 =====
-        // 1) 공공 쓰레기통: 차량 앞에서 정산 · 단가 ×1.00
-        // 2) 리어카: 마당 입구 자동흡입 정산 · 단가 ×1.20
-        // 3) 다마스: 현관 문 앞만 가도 자동 정산 · 단가 ×1.45
-        // 4) 1톤 청소 트럭: 방 안에서 수거통이 80% 찰 때마다 원격 자동 정산(왕복 면제) · 단가 ×1.80
+        // ===== v1.8.1 수거 차량 점진 확장 (리어카부터 자동/무한 사기 방지 → 최종 1톤 트럭에서 원격 자동!) =====
+        // 1) 공공 쓰레기통: 차량 앞(2.4m) 수동 [RMB] 정산 · 단가 ×1.00
+        // 2) 리어카: 정산 가능 거리 4.2m 확장 (수동 [RMB] 정산) · 단가 ×1.20
+        // 3) 다마스: 정산 거리 6.2m + 마당 진입 시 자동 흡입 정산 해금 · 단가 ×1.45
+        // 4) 1톤 청소 트럭 (최종): 정산 거리 9.0m + 문 앞/방 안 80% 원격 자동 수거 해금 · 단가 ×1.80
         public float VehicleSettleMultiplier => VehicleVisualStage == 0 ? 1.00f
             : VehicleVisualStage == 1 ? 1.20f
             : VehicleVisualStage == 2 ? 1.45f : 1.80f;
-        public bool VehicleHasYardSuction => VehicleVisualStage >= 1;    // 마당 입구 자동흡입
-        public bool VehicleHasPorchSettle => VehicleVisualStage >= 2;    // 현관 문 앞 자동정산
-        public bool VehicleHasRemoteSettle => VehicleVisualStage >= 3;   // 80% 원격 자동수거
+        public float VehicleSettleReach => VehicleVisualStage == 0 ? 2.4f
+            : VehicleVisualStage == 1 ? 4.2f
+            : VehicleVisualStage == 2 ? 6.2f : 9.0f;
+        public bool VehicleHasYardSuction => VehicleVisualStage >= 2;    // 다마스(3단계)부터 마당 자동흡입
+        public bool VehicleHasPorchSettle => VehicleVisualStage >= 3;    // 1톤 트럭(최종) 현관 앞 자동정산
+        public bool VehicleHasRemoteSettle => VehicleVisualStage >= 3;   // 1톤 트럭(최종) 방 안 80% 원격 자동수거
         public bool HasAutoVehicleSuction => VehicleHasYardSuction;
         // [v1.7] 차량 보조 효과도 전부 노드화: 기본은 차량 단계 배수뿐이고,
         //        대량 정산 보너스(기준 이상 채워 정산하면 추가 수익)·거래 배수·원격 쿨다운은 노드로 해금.
@@ -324,10 +327,10 @@ namespace TrashCleaner3D
         public float BurstCashBonus => V18Sum(V18Effect.BurstCash);
 
         public string VehiclePerkLabel =>
-            VehicleVisualStage == 3 ? $"방 안 {RemoteSettleFill01 * 100f:0}% 원격 자동수거"
-            : VehicleVisualStage == 2 ? "현관 문 앞 자동정산"
-            : VehicleVisualStage == 1 ? "마당 자동흡입"
-            : "차량 앞 정산";
+            VehicleVisualStage == 3 ? $"원격 자동수거 ({RemoteSettleFill01 * 100f:0}%)"
+            : VehicleVisualStage == 2 ? $"마당 자동흡입 · 반경 {VehicleSettleReach:0.0}m"
+            : VehicleVisualStage == 1 ? $"정산 반경 {VehicleSettleReach:0.0}m"
+            : $"차량 앞 {VehicleSettleReach:0.0}m";
 
         // ===== 연속 흡입 피버 =====
         public float ContinuousFever01 { get; private set; } = 0f;
@@ -374,6 +377,36 @@ namespace TrashCleaner3D
                 float r = toolBase + TotalRadLv * 0.05f;
                 return r * (1f + FeverRadiusBonus) * (1f + V18Sum(V18Effect.Radius));
             }
+        }
+
+        /// <summary>
+        /// [v1.8.1 수정 #6] 쓰레기 줍기/청소 사거리(팔 길이).
+        /// 초반 맨손은 가까운 곳(1.85m)만 닿고, 반경·사거리 강화와 도구 진화(빗자루→진공기→원기옥)에 따라 최대 5.8m까지 점진 확장!
+        /// </summary>
+        public float PickupReach
+        {
+            get
+            {
+                float baseReach = 1.85f + TotalRadLv * 0.28f + V18Sum(V18Effect.Radius) * 2.4f;
+                if (HasBroom) baseReach += 0.55f;
+                if (HasVacuum) baseReach += 0.95f;
+                if (HasOrbGun || HasBlackHole) baseReach += 1.15f;
+                return Mathf.Clamp(baseReach, 1.85f, 5.80f);
+            }
+        }
+
+        public bool IsMopSlot => Phase == GamePhase.Phase2_FloorMopping;
+        private bool _notifiedTrashDone;
+
+        /// <summary>[v1.8.1 수정 #7] [1] 쓰레기 수거 / [2] 바닥 걸레질 수동 전환 (강제 자동 전환 제거!).</summary>
+        public void SetToolSlot(bool mopMode)
+        {
+            if (Phase != GamePhase.Phase1_TrashRemoval && Phase != GamePhase.Phase2_FloorMopping) return;
+            GamePhase next = mopMode ? GamePhase.Phase2_FloorMopping : GamePhase.Phase1_TrashRemoval;
+            if (Phase == next) return;
+            Phase = next;
+            sfx.PlayPop(mopMode ? 1.15f : 0.92f);
+            ShowToast(mopMode ? (HasMopUnlocked ? "[2] T자 대걸레" : "[2] 물티슈") : $"[1] {ToolBadge}");
         }
 
         public int AutoGrabPerTick
@@ -612,6 +645,7 @@ namespace TrashCleaner3D
             }
 
             ApplyStageContainerVisibility();
+            FixOverlappingFloorHeights();
             UpdateVehicleStageVisuals();
             if (spawnFieldUpgradeStation) EnsureFieldUpgradeStation();
             ApplyAtmosphereImmediate();
@@ -877,13 +911,42 @@ namespace TrashCleaner3D
             fieldStation.Init(this, -135f);
         }
 
+        /// <summary>
+        /// [v1.8.1 수정 #2] Stage 2~7에서 실내 Floor_Main(y=0)과 Parking_Floor/Entrance_PorchFloor가
+        /// 정확히 같은 높이(y=0)에서 겹쳐 지직거리는 Z-fighting을 런타임에서도 안전하게 분리한다.
+        /// </summary>
+        private void FixOverlappingFloorHeights()
+        {
+            GameObject parking = GameObject.Find("Parking_Floor");
+            if (parking != null)
+            {
+                float topY = parking.transform.position.y + parking.transform.lossyScale.y * 0.5f;
+                if (topY > -0.04f)
+                {
+                    Vector3 p = parking.transform.position;
+                    p.y -= (topY + 0.06f);
+                    parking.transform.position = p;
+                }
+            }
+            GameObject porch = GameObject.Find("Entrance_PorchFloor");
+            if (porch != null)
+            {
+                float topY = porch.transform.position.y + porch.transform.lossyScale.y * 0.5f;
+                if (topY > -0.015f)
+                {
+                    Vector3 p = porch.transform.position;
+                    p.y -= (topY + 0.025f);
+                    porch.transform.position = p;
+                }
+            }
+        }
+
         public bool IsPlayerInTruckSettleZone(Vector3 playerPos)
         {
             if (truckBedGoal == null) return false;
             Vector3 d = playerPos - truckBedGoal.position;
             d.y = 0f;
-            float reach = VehicleVisualStage == 0 ? 2.6f : VehicleVisualStage == 1 ? 3.2f : 4.2f;
-            return d.magnitude <= reach;
+            return d.magnitude <= VehicleSettleReach;
         }
 
         private void Update()
@@ -1185,23 +1248,28 @@ namespace TrashCleaner3D
 
         private void CheckPhase1Complete()
         {
-            if (Phase != GamePhase.Phase1_TrashRemoval) return;
-            if (Phase1Cleaned >= Phase1Total && Phase1Total > 0)
+            if (Phase != GamePhase.Phase1_TrashRemoval && Phase != GamePhase.Phase2_FloorMopping) return;
+            bool p1Done = Phase1Total <= 0 || Phase1Cleaned >= Phase1Total;
+            bool p2Done = Phase2Total <= 0 || Phase2Cleaned >= Phase2Total;
+
+            if (p1Done && p2Done)
             {
+                FinishRoomComplete();
+                return;
+            }
+
+            // [v1.8.1 수정 #7] 쓰레기가 끝나도 지멋대로 걸레질로 강제 전환하지 않음! [2] 키 안내만 1회 띄운다.
+            if (p1Done && !p2Done && !_notifiedTrashDone)
+            {
+                _notifiedTrashDone = true;
                 if (CollectingCount > 0)
                 {
                     Money += CollectingPendingValue;
                     CollectingCount = 0;
                     CollectingPendingValue = 0;
                 }
-                if (Phase2Total <= 0)
-                {
-                    FinishRoomComplete();
-                    return;
-                }
-                Phase = GamePhase.Phase2_FloorMopping;
                 sfx.PlayFanfare();
-                ShowToast("2단계 · 얼룩");
+                ShowToast("쓰레기 완료! [2] 걸레로 얼룩 닦기");
             }
         }
 
@@ -1217,10 +1285,7 @@ namespace TrashCleaner3D
             sfx.PlayChime();
             SparkleBurst.Spawn(stain.transform.position + Vector3.up * 0.08f, 14, 0.65f, new Color(0.85f, 0.97f, 1f));
             SpawnFloatingText(stain.transform.position + Vector3.up * 0.42f, $"✦ 반짝! +${pay}", new Color(0.55f, 0.96f, 1f), 1.5f);
-            if (Phase == GamePhase.Phase2_FloorMopping && Phase2Cleaned >= Phase2Total && Phase2Total > 0)
-            {
-                FinishRoomComplete();
-            }
+            CheckPhase1Complete();
         }
 
         public void OpenFieldUpgradeKiosk()

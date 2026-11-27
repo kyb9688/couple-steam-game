@@ -118,6 +118,14 @@ namespace TrashCleaner3D
         private bool _isHoldingTrashNow;
         private bool _isVacuumingNow;
 
+        // [v1.8.1 수정 #1] 실제 타겟 쓰레기 월드 좌표까지 손이 뻗어가 집고 당겨오는 리치 모션 상태
+        private Vector3 _reachTargetLocal;
+        private bool _hasReachTarget;
+        private float _pullBackTimer;
+        private float _pullBackDur = 0.24f;
+        private Vector3 _pullStartLocal;
+        private bool _pullWithRight = true;
+
         private void Awake()
         {
             _cc = GetComponent<CharacterController>();
@@ -132,7 +140,7 @@ namespace TrashCleaner3D
             if (cameraTransform != null)
             {
                 _cam = cameraTransform.GetComponent<Camera>();
-                if (_cam != null) _cam.nearClipPlane = 0.03f; // 벽/문 근접 시 화면 뚫림 방지
+                if (_cam != null) _cam.nearClipPlane = 0.08f; // WebGL 깊이 버퍼 정밀도 확보 (바닥 Z-fighting 방지!)
             }
             if (rightToolPivot != null) { _rightBasePos = rightToolPivot.localPosition; _rightBaseRot = rightToolPivot.localRotation; }
             if (cameraTransform != null) _camBaseLocalPos = cameraTransform.localPosition;
@@ -655,6 +663,11 @@ namespace TrashCleaner3D
                 if (kb.spaceKey.wasPressedThisFrame) jumpDown = true;
                 if (kb.tKey.wasPressedThisFrame) toggleFlash = true;
                 if (kb.hKey.wasPressedThisFrame) ShowHelp = !ShowHelp;
+                if (!GamePrototypeManager.UiCursorFree)
+                {
+                    if (kb.digit1Key.wasPressedThisFrame) manager.SetToolSlot(false);
+                    else if (kb.digit2Key.wasPressedThisFrame) manager.SetToolSlot(true);
+                }
             }
             if (mouse != null && Cursor.lockState == CursorLockMode.Locked)
             {
@@ -672,6 +685,11 @@ namespace TrashCleaner3D
             if (Input.GetKeyDown(KeyCode.Space)) jumpDown = true;
             if (Input.GetKeyDown(KeyCode.T)) toggleFlash = true;
             if (Input.GetKeyDown(KeyCode.H)) ShowHelp = !ShowHelp;
+            if (!GamePrototypeManager.UiCursorFree)
+            {
+                if (Input.GetKeyDown(KeyCode.Alpha1)) manager.SetToolSlot(false);
+                else if (Input.GetKeyDown(KeyCode.Alpha2)) manager.SetToolSlot(true);
+            }
 #endif
 
             if (toggleFlash && flashlight != null) flashlight.enabled = !flashlight.enabled;
@@ -773,7 +791,10 @@ namespace TrashCleaner3D
             bool blockedByDoor = false;
             float blockerDist = float.MaxValue;
 
-            RaycastHit[] hits = Physics.RaycastAll(aimRay, 5.8f);
+            // [v1.8.1 수정 #6] 사거리 강화(PickupReach: 초반 1.85m → 최대 5.8m) 적용!
+            float maxReach = manager.PickupReach;
+            float rayMax = Mathf.Max(3.6f, maxReach + 0.6f);
+            RaycastHit[] hits = Physics.RaycastAll(aimRay, rayMax);
             Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
             foreach (var h in hits)
@@ -807,22 +828,20 @@ namespace TrashCleaner3D
 
             Vector3 aimPoint = Vector3.zero;
             bool hasAimPoint = false;
-            if (planeT > 0.05f)
+            if (planeT > 0.05f && planeT <= maxReach)
             {
-                float useT = Mathf.Min(planeT, Mathf.Min(blockerDist - 0.05f, 5.2f));
-                if (useT > 0.25f)
+                float useT = Mathf.Min(planeT, Mathf.Min(blockerDist - 0.05f, maxReach));
+                if (useT > 0.20f)
                 {
                     aimPoint = aimRay.GetPoint(useT);
                     aimPoint.y = floorPlaneY;
-                    hasAimPoint = true;
+                    hasAimPoint = Vector3.Distance(cameraTransform.position, aimPoint) <= maxReach + 0.08f;
                 }
             }
 
             if (manager.trashSwarm != null)
             {
-                bool showRing = hasAimPoint &&
-                                manager.Phase == GamePhase.Phase1_TrashRemoval &&
-                                Vector3.Distance(cameraTransform.position, aimPoint) <= 5.4f;
+                bool showRing = hasAimPoint && manager.Phase == GamePhase.Phase1_TrashRemoval;
                 manager.trashSwarm.SetCursorRing(showRing, aimPoint, manager.SweepRadius);
             }
 
@@ -908,14 +927,27 @@ namespace TrashCleaner3D
                     return;
                 }
 
-                // 요청 #1: [LMB 꾹(HOLD)] = 한번 락온된 쓰레기는 커서 원 반경 밖으로 나가기 전까지 절대 초기화 X!
-                if (manager.trashSwarm != null && hasAimPoint && !binBlocked &&
-                    Vector3.Distance(cameraTransform.position, aimPoint) <= 5.4f)
+                // [v1.8.1 수정 #4·#5·#6] 사거리(PickupReach) + 엄격 반경 + 카메라 시선 앞쪽/윗쪽 겉면 최우선 락온!
+                _hasReachTarget = false;
+                if (manager.trashSwarm != null && hasAimPoint && !binBlocked)
                 {
                     float r = manager.SweepRadius;
                     int grabLimit = manager.AutoGrabPerTick;
-                    manager.trashSwarm.UpdateHoverSelection(true, lmbHeld, aimPoint, r, grabLimit);
+                    manager.trashSwarm.UpdateHoverSelection(true, lmbHeld, aimPoint, r, grabLimit, cameraTransform.position, cameraTransform.forward);
                     AimIsSwarmNear = manager.trashSwarm.HoveredCount > 0;
+
+                    if (AimIsSwarmNear && manager.trashSwarm.TryGetPrimaryTargetPos(out Vector3 targetWorld))
+                    {
+                        Vector3 localT = cameraTransform.InverseTransformPoint(targetWorld);
+                        // 손이 실제 쓰레기 좌표까지 쭉 뻗어 집도록 자연스러운 팔 리치 범위로 클램프
+                        float dist = localT.magnitude;
+                        if (dist > 1.25f) localT = localT.normalized * 1.25f;
+                        localT.x = Mathf.Clamp(localT.x, -0.58f, 0.58f);
+                        localT.y = Mathf.Clamp(localT.y + 0.05f, -0.72f, 0.16f);
+                        localT.z = Mathf.Clamp(localT.z - 0.06f, 0.34f, 1.22f);
+                        _reachTargetLocal = localT;
+                        _hasReachTarget = true;
+                    }
 
                     // v1.3 (요청 #9): 화면 중앙이 아니라 실제 손/노즐 끝으로 빨려 들어간다.
                     EnsureSuckTarget();
@@ -939,7 +971,6 @@ namespace TrashCleaner3D
 
                         float charge01 = manager.trashSwarm.MaxSelectedCharge01;
                         if (charge01 > 0.01f) AimProgress01 = charge01;
-                        // v1.1.2: 차지 중 반복 PlayPop 제거 — 실제 쓰레기가 뽑혀 들어갈 때의 PlayNote(도레미파솔)만 남긴다.
                     }
 
                     if (didCrit) manager.SpawnFloatingText(fxPos + Vector3.up * 0.25f, "CRIT ×2!", new Color(1f, 0.88f, 0.22f), 0.9f);
@@ -947,10 +978,12 @@ namespace TrashCleaner3D
 
                     if (picked > 0 && manager.ToolTier < 2 && _punchTimer <= 0f)
                     {
-                        // [v1.8] 뽑힐 때마다 4박자(뻗기→집기→당기기→넣기)가 시작된다.
-                        _beatT = 0f;
-                        _beatDur = Mathf.Clamp(manager.EffectiveHoldDuration * 0.9f, 0.22f, 0.8f);
-                        _beatRight = manager.HasTwoHand ? !_beatRight : true;
+                        // [v1.8.1 수정 #1] 쓰레기를 집는 순간 타겟 위치에서 내 쪽 수거통으로 쭉 당겨오는 회수 모션 발동!
+                        _pullBackDur = Mathf.Clamp(manager.EffectiveHoldDuration * 0.32f, 0.14f, 0.26f);
+                        _pullBackTimer = _pullBackDur;
+                        _pullWithRight = manager.HasTwoHand ? !_pullWithRight : true;
+                        _pullStartLocal = _hasReachTarget ? _reachTargetLocal
+                            : (_pullWithRight ? rightToolPivot.localPosition : (_leftPivot != null ? _leftPivot.localPosition : rightToolPivot.localPosition));
                         _grabSwingTimer = 0f;
                     }
                 }
@@ -1032,32 +1065,27 @@ namespace TrashCleaner3D
                 targetPos += new Vector3(0f, 0.01f, 0.08f) + UnityEngine.Random.insideUnitSphere * 0.012f;
                 targetRot = Quaternion.Euler(-5f, 0f, 0f);
             }
-            else if (_beatT < _beatDur && !_isVacuumingNow && (manager.Mode == GearMode.Hand || manager.Mode == GearMode.Broom))
+            else if (_pullBackTimer > 0f && !_isVacuumingNow && (manager.Mode == GearMode.Hand || manager.Mode == GearMode.Broom))
             {
-                // ===== [v1.8] 1단계 맨손: 뻗기 → 집기 → 당겨서 → 수거통에 넣기 4박자 =====
-                _beatT += Time.deltaTime;
-                float t = Mathf.Clamp01(_beatT / Mathf.Max(0.12f, _beatDur)) * 4f;
-                int idx = Mathf.Min(3, Mathf.FloorToInt(t));
-                int nxt = Mathf.Min(3, idx + 1);
-                float f = Mathf.Clamp01(t - idx);
-                f = f * f * (3f - 2f * f);
-                Vector3 off = Vector3.Lerp(BeatPos[idx], BeatPos[nxt], f);
-                Vector3 eul = Vector3.Lerp(BeatEul[idx], BeatEul[nxt], f);
+                // [v1.8.1 수정 #1] 집은 쓰레기를 타겟 위치에서 내 몸(수거통) 쪽으로 쭉 당겨 넣기!
+                _pullBackTimer = Mathf.Max(0f, _pullBackTimer - Time.deltaTime);
+                float u = 1f - (_pullBackTimer / Mathf.Max(0.05f, _pullBackDur));
+                float ease = u * u * (3f - 2f * u);
+                Vector3 tuckPos = new Vector3(_pullWithRight ? 0.10f : -0.10f, -0.44f, 0.28f);
+                Vector3 curPos = u < 0.72f
+                    ? Vector3.Lerp(_pullStartLocal, tuckPos, ease / 0.72f)
+                    : Vector3.Lerp(tuckPos, _pullWithRight ? _rightBasePos : new Vector3(-_rightBasePos.x, _rightBasePos.y - 0.05f, _rightBasePos.z), (u - 0.72f) / 0.28f);
+                Quaternion pinchRot = Quaternion.Slerp(Quaternion.Euler(46f, _pullWithRight ? -24f : 24f, _pullWithRight ? 18f : -18f), Quaternion.Euler(-12f, _pullWithRight ? 16f : -16f, 0f), ease);
 
-                bool rightHand = !leftShown || _beatRight;
-                if (rightHand)
+                if (_pullWithRight || !leftShown)
                 {
-                    targetPos += off;
-                    targetRot = Quaternion.Euler(eul);
-                    if (leftShown) leftPos = new Vector3(-_rightBasePos.x + 0.03f, _rightBasePos.y - 0.09f, _rightBasePos.z - 0.04f);
+                    targetPos = curPos;
+                    targetRot = pinchRot;
                 }
                 else
                 {
-                    // [v1.8] 양손 줍기: 왼손·오른손이 번갈아 빠르게 주워 담는다.
-                    targetPos += new Vector3(0.03f, -0.07f, -0.03f);
-                    targetRot = Quaternion.Euler(-4f, 6f, -4f);
-                    leftPos = new Vector3(-_rightBasePos.x - off.x, _rightBasePos.y + off.y, _rightBasePos.z + off.z);
-                    leftRot = Quaternion.Euler(eul.x, -eul.y, -eul.z);
+                    leftPos = curPos;
+                    leftRot = pinchRot;
                 }
             }
             else if (_punchTimer > 0f)
@@ -1075,13 +1103,36 @@ namespace TrashCleaner3D
                 targetPos += new Vector3(-0.20f * t, -0.11f * t, 0.20f * t);
                 targetRot = Quaternion.Euler(26f * t, -30f * t, 14f * t);
             }
-            else if (_isHoldingTrashNow)
+            else if (_isHoldingTrashNow && (manager.Mode == GearMode.Hand || manager.Mode == GearMode.Broom))
             {
-                // 1초 HOLD 진동 차징 중 손도 미세하게 힘을 주며 떨리는 손맛!
-                float ch = manager.trashSwarm != null ? manager.trashSwarm.MaxSelectedCharge01 : 0.3f;
-                Vector3 vibe = UnityEngine.Random.insideUnitSphere * (0.004f + ch * 0.009f);
-                targetPos += new Vector3(-0.06f, -0.04f, 0.10f) + vibe;
-                targetRot = Quaternion.Euler(14f, -12f, 0f);
+                // [v1.8.1 수정 #1] 손이 실제 타겟팅한 쓰레기 좌표까지 쭉 뻗어가(0→0.55) 손으로 꼭 집는 모션(0.55→1.0)! (진동 없음)
+                float ch = manager.trashSwarm != null ? Mathf.Clamp01(manager.trashSwarm.MaxSelectedCharge01) : 0f;
+                Vector3 goal = _hasReachTarget ? _reachTargetLocal : (_rightBasePos + new Vector3(-0.18f, -0.12f, 0.42f));
+                bool useRight = !leftShown || _pullWithRight;
+                Vector3 startP = useRight ? _rightBasePos : new Vector3(-_rightBasePos.x, _rightBasePos.y - 0.05f, _rightBasePos.z);
+
+                float reachT = Mathf.Clamp01(ch / 0.52f);
+                reachT = reachT * reachT * (3f - 2f * reachT);
+                float pinchT = Mathf.Clamp01((ch - 0.52f) / 0.48f);
+
+                // 타겟까지 아치형으로 뻗어가서(reachT) 살짝 아래로 눌러 꼭 쥐는(pinchT) 리듬!
+                Vector3 p = Vector3.Lerp(startP, goal, reachT);
+                p.y += Mathf.Sin(reachT * Mathf.PI) * 0.06f - pinchT * 0.035f;
+                Quaternion rot = Quaternion.Euler(
+                    Mathf.Lerp(10f, 38f, reachT) + pinchT * 14f,
+                    (useRight ? -1f : 1f) * (Mathf.Lerp(6f, 22f, reachT) + pinchT * 8f),
+                    (useRight ? 1f : -1f) * (pinchT * 16f));
+
+                if (useRight)
+                {
+                    targetPos = p;
+                    targetRot = rot;
+                }
+                else
+                {
+                    leftPos = p;
+                    leftRot = rot;
+                }
             }
             else
             {

@@ -67,6 +67,12 @@ namespace TrashCleaner3D
                 if (c == null) continue;
                 // v1.7: 지난 스테이지에서 복제한 소품(Destroy 예약분)은 다시 세지 않는다(중복 누적 방지).
                 if (c.name.Contains("_v17_")) continue;
+                // [v1.8.1] 거대 하얀 블록 덩어리로 보이던 스티로폼 큰 봉투는 배치 대상에서 제외하고 숨긴다!
+                if (c.kind == CleanableKind.TrashPile && (c.displayName ?? "").Contains("스티로폼"))
+                {
+                    c.gameObject.SetActive(false);
+                    continue;
+                }
                 if (c.kind == CleanableKind.TrashPile) piles.Add(c);
                 else if (c.kind == CleanableKind.FloorStain) stains.Add(c);
             }
@@ -126,6 +132,9 @@ namespace TrashCleaner3D
                 c.gameObject.SetActive(true);
                 placed.Add(p);
             }
+
+            // [v1.8.1] Stage 2~7 장식용 택배박스·피자박스·스티로폼도 전부 공격 가능한 CleanableTarget으로 _root 아래 편입!
+            ConvertStaticTrashPropsToAttackable(stage, plan.pileHp, _root);
         }
 
         /// <summary>[v1.7] 씬 원본이 모자라면 원본을 복제해 목표 개수까지 채운다.</summary>
@@ -223,13 +232,69 @@ namespace TrashCleaner3D
         /// 1단계 원룸은 침대·책상·냉장고·현관문 스윙 자리가 있다. 봉투가 그 안에 박히면
         /// 닿을 수 없어 진행률이 막히므로, InstancedTrashSwarm 이 쓰던 회피 규칙을 그대로 적용한다.
         /// </summary>
+        /// <summary>
+        /// [v1.8.1] Stage 2~7 가구 폴더에 장식으로 들어가 있던 택배박스·피자박스·스티로폼을
+        /// 플레이어가 클릭으로 때려 터뜨릴 수 있는 CleanableTarget으로 자동 변환한다.
+        /// </summary>
+        private static void ConvertStaticTrashPropsToAttackable(int stage, float pileHp, Transform root)
+        {
+            if (stage <= 1) return;
+            GameObject furn = GameObject.Find($"Furniture_Stage0{stage}_Eunju");
+            if (furn == null) return;
+
+            var toConvert = new List<Transform>();
+            foreach (Transform child in furn.transform)
+            {
+                if (child == null || !child.gameObject.activeSelf) continue;
+                string lower = child.name.ToLowerInvariant();
+                bool isBoxTrash = lower.Contains("cardboard_box") || lower.Contains("pizza_box") ||
+                                  lower.Contains("styrofoam") || lower.Contains("water_bottles");
+                if (isBoxTrash && child.GetComponent<CleanableTarget>() == null)
+                    toConvert.Add(child);
+            }
+
+            foreach (var child in toConvert)
+            {
+                string lower = child.name.ToLowerInvariant();
+                var ct = child.gameObject.AddComponent<CleanableTarget>();
+                ct.kind = CleanableKind.TrashPile;
+                ct.displayName = lower.Contains("cardboard") ? "단단한 택배박스"
+                               : lower.Contains("pizza") ? "피자 박스"
+                               : "배달 쓰레기 박스";
+                ct.maxHp = Mathf.Max(4f, pileHp * 0.75f);
+                ct.burstSpawnCount = 10;
+                ct.cleanWeight = 1.5f;
+                ct.ConfigureForLayout(root, child.position, ct.maxHp, 0);
+            }
+        }
+
         private static Vector3 AvoidFurniture(Vector3 p, InstancedTrashSwarm.RoomZoneDef room, int stage)
         {
-            if (stage != 1) return p;
-            if (p.x < -1.95f && p.z < -1.10f) return new Vector3(Mathf.Max(p.x, -1.65f), p.y, Mathf.Max(p.z, -0.95f)); // 침대
-            if (p.x > -0.45f && p.x < 1.45f && p.z < -2.55f) p.z = Random.Range(-2.45f, -1.85f);                      // PC 책상
-            if (p.x > -1.25f && p.x < 1.35f && p.z > 2.65f) p.z = Random.Range(1.40f, 2.55f);                          // 냉장고·싱크대
-            if (p.x > 1.35f && p.x < 2.95f && p.z > 2.55f) p.z = 2.15f;                                                // 현관문 스윙
+            if (stage == 1)
+            {
+                if (p.x < -1.95f && p.z < -1.10f) return new Vector3(Mathf.Max(p.x, -1.65f), p.y, Mathf.Max(p.z, -0.95f)); // 침대
+                if (p.x > -0.45f && p.x < 1.45f && p.z < -2.55f) p.z = Random.Range(-2.45f, -1.85f);                      // PC 책상
+                if (p.x > -1.25f && p.x < 1.35f && p.z > 2.65f) p.z = Random.Range(1.40f, 2.55f);                          // 냉장고·싱크대
+                if (p.x > 1.35f && p.x < 2.95f && p.z > 2.55f) p.z = 2.15f;                                                // 현관문 스윙
+            }
+            else if (stage == 2)
+            {
+                // Stage 2 현관문 스윙 공간(x: 0.4..1.8, z > 2.0) 회피
+                if (p.x > 0.35f && p.z > 1.95f) p.z = Random.Range(-1.8f, 1.4f);
+            }
+            else if (stage == 3)
+            {
+                // Stage 3 치킨집 주방: 현관문(x=1.55, z=2.5) 바로 앞 + 서/남/전면 스틸 카운터 내부 침투 방지!
+                if (p.x < -1.45f) p.x = Random.Range(-1.20f, 1.85f);
+                if (p.z < -1.25f) p.z = Random.Range(-1.10f, 1.35f);
+                if (p.x < 0.35f && p.z > 0.95f) p.z = Random.Range(-0.90f, 0.75f);
+                if (p.x > 0.65f && p.z > 1.35f) p.z = Random.Range(-0.80f, 1.15f);
+            }
+            else
+            {
+                // Stage 4~7 현관문 안쪽 스윙 1.4m 비움
+                if (p.z > room.maxZ - 1.1f && p.x > 0.5f) p.z -= 1.2f;
+            }
             p.x = Mathf.Clamp(p.x, room.minX + 0.45f, room.maxX - 0.45f);
             p.z = Mathf.Clamp(p.z, room.minZ + 0.45f, room.maxZ - 0.45f);
             return p;

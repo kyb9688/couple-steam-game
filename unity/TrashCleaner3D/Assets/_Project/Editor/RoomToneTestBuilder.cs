@@ -362,9 +362,9 @@ namespace TrashCleaner3D.Editor
                 blackBagAsset ?? whiteBagAsset,
                 grayBagAsset ?? blackBagAsset,
                 boxAsset ?? blackBagAsset,
-                styroAsset ?? boxAsset ?? blackBagAsset
+                boxAsset ?? whiteBagAsset ?? blackBagAsset
             };
-            string[] pileNames = new[] { "흰 종량제 쓰레기봉투", "검정 쓰레기봉투", "회색 쓰레기봉투", "단단한 택배박스", "배달 스티로폼 박스" };
+            string[] pileNames = new[] { "흰 종량제 쓰레기봉투", "검정 쓰레기봉투", "회색 쓰레기봉투", "단단한 택배박스", "묵직한 택배박스" };
 
             GameObject trashRoot1 = new GameObject("Phase1_BigBreakablePiles_Stage1");
             trashRoot1.transform.SetParent(stage1Container.transform, false);

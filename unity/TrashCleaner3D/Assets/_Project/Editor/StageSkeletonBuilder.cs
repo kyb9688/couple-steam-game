@@ -100,13 +100,13 @@ namespace TrashCleaner3D.Editor
 
             float w = 4.2f, d = 6.8f, h = 2.7f;
             BuildShell(root, w, d, h, 1.10f, wall, floor, ceil);
-            CreateBox("Floor_EntranceCorridor", new Vector3(1.10f, 0.005f, 2.25f), new Vector3(1.80f, 0.02f, 2.30f), tile, root, false);
+            CreateBox("Floor_EntranceCorridor", new Vector3(1.10f, 0.012f, 2.25f), new Vector3(1.80f, 0.016f, 2.30f), tile, root, false);
             CreateBox("Corridor_PartitionWall", new Vector3(0.05f, h / 2f, 2.25f), new Vector3(0.20f, h, 2.20f), wall, root, true);
             CreateBox("Large_WindowGlass", new Vector3(0f, 1.45f, -d / 2f + 0.04f), new Vector3(3.2f, 2.1f, 0.04f), glass, root, false);
             AddLight(root, new Vector3(0f, h - 0.25f, 0f), 14f, 14f);
 
-            // 북서쪽 화장실 칸 (두꺼운 벽 0.20m)
-            CreateBox("Floor_BathroomTile", new Vector3(-1.30f, 0.006f, 2.55f), new Vector3(1.50f, 0.02f, 1.60f), tile, root, false);
+            // 북서쪽 화장실 칸 (두꺼운 벽 0.20m) — 바닥 타일은 Floor_Main(y=0) 위로 2cm 명확히 띄워 Z-fighting 완전 제거!
+            CreateBox("Floor_BathroomTile", new Vector3(-1.30f, 0.012f, 2.55f), new Vector3(1.50f, 0.016f, 1.60f), tile, root, false);
             CreateBox("BathWall_South", new Vector3(-1.30f, h / 2f, 1.70f), new Vector3(1.50f, h, 0.20f), wall, root, true);
             CreateBox("BathWall_East", new Vector3(-0.55f, h / 2f, 2.95f), new Vector3(0.20f, h, 0.90f), wall, root, true);
 
@@ -167,15 +167,15 @@ namespace TrashCleaner3D.Editor
 
             float w = 7.2f, d = 5.8f, h = 2.7f;
             BuildShell(root, w, d, h, 2.20f, wall, floor, ceil);
-            CreateBox("Floor_EntranceTile", new Vector3(2.20f, 0.005f, 2.25f), new Vector3(1.6f, 0.02f, 1.2f), tile, root, false);
+            CreateBox("Floor_EntranceTile", new Vector3(2.20f, 0.012f, 2.25f), new Vector3(1.6f, 0.016f, 1.2f), tile, root, false);
             CreateBox("Bedroom_Wall_North", new Vector3(-2.1f, h / 2f, 0.55f), new Vector3(2.9f, h, 0.22f), wall, root, true);
             CreateBox("Bedroom_Wall_East_Part", new Vector3(-0.65f, h / 2f, -1.65f), new Vector3(0.22f, h, 2.4f), wall, root, true);
-            CreateBox("LivingRoom_PlayMat", new Vector3(1.3f, 0.006f, -0.5f), new Vector3(2.6f, 0.015f, 2.2f), mat, root, false);
+            CreateBox("LivingRoom_PlayMat", new Vector3(1.3f, 0.012f, -0.5f), new Vector3(2.6f, 0.016f, 2.2f), mat, root, false);
             AddLight(root, new Vector3(1.2f, h - 0.25f, 0f), 16f, 16f);
             AddLight(root, new Vector3(-2.1f, h - 0.25f, -1.0f), 12f, 12f);
 
             // 북서쪽 화장실 칸
-            CreateBox("Floor_BathroomTile", new Vector3(-2.65f, 0.006f, 1.95f), new Vector3(1.80f, 0.02f, 1.80f), tile, root, false);
+            CreateBox("Floor_BathroomTile", new Vector3(-2.65f, 0.012f, 1.95f), new Vector3(1.80f, 0.016f, 1.80f), tile, root, false);
             CreateBox("BathWall_South", new Vector3(-2.65f, h / 2f, 1.05f), new Vector3(1.80f, h, 0.20f), wall, root, true);
             CreateBox("BathWall_East", new Vector3(-1.75f, h / 2f, 2.30f), new Vector3(0.20f, h, 1.15f), wall, root, true);
 
@@ -420,9 +420,9 @@ namespace TrashCleaner3D.Editor
                 mgr.trashSwarm = null; // 원룸 전용 쓰레기 스웜 연결 해제
             }
 
-            // 문 앞 안전 바닥 발판 + 밖 트럭 마당 정렬 (방과 겹치는 투명 펜스/연석은 끔!)
+            // 문 앞 안전 바닥 발판: 실내 Floor_Main(y=0)과 절대 겹치지 않도록 문 바깥(z >= doorZ+0.25)에 배치 + 높이 -0.025m 분리!
             Material porchMat = LoadMat("Assets/_Project/Materials/Mat_Floor_DirtyTiles.mat", new Color(0.55f, 0.55f, 0.55f));
-            CreateBox("Entrance_PorchFloor", new Vector3(doorCenterX, -0.20f, doorZ + 3.0f), new Vector3(12.0f, 0.4f, 6.5f), porchMat, root, true);
+            CreateBox("Entrance_PorchFloor", new Vector3(doorCenterX, -0.225f, doorZ + 3.55f), new Vector3(12.0f, 0.4f, 6.6f), porchMat, root, true);
 
             GameObject outside = GameObject.Find("Outside_Truck_Area");
             if (outside != null)
@@ -434,6 +434,12 @@ namespace TrashCleaner3D.Editor
                 {
                     if (child.name.StartsWith("Fence_Outside") || child.name == "Door_StepCurb")
                         child.gameObject.SetActive(false);
+                    else if (child.name == "Parking_Floor")
+                    {
+                        // Parking_Floor 윗면을 -0.06m로 내려 실내 바닥·현관 발판과 Z-fighting 원천 차단!
+                        Vector3 lp = child.localPosition;
+                        child.localPosition = new Vector3(lp.x, -0.36f, lp.z);
+                    }
                 }
             }
 

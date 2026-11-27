@@ -58,7 +58,7 @@ namespace TrashCleaner3D
         {
             public string id, shortName, fullTitle, statDesc, unlockHint, parentId, desc;
             public Vector2 offset;
-            public int level, maxLevel, cost;
+            public int level, maxLevel, cost, branch;
             public bool unlocked, affordable, isMilestone, isCore;
             public Color accent;
         }
@@ -467,15 +467,30 @@ namespace TrashCleaner3D
             float bx = Mathf.Round((w - bw) * 0.5f);
             float by = Mathf.Round(h - botSafe - 48f);
 
-            // 1) 수거 차량 칩 — v1.6: 적재량/배차 대기 삭제, '정산 배수 + 편의성 해금'만 표시
+            // 1) [v1.8.1] 하단 수거 차량 칩 + 좌측 [1] 수거 / [2] 걸레 수동 전환 슬롯
             Rect vehR = new Rect(bx, by - 32f, bw, 26f);
             Color vBd = manager.VehicleHasRemoteSettle ? new Color(0.22f, 0.64f, 0.36f)
-                      : manager.VehicleHasPorchSettle ? new Color(0.24f, 0.58f, 0.86f)
-                      : manager.VehicleHasYardSuction ? new Color(0.30f, 0.66f, 0.60f)
+                      : manager.VehicleHasYardSuction ? new Color(0.24f, 0.58f, 0.86f)
+                      : manager.VehicleVisualStage >= 1 ? new Color(0.30f, 0.66f, 0.60f)
                       : new Color(0.68f, 0.62f, 0.52f);
             DrawPaperCard(vehR, vBd, manager.VehicleVisualStage >= 2 ? 2 : 1);
             GUI.color = manager.VehicleHasRemoteSettle ? new Color(0.10f, 0.36f, 0.18f) : new Color(0.22f, 0.19f, 0.14f);
-            GUI.Label(vehR, $"■ {manager.CurrentVehicleName}  ×{manager.VehicleEffectiveSettleMult:0.00}", _nodeSubStyle);
+            GUI.Label(vehR, $"■ {manager.CurrentVehicleName} ({manager.VehiclePerkLabel}) · ×{manager.VehicleEffectiveSettleMult:0.00}", _nodeSubStyle);
+            GUI.color = Color.white;
+
+            // [1] 쓰레기 수거 / [2] 바닥 걸레 슬롯 표시 (수거통 오른쪽 나란히 배치)
+            bool isMop = manager.IsMopSlot;
+            Rect slot1 = new Rect(bx + bw + 10f, by, 76f, 46f);
+            Rect slot2 = new Rect(bx + bw + 92f, by, 76f, 46f);
+            DrawPaperCard(slot1, !isMop ? new Color(0.95f, 0.72f, 0.16f) : new Color(0.62f, 0.58f, 0.50f), !isMop ? 3 : 1);
+            GUI.color = !isMop ? new Color(0.42f, 0.25f, 0.02f) : new Color(0.45f, 0.42f, 0.38f);
+            GUI.Label(new Rect(slot1.x, slot1.y + 4, slot1.width, 18), "[1]", _nodeTitleStyle);
+            GUI.Label(new Rect(slot1.x, slot1.y + 22, slot1.width, 18), "수거", _nodeSubStyle);
+
+            DrawPaperCard(slot2, isMop ? new Color(0.22f, 0.62f, 0.92f) : new Color(0.62f, 0.58f, 0.50f), isMop ? 3 : 1);
+            GUI.color = isMop ? new Color(0.08f, 0.34f, 0.58f) : new Color(0.45f, 0.42f, 0.38f);
+            GUI.Label(new Rect(slot2.x, slot2.y + 4, slot2.width, 18), "[2]", _nodeTitleStyle);
+            GUI.Label(new Rect(slot2.x, slot2.y + 22, slot2.width, 18), manager.HasMopUnlocked ? "대걸레" : "물티슈", _nodeSubStyle);
             GUI.color = Color.white;
 
             // 2) 수거통 게이지
@@ -629,14 +644,16 @@ namespace TrashCleaner3D
             }
         }
 
-        // ===== v1.8 통합 강화소([E]) · 268노드 10계열 강화 트리 (휠 줌 0.12~1.5x / 드래그 팬) =====
-        private const float TreeZoomMin = 0.12f;
-        private const float TreeZoomMax = 1.5f;
-        private const float TreeZoomDefault = 0.17f;   // 268노드 10계열 전체 흐름을 먼저 보여주는 개요 배율
+        // ===== v1.8.1 통합 강화소([E]) · 가시성 대개편 (0.78x 기본 줌 + 계열 필터 + Fog-of-War + 호버 경로 하이라이트!) =====
+        private const float TreeZoomMin = 0.22f;
+        private const float TreeZoomMax = 1.45f;
+        private const float TreeZoomDefault = 0.78f;   // 처음 열자마자 글씨·가격·연결선이 바로 읽히는 실전 배율!
         private float _treeZoom = TreeZoomDefault;
         private Vector2 _treePan;
         private bool _treeDragging;
         private bool _treeDragged;
+        private int _selectedBranch = -1;              // -1 = 전체, 0..9 = 특정 계열 집중 보기
+        private bool _showAllLockedNodes = false;      // 기본 OFF: 해금된 노드 + 바로 다음 단계(1칸 앞)만 깔끔하게 표시!
 
         // 10계열 색상 (UpgradeTreeV18.Branches 순서와 동일)
         private static readonly Color[] BranchColors =
@@ -676,6 +693,26 @@ namespace TrashCleaner3D
         {
             _treeZoom = TreeZoomDefault;
             _treePan = Vector2.zero;
+            _selectedBranch = -1;
+        }
+
+        private void FocusBranch(int branchIdx, Rect view)
+        {
+            if (_selectedBranch == branchIdx)
+            {
+                _selectedBranch = -1;
+                _treePan = Vector2.zero;
+                return;
+            }
+            _selectedBranch = branchIdx;
+            if (branchIdx >= 0 && branchIdx < UpgradeTreeV18.Branches.Length)
+            {
+                float rad = UpgradeTreeV18.Branches[branchIdx].angle * Mathf.Deg2Rad;
+                _treeZoom = 0.76f;
+                Vector2 dir = new Vector2(Mathf.Cos(rad), Mathf.Sin(rad));
+                _treePan = -dir * (380f * _treeZoom);
+                ClampTreePan(view);
+            }
         }
 
         private void DrawUpgradeKioskTree(float w, float h, bool embeddedInHub)
@@ -704,35 +741,63 @@ namespace TrashCleaner3D
             DrawBorderedBox(cash, new Color(0.043f, 0.243f, 0.149f), new Color(0.98f, 0.845f, 0.35f), 2);
             GUI.Label(new Rect(cash.x + 10, cash.y + 4, 172, 28), $"${manager.Money:N0}", _moneyBadgeStyle);
 
-            // ===== 툴바 (10계열 범례 + 줌 표시 + 초기 위치) =====
+            // ===== 툴바 (계열 클릭 필터 + 전체 미리보기 토글 + 줌/초기화) =====
             float toolY = hdr.yMax + 6f;
             int branchN = UpgradeTreeV18.Branches.Length;
-            float chipW = Mathf.Floor((panel.width - 28f - 240f - (branchN - 1) * 4f) / branchN);
+            float rightControlsW = 316f;
+            float chipW = Mathf.Floor((panel.width - 28f - rightControlsW - branchN * 4f) / (branchN + 1));
+
+            // [전체] 필터 버튼
+            Rect allBtnR = new Rect(panel.x + 14, toolY, chipW, 24);
+            DrawBorderedBox(allBtnR, _selectedBranch < 0 ? new Color(0.32f, 0.25f, 0.12f) : new Color(0.16f, 0.15f, 0.14f),
+                _selectedBranch < 0 ? new Color(0.96f, 0.80f, 0.30f) : new Color(0.42f, 0.38f, 0.32f), _selectedBranch < 0 ? 2 : 1);
+            GUI.color = _selectedBranch < 0 ? new Color(1f, 0.94f, 0.64f) : new Color(0.80f, 0.78f, 0.74f);
+            GUI.Label(allBtnR, "전체", _nodeSubStyle);
+            GUI.color = Color.white;
+            if (GUI.Button(allBtnR, GUIContent.none, GUIStyle.none)) { _selectedBranch = -1; _treePan = Vector2.zero; }
+
+            // 10개 계열 클릭 집중 탭
+            float viewTop = toolY + 28f;
+            float infoH = 58f;
+            float viewBottom = panel.yMax - infoH - 18f;
+            Rect view = new Rect(panel.x + 14, viewTop, panel.width - 28, Mathf.Max(200f, viewBottom - viewTop));
+
             for (int b = 0; b < UpgradeTreeV18.Branches.Length; b++)
             {
                 var bd = UpgradeTreeV18.Branches[b];
-                DrawLegendChip(new Rect(panel.x + 14 + b * (chipW + 4f), toolY, chipW, 22), bd.color, bd.label);
+                Rect bR = new Rect(panel.x + 14 + (b + 1) * (chipW + 4f), toolY, chipW, 24);
+                bool sel = _selectedBranch == b;
+                DrawBorderedBox(bR, sel ? Color.Lerp(bd.color, new Color(0.12f, 0.11f, 0.10f), 0.55f) : new Color(0.15f, 0.14f, 0.13f, 0.95f),
+                    bd.color, sel ? 2 : 1);
+                GUI.color = sel ? Color.white : new Color(0.86f, 0.86f, 0.84f);
+                GUI.Label(bR, bd.label, _nodeSubStyle);
+                GUI.color = Color.white;
+                if (GUI.Button(bR, GUIContent.none, GUIStyle.none)) FocusBranch(b, view);
             }
 
-            Rect zoomTag = new Rect(panel.xMax - 236, toolY, 96, 22);
+            // Fog-of-War 토글 (기본: 해금+다음 1칸만 표시 → 난잡함 0%!)
+            Rect fogR = new Rect(panel.xMax - 318, toolY, 126, 24);
+            DrawBorderedBox(fogR, _showAllLockedNodes ? new Color(0.24f, 0.20f, 0.12f) : new Color(0.14f, 0.24f, 0.18f),
+                _showAllLockedNodes ? new Color(0.86f, 0.70f, 0.28f) : new Color(0.36f, 0.82f, 0.54f), 1);
+            GUI.color = Color.white;
+            GUI.Label(fogR, _showAllLockedNodes ? "전체노드: ON" : "간편보기: ON", _nodeSubStyle);
+            if (GUI.Button(fogR, GUIContent.none, GUIStyle.none)) _showAllLockedNodes = !_showAllLockedNodes;
+
+            Rect zoomTag = new Rect(panel.xMax - 186, toolY, 72, 24);
             DrawBorderedBox(zoomTag, new Color(0.16f, 0.15f, 0.14f, 0.94f), new Color(0.55f, 0.48f, 0.30f), 1);
             GUI.color = new Color(0.92f, 0.86f, 0.66f);
-            GUI.Label(zoomTag, $"줌 ×{_treeZoom:0.00}", _nodeSubStyle);
+            GUI.Label(zoomTag, $"×{_treeZoom:0.00}", _nodeSubStyle);
             GUI.color = Color.white;
 
-            Rect resetR = new Rect(panel.xMax - 134, toolY, 118, 22);
+            Rect resetR = new Rect(panel.xMax - 108, toolY, 94, 24);
             DrawBorderedBox(resetR, new Color(0.26f, 0.21f, 0.12f), new Color(0.86f, 0.70f, 0.28f), 1);
             GUI.color = new Color(1f, 0.92f, 0.60f);
-            GUI.Label(resetR, "[R] 초기 위치", _nodeSubStyle);
+            GUI.Label(resetR, "[R] 중앙", _nodeSubStyle);
             GUI.color = Color.white;
             if (GUI.Button(resetR, GUIContent.none, GUIStyle.none)) ResetTreeView();
 
             // ===== 트리 뷰포트 =====
-            float infoH = 58f;
-            float viewTop = toolY + 26f;
-            float viewBottom = panel.yMax - infoH - 18f;
-            Rect view = new Rect(panel.x + 14, viewTop, panel.width - 28, Mathf.Max(200f, viewBottom - viewTop));
-            DrawRect(view, new Color(0.062f, 0.058f, 0.050f, 0.92f));
+            DrawRect(view, new Color(0.062f, 0.058f, 0.050f, 0.94f));
             for (float gx = view.x + Mathf.Repeat(_treePan.x, 80f); gx < view.xMax; gx += 80f)
                 DrawRect(new Rect(gx, view.y, 1, view.height), new Color(0.20f, 0.18f, 0.15f, 0.30f));
             for (float gy = view.y + Mathf.Repeat(_treePan.y, 80f); gy < view.yMax; gy += 80f)
@@ -748,11 +813,30 @@ namespace TrashCleaner3D
             Event e = Event.current;
             Vector2 mPos = e.mousePosition;
 
-            // 노드 사각형을 먼저 계산해 두고(클릭·호버·컬링 공용) 사용한다.
+            // 노드 사각형 + 가시성 필터(간편보기: 해금 노드 + 바로 다음 1칸 노드만 표시!)
             var nodes = BuildTreeNodes();
+            var idToIdx = new Dictionary<string, int>(nodes.Count);
+            for (int i = 0; i < nodes.Count; i++) idToIdx[nodes[i].id] = i;
+
+            bool[] visible = new bool[nodes.Count];
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var n = nodes[i];
+                if (_showAllLockedNodes || (_selectedBranch >= 0 && n.branch == _selectedBranch) || n.unlocked || n.level > 0 || string.IsNullOrEmpty(n.parentId))
+                {
+                    visible[i] = true;
+                }
+                else if (idToIdx.TryGetValue(n.parentId, out int pIdx) && (nodes[pIdx].unlocked || nodes[pIdx].level > 0))
+                {
+                    // 부모가 이미 해금된 '바로 다음 단계' 노드 1칸 앞까지만 깔끔하게 보여준다!
+                    visible[i] = true;
+                }
+            }
+
             int hoveredIdx = -1;
             for (int i = 0; i < nodes.Count; i++)
             {
+                if (!visible[i]) continue;
                 Rect r = NodeRectOf(nodes[i], center, scale, nW, nH);
                 if (r.Contains(mPos)) { hoveredIdx = i; break; }
             }
@@ -812,28 +896,59 @@ namespace TrashCleaner3D
             bool drawText = scale >= 0.42f;
             bool midText = scale >= 0.72f;
 
-            // --- 연결선 (뷰포트 안/근처만) ---
+            // --- 연결선 (계열 집중 + 호버 시 부모→자식 경로 굵은 황금/시안 하이라이트!) ---
+            string hoveredId = hoveredIdx >= 0 ? nodes[hoveredIdx].id : null;
+            string hoveredParentId = hoveredIdx >= 0 ? nodes[hoveredIdx].parentId : null;
+
             for (int i = 0; i < nodes.Count; i++)
             {
+                if (!visible[i]) continue;
                 var n = nodes[i];
-                if (string.IsNullOrEmpty(n.parentId)) continue;
                 Vector2 nPos = center + n.offset * scale;
-                if (!view.Overlaps(new Rect(nPos.x - 40f, nPos.y - 40f, 80f, 80f))) continue;
                 Vector2 pPos = center;
-                bool found = false;
-                for (int k = 0; k < nodes.Count; k++)
+                if (!string.IsNullOrEmpty(n.parentId))
                 {
-                    if (nodes[k].id == n.parentId) { pPos = center + nodes[k].offset * scale; found = true; break; }
+                    if (!idToIdx.TryGetValue(n.parentId, out int pIdx) || !visible[pIdx]) continue;
+                    pPos = center + nodes[pIdx].offset * scale;
                 }
-                if (!found) continue;
-                Color lineCol = n.unlocked
-                    ? new Color(n.accent.r, n.accent.g, n.accent.b, 0.62f)
-                    : new Color(0.38f, 0.35f, 0.30f, 0.32f);
-                DrawLine(pPos, nPos, lineCol, (n.unlocked ? 2.2f : 1.2f) * Mathf.Clamp(scale * 1.6f, 0.7f, 1.6f));
+
+                bool inFocusBranch = _selectedBranch < 0 || n.isCore || n.branch == _selectedBranch;
+                bool isParentLink = hoveredId != null && n.id == hoveredId;
+                bool isChildLink = hoveredId != null && n.parentId == hoveredId;
+
+                Color lineCol;
+                float lineW;
+                if (isParentLink)
+                {
+                    lineCol = new Color(1.0f, 0.88f, 0.22f, 0.98f);
+                    lineW = 4.0f;
+                }
+                else if (isChildLink)
+                {
+                    lineCol = new Color(0.32f, 0.96f, 0.88f, 0.95f);
+                    lineW = 3.4f;
+                }
+                else
+                {
+                    float alpha = inFocusBranch ? (n.unlocked ? 0.72f : 0.30f) : 0.10f;
+                    lineCol = n.unlocked
+                        ? new Color(n.accent.r, n.accent.g, n.accent.b, alpha)
+                        : new Color(0.45f, 0.43f, 0.38f, alpha);
+                    lineW = (n.unlocked ? 2.4f : 1.3f) * Mathf.Clamp(scale * 1.4f, 0.8f, 1.8f);
+                }
+
+                DrawLine(pPos, nPos, lineCol, lineW);
+                // 방향 화살표 점 (부모→자식 방향을 직관적으로 표시)
+                if (isParentLink || isChildLink || (inFocusBranch && n.unlocked && scale >= 0.55f))
+                {
+                    Vector2 dotP = Vector2.Lerp(pPos, nPos, 0.74f);
+                    float ds = (isParentLink || isChildLink) ? 7f : 4f;
+                    DrawRect(new Rect(dotP.x - ds * 0.5f, dotP.y - ds * 0.5f, ds, ds), lineCol);
+                }
             }
 
             // --- 계열 이름표 (축소해서 흐름만 볼 때 방향 감각) ---
-            if (scale < 0.55f)
+            if (scale < 0.65f)
             {
                 var branches = UpgradeTreeV18.Branches;
                 for (int b = 0; b < branches.Length; b++)
@@ -853,37 +968,47 @@ namespace TrashCleaner3D
             TreeNodeDef? hovered = null;
             for (int i = 0; i < nodes.Count; i++)
             {
+                if (!visible[i]) continue;
                 var n = nodes[i];
                 Rect r = NodeRectOf(n, center, scale, nW, nH);
                 if (!view.Overlaps(r)) continue;                       // 뷰포트 컬링
                 if (r.xMax < view.x || r.xMin > view.xMax) continue;
 
-                bool isMax = n.level >= n.maxLevel;
-                Color bg = !n.unlocked ? new Color(0.15f, 0.14f, 0.125f, 0.94f)
-                         : isMax ? new Color(0.13f, 0.27f, 0.17f, 0.98f)
-                         : n.affordable ? (n.isMilestone ? new Color(0.36f, 0.27f, 0.10f, 0.98f) : new Color(0.29f, 0.24f, 0.145f, 0.97f))
-                         : new Color(0.19f, 0.175f, 0.155f, 0.96f);
-                Color bd = !n.unlocked ? new Color(0.28f, 0.28f, 0.30f)
-                         : isMax ? new Color(0.40f, 0.95f, 0.55f)
-                         : n.affordable ? n.accent
-                         : new Color(n.accent.r * 0.50f, n.accent.g * 0.50f, n.accent.b * 0.50f);
+                bool inFocusBranch = _selectedBranch < 0 || n.isCore || n.branch == _selectedBranch;
+                bool isLineage = hoveredId != null && (n.id == hoveredId || n.id == hoveredParentId || n.parentId == hoveredId);
+                float dimA = (inFocusBranch || isLineage) ? 1f : 0.22f;
 
-                DrawBorderedBox(r, bg, bd, (n.affordable || n.isMilestone) ? 2 : 1);
+                bool isMax = n.level >= n.maxLevel;
+                Color bg = !n.unlocked ? new Color(0.15f, 0.14f, 0.125f, 0.94f * dimA)
+                         : isMax ? new Color(0.13f, 0.27f, 0.17f, 0.98f * dimA)
+                         : n.affordable ? (n.isMilestone ? new Color(0.36f, 0.27f, 0.10f, 0.98f * dimA) : new Color(0.29f, 0.24f, 0.145f, 0.97f * dimA))
+                         : new Color(0.19f, 0.175f, 0.155f, 0.96f * dimA);
+                Color bd = isLineage ? new Color(1.0f, 0.90f, 0.30f, 1f)
+                         : !n.unlocked ? new Color(0.28f, 0.28f, 0.30f, dimA)
+                         : isMax ? new Color(0.40f, 0.95f, 0.55f, dimA)
+                         : n.affordable ? new Color(n.accent.r, n.accent.g, n.accent.b, dimA)
+                         : new Color(n.accent.r * 0.50f, n.accent.g * 0.50f, n.accent.b * 0.50f, dimA);
+
+                DrawBorderedBox(r, bg, bd, (isLineage || n.affordable || n.isMilestone) ? 2 : 1);
 
                 if (drawText)
                 {
                     _nodeTitleStyle.fontSize = midText ? 11 : 9;
                     _nodeSubStyle.fontSize = midText ? 9 : 8;
-                    _nodeTitleStyle.normal.textColor = !n.unlocked ? new Color(0.52f, 0.52f, 0.54f)
+                    Color tCol = !n.unlocked ? new Color(0.52f, 0.52f, 0.54f)
                         : isMax ? new Color(0.55f, 1.0f, 0.65f)
                         : n.isMilestone ? new Color(1.0f, 0.92f, 0.45f)
                         : Color.white;
+                    tCol.a = dimA;
+                    _nodeTitleStyle.normal.textColor = tCol;
                     GUI.Label(new Rect(r.x + 2, r.y + 2, r.width - 4, r.height * 0.50f), n.shortName, _nodeTitleStyle);
 
-                    _nodeSubStyle.normal.textColor = !n.unlocked ? new Color(0.46f, 0.46f, 0.50f)
+                    Color sCol = !n.unlocked ? new Color(0.46f, 0.46f, 0.50f)
                         : isMax ? new Color(0.55f, 1.0f, 0.65f)
                         : n.affordable ? n.accent
                         : new Color(0.75f, 0.72f, 0.66f);
+                    sCol.a = dimA;
+                    _nodeSubStyle.normal.textColor = sCol;
                     string sub = !n.unlocked ? "잠김"
                                : isMax ? "MAX"
                                : midText ? $"{n.level}/{n.maxLevel} · ${n.cost:N0}"
@@ -892,7 +1017,6 @@ namespace TrashCleaner3D
                 }
                 else
                 {
-                    // 아주 작게 볼 때는 색 점만 → 220개 가지 흐름이 한눈에 보인다.
                     DrawRect(new Rect(r.x, r.y, Mathf.Max(3f, r.width), Mathf.Max(3f, r.height)), bd);
                 }
 
@@ -1048,16 +1172,16 @@ namespace TrashCleaner3D
             switch (id)
             {
                 case "hold1": case "hold2": case "hold3": return $"현재 홀드 {manager.EffectiveHoldDuration:0.00}초";
-                case "rad1": case "rad2": return $"현재 반경 {manager.SweepRadius:0.00}m · 동시 {manager.AutoGrabPerTick}개";
-                case "broom": return "반경 대폭 확장 · 동시 3개+ 쓸어담기 · 홀드 4% 단축";
-                case "vacuum": return "광역 흡입 · 수거통 용량 ×2!";
+                case "rad1": case "rad2": return $"현재 반경 {manager.SweepRadius:0.00}m · 줍기 사거리 {manager.PickupReach:0.00}m · 동시 {manager.AutoGrabPerTick}개";
+                case "broom": return "반경·사거리 대폭 확장 · 동시 3개+ 쓸어담기 · 홀드 4% 단축";
+                case "vacuum": return "광역 흡입 + 원거리 사거리 확장 · 수거통 용량 ×2!";
                 case "fever": return $"Lv.{manager.LvFever}/3 · 범위·속도·수익 증폭";
                 case "bin1": case "bin2": case "bin3": return $"현재 최대 {manager.BinCapacity:N0}개 휴대";
                 case "price1": case "price2": return $"쓰레기 수익 배율 ×{manager.EffectiveTrashPriceMult:0.00}";
                 case "combo": return $"연속 정산 +20%/스택 · 유지 {manager.MaxComboWindow:0.0}초";
-                case "cart": return "정산 ×1.20 · 마당 입구 자동흡입 정산";
-                case "damas": return "정산 ×1.45 · 현관 문 앞만 가도 자동 정산";
-                case "truck1t": return $"정산 ×1.80 · 수거통 {manager.RemoteSettleFill01 * 100f:0}% 원격 자동수거";
+                case "cart": return "정산 ×1.20 · 차량 정산 반경 4.2m 확장 (수동 [RMB])";
+                case "damas": return "정산 ×1.45 · 정산 반경 6.2m + 마당 진입 시 자동 흡입 정산 해금!";
+                case "truck1t": return $"정산 ×1.80 · 정산 반경 9.0m + 방 안 {manager.RemoteSettleFill01 * 100f:0}% 원격 자동수거 해금!";
                 case "speed1": case "speed2": return $"이동속도 +{manager.TotalSpeedLv * 3}%";
                 case "mask1": case "mask2": return $"악취 상승 -{Mathf.Min(56, manager.TotalMaskLv * 8)}% · 산소 {(manager.HasOxygenBoost ? (manager.OxygenBoostMult - 1f) * 100f : 0f):0}%";
                 case "mop": return "2단계 바닥 얼룩 닦기 속도 ×2.4";
@@ -1095,6 +1219,7 @@ namespace TrashCleaner3D
                     level = lv,
                     maxLevel = maxLv,
                     cost = cost,
+                    branch = m.branch,
                     unlocked = unlocked,
                     affordable = afford,
                     isMilestone = m.isMilestone,

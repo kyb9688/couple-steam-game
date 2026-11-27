@@ -19,11 +19,8 @@ namespace TrashCleaner3D
         public const int Stage1SwarmCount = 960;
         public const int Stage2SwarmCount = 2700;
 
-        // ===== v1.7 : 스테이지별 총 쓰레기 물량과 다중 웨이브 =====
-        // 한 번에 화면에 뿌리는 양(웨이브)은 1,200~5,000개로 제한해 WebGL 프레임 예산을 지키고,
-        // 웨이브를 계속 공급해 4시간 캠페인에 맞는 물량(총 7.7만 개)을 만든다.
-        // countToSpawn 은 '웨이브 1회당' 개수다.
-        public static readonly int[] StageWaveCounts = { 0, 1, 4, 6, 7, 6, 16, 20 };
+        // [v1.8.1] 청소 중 빈 바닥에 갑작스러운 리스폰(웨이브) 금지! 스테이지 진입 시 전체 물량을 1회 스폰.
+        public static readonly int[] StageWaveCounts = { 0, 1, 1, 1, 1, 1, 1, 1 };
 
         public int StageTotalItems { get; private set; }
         public int WaveIndex { get; private set; }
@@ -152,6 +149,20 @@ namespace TrashCleaner3D
 
         public int HoveredCount => _selectedIndices.Count;
         public float MaxSelectedCharge01 { get; private set; }
+        public bool TryGetPrimaryTargetPos(out Vector3 worldPos)
+        {
+            for (int k = 0; k < _selectedIndices.Count; k++)
+            {
+                int idx = _selectedIndices[k];
+                if (idx >= 0 && idx < _unitCount && _units[idx].state == 0)
+                {
+                    worldPos = _units[idx].pos;
+                    return true;
+                }
+            }
+            worldPos = Vector3.zero;
+            return false;
+        }
         public int TotalCount => _unitCount;
         public int SpawnedCount => _spawnedCount;
         public int CleanedCount => _cleanedCount;
@@ -173,47 +184,47 @@ namespace TrashCleaner3D
         public bool IsRoomCleared(int idx) => idx >= 0 && idx < _roomClearedFlags.Length && _roomClearedFlags[idx];
         public Vector3 GetRoomCenter(int idx) => (idx >= 0 && idx < _rooms.Length) ? _rooms[idx].center : Vector3.zero;
 
-        // Stage 1: +30% 확장 원룸 (9.36 x 7.80) — 튜토리얼은 그대로
+        // Stage 1: +30% 확장 원룸 (9.36 x 7.80) — 1회 전량 스폰
         private static readonly RoomZoneDef[] Stage1Rooms =
         {
-            new RoomZoneDef { name = "반지하 원룸", minX = -4.35f, maxX = 4.35f, minZ = -3.60f, maxZ = 3.55f, floorY = 0f, center = new Vector3(0f, 0f, 0f), countToSpawn = 960 }
+            new RoomZoneDef { name = "반지하 원룸", minX = -4.35f, maxX = 4.35f, minZ = -3.60f, maxZ = 3.55f, floorY = 0f, center = new Vector3(0f, 0f, 0f), countToSpawn = 1100 }
         };
 
-        // Stage 2: 택배 중독 오피스텔 (4.2 x 6.8) — 방 끝까지 + 화장실·현관 복도 (사용 면적 +31%)
+        // Stage 2: 택배 중독 오피스텔 (4.2 x 6.8) — 리스폰 없이 1회 1,800개
         private static readonly RoomZoneDef[] Stage2Rooms =
         {
-            new RoomZoneDef { name = "오피스텔 본실", minX = -2.00f, maxX =  2.00f, minZ = -3.25f, maxZ = 1.35f, floorY = 0f, center = new Vector3(0f, 0f, -0.95f), countToSpawn = 550 },
-            new RoomZoneDef { name = "화장실",        minX = -1.95f, maxX = -0.75f, minZ =  1.85f, maxZ = 3.25f, floorY = 0f, center = new Vector3(-1.35f, 0f, 2.55f), countToSpawn = 40 },
-            new RoomZoneDef { name = "현관 복도",     minX =  0.35f, maxX =  1.95f, minZ =  1.55f, maxZ = 3.25f, floorY = 0f, center = new Vector3(1.15f, 0f, 2.40f), countToSpawn = 85 }
+            new RoomZoneDef { name = "오피스텔 본실", minX = -1.95f, maxX =  1.95f, minZ = -3.20f, maxZ = 1.35f, floorY = 0f, center = new Vector3(0f, 0f, -0.95f), countToSpawn = 1450 },
+            new RoomZoneDef { name = "화장실",        minX = -1.90f, maxX = -0.75f, minZ =  1.85f, maxZ = 3.20f, floorY = 0f, center = new Vector3(-1.35f, 0f, 2.55f), countToSpawn = 120 },
+            new RoomZoneDef { name = "현관 복도",     minX =  0.35f, maxX =  1.90f, minZ =  1.55f, maxZ = 3.00f, floorY = 0f, center = new Vector3(1.15f, 0f, 2.30f), countToSpawn = 230 }
         };
 
-        // Stage 3: 치킨집 주방 (5.5 x 5.0) — 주방 바닥 끝까지 + 홀/카운터 앞 (사용 면적 +12%)
+        // Stage 3: 치킨집 주방 (5.5 x 5.0) — 리스폰 없이 1회 2,400개
         private static readonly RoomZoneDef[] Stage3Rooms =
         {
-            new RoomZoneDef { name = "치킨집 주방", minX = -1.70f, maxX = 2.55f, minZ = -1.45f, maxZ = 1.10f, floorY = 0f, center = new Vector3(0.42f, 0f, -0.18f), countToSpawn = 975 },
-            new RoomZoneDef { name = "홀·카운터 앞", minX = -0.20f, maxX = 2.55f, minZ =  1.00f, maxZ = 2.35f, floorY = 0f, center = new Vector3(1.20f, 0f, 1.68f), countToSpawn = 195 }
+            new RoomZoneDef { name = "치킨집 주방", minX = -1.65f, maxX = 2.50f, minZ = -1.40f, maxZ = 1.05f, floorY = 0f, center = new Vector3(0.42f, 0f, -0.18f), countToSpawn = 1950 },
+            new RoomZoneDef { name = "홀·카운터 앞", minX = -0.15f, maxX = 2.50f, minZ =  1.05f, maxZ = 2.15f, floorY = 0f, center = new Vector3(1.20f, 0f, 1.60f), countToSpawn = 450 }
         };
 
-        // Stage 4: 육아 전쟁 맞벌이 집 (7.2 x 5.8) — 거실·안방 끝까지 + 욕실 (사용 면적 +80%)
+        // Stage 4: 육아 전쟁 맞벌이 집 (7.2 x 5.8) — 리스폰 없이 1회 3,400개
         private static readonly RoomZoneDef[] Stage4Rooms =
         {
-            new RoomZoneDef { name = "거실·놀이매트", minX = -0.55f, maxX =  3.45f, minZ = -2.75f, maxZ = 2.35f, floorY = 0f, center = new Vector3(1.45f, 0f, -0.20f), countToSpawn = 2040 },
-            new RoomZoneDef { name = "안방",          minX = -3.45f, maxX = -0.75f, minZ = -2.75f, maxZ = 0.40f, floorY = 0f, center = new Vector3(-2.10f, 0f, -1.18f), countToSpawn = 460 },
-            new RoomZoneDef { name = "욕실",          minX = -3.45f, maxX = -1.80f, minZ =  1.15f, maxZ = 2.80f, floorY = 0f, center = new Vector3(-2.60f, 0f, 1.98f), countToSpawn = 170 }
+            new RoomZoneDef { name = "거실·놀이매트", minX = -0.50f, maxX =  3.40f, minZ = -2.70f, maxZ = 2.25f, floorY = 0f, center = new Vector3(1.45f, 0f, -0.20f), countToSpawn = 2400 },
+            new RoomZoneDef { name = "안방",          minX = -3.40f, maxX = -0.80f, minZ = -2.70f, maxZ = 0.35f, floorY = 0f, center = new Vector3(-2.10f, 0f, -1.18f), countToSpawn = 720 },
+            new RoomZoneDef { name = "욕실",          minX = -3.40f, maxX = -1.85f, minZ =  1.20f, maxZ = 2.75f, floorY = 0f, center = new Vector3(-2.60f, 0f, 1.98f), countToSpawn = 280 }
         };
 
-        // Stage 5: 야근 지옥 스타트업 사무실 (8.5 x 7.0) — 오픈 오피스 끝까지 + 대표실·탕비실 (사용 면적 +48%)
+        // Stage 5: 야근 지옥 스타트업 사무실 (8.5 x 7.0) — 리스폰 없이 1회 4,600개
         private static readonly RoomZoneDef[] Stage5Rooms =
         {
-            new RoomZoneDef { name = "오픈 오피스", minX = -1.20f, maxX =  4.05f, minZ = -3.35f, maxZ =  3.30f, floorY = 0f, center = new Vector3(1.42f, 0f, -0.02f), countToSpawn = 3150 },
-            new RoomZoneDef { name = "대표실",      minX = -4.10f, maxX = -1.45f, minZ = -3.35f, maxZ = -0.65f, floorY = 0f, center = new Vector3(-2.78f, 0f, -2.00f), countToSpawn = 540 },
-            new RoomZoneDef { name = "탕비실",      minX = -4.10f, maxX = -2.40f, minZ =  0.75f, maxZ =  3.30f, floorY = 0f, center = new Vector3(-3.25f, 0f, 2.02f), countToSpawn = 310 }
+            new RoomZoneDef { name = "오픈 오피스", minX = -1.15f, maxX =  4.00f, minZ = -3.30f, maxZ =  3.20f, floorY = 0f, center = new Vector3(1.42f, 0f, -0.02f), countToSpawn = 3450 },
+            new RoomZoneDef { name = "대표실",      minX = -4.05f, maxX = -1.50f, minZ = -3.30f, maxZ = -0.70f, floorY = 0f, center = new Vector3(-2.78f, 0f, -2.00f), countToSpawn = 750 },
+            new RoomZoneDef { name = "탕비실",      minX = -4.05f, maxX = -2.45f, minZ =  0.80f, maxZ =  3.20f, floorY = 0f, center = new Vector3(-3.25f, 0f, 2.02f), countToSpawn = 400 }
         };
 
-        // Stage 6: 시골집 농막 (4.2 x 3.6) — 좁은 방을 끝까지 (사용 면적 +27%) · 최강 악취
+        // Stage 6: 시골집 농막 (4.2 x 3.6) — 리스폰 없이 1회 2,400개 · 최강 악취
         private static readonly RoomZoneDef[] Stage6Rooms =
         {
-            new RoomZoneDef { name = "시골 농막", minX = -1.95f, maxX = 1.95f, minZ = -1.65f, maxZ = 1.65f, floorY = 0f, center = new Vector3(0f, 0f, 0f), countToSpawn = 1130 }
+            new RoomZoneDef { name = "시골 농막", minX = -1.90f, maxX = 1.90f, minZ = -1.60f, maxZ = 1.55f, floorY = 0f, center = new Vector3(0f, 0f, 0f), countToSpawn = 2400 }
         };
 
         // Stage 7: 졸부 파티광 3층 복층 펜트하우스 (10 x 8 x 3층) — 층별 바닥 전체 + 2층 욕실·3층 금고방 (사용 면적 +55%)
@@ -283,10 +294,10 @@ namespace TrashCleaner3D
 
             while (meshTypes.Count < 5)
                 AddProc(lit, "쓰레기 조각", box, new Color(0.55f, 0.52f, 0.46f), 0.2f, 0.16f, Vector3.zero);
-            AddProc(lit, "고철 캔", cyl, new Color(0.42f, 0.44f, 0.50f), 0.72f, 0.26f, new Vector3(8f, 0f, 74f));
-            AddProc(lit, "전자폐기물", box, new Color(0.22f, 0.24f, 0.28f), 0.55f, 0.40f, new Vector3(8f, 24f, 4f));
-            AddProc(lit, "대형 폐가전", box, new Color(0.74f, 0.74f, 0.70f), 0.42f, 0.72f, new Vector3(0f, 12f, 0f));
-            AddProc(lit, "금괴", box, new Color(0.98f, 0.80f, 0.24f), 0.92f, 0.34f, new Vector3(24f, 18f, 0f));
+            AddProc(lit, "고철 캔", cyl, new Color(0.42f, 0.44f, 0.50f), 0.72f, 0.20f, new Vector3(8f, 0f, 74f));
+            AddProc(lit, "전자폐기물", box, new Color(0.24f, 0.26f, 0.30f), 0.58f, 0.24f, new Vector3(8f, 24f, 4f));
+            AddProc(lit, "소형 폐가전", box, new Color(0.36f, 0.38f, 0.42f), 0.52f, 0.30f, new Vector3(0f, 12f, 0f));
+            AddProc(lit, "금괴", box, new Color(0.98f, 0.80f, 0.24f), 0.92f, 0.22f, new Vector3(24f, 18f, 0f));
             EnsureRenderBuffers();
         }
 
@@ -479,13 +490,11 @@ namespace TrashCleaner3D
             _roomClearedFlags = new bool[_rooms.Length];
             ClearedRoomCount = 0;
 
-            // [v1.8] 강화 '물량·밀도' 노드가 스테이지 진입 시점의 웨이브 크기·웨이브 수를 늘린다.
+            // [v1.8.1] 웨이브 리스폰 제거: 스테이지 진입 시 1회 전량 스폰(치운 바닥은 끝까지 깨끗하게 유지!)
             _densityMult = 1f + (manager != null ? manager.TrashDensity01 : 0f);
-            _megaDump = manager != null && manager.MegaDump;
-            int baseWaves = (_currentStageLayout < StageWaveCounts.Length && StageWaveCounts[_currentStageLayout] > 0)
-                ? StageWaveCounts[_currentStageLayout] : 1;
-            WaveCount = baseWaves + (manager != null ? manager.WaveBonusCount : 0);
-            _waveCountFixed = WaveCount;
+            _megaDump = false;
+            WaveCount = 1;
+            _waveCountFixed = 1;
             _perWaveCount = 0;
             for (int r = 0; r < _rooms.Length; r++) _perWaveCount += RoomWaveCount(_rooms[r], 0);
             StageTotalItems = 0;
@@ -682,7 +691,9 @@ namespace TrashCleaner3D
                     0.06f,
                     Mathf.Clamp(origin.z + off.y, room.minZ, room.maxZ)
                 );
-                AddUnit(origin + Vector3.up * 0.35f, land, true, Random.Range(0, meshTypes.Count), rIdx);
+                // [v1.8.1] 큰 봉투 파편은 반드시 일반 소형 3D 쓰레기(0~4)만 배출! (거대 하얀 큐브 덩어리 방지)
+                int smallTypeCount = Mathf.Min(5, meshTypes.Count);
+                AddUnit(origin + Vector3.up * 0.35f, land, true, Random.Range(0, smallTypeCount), rIdx);
             }
             _staticDirty = true;
         }
@@ -804,9 +815,17 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// 2D Spatial Hash Grid O(1) 탐색 + HOLD 락온 유지! (8,000개에서도 0.02ms!)
+        /// [v1.8.1] 2D Spatial Hash Grid O(1) 탐색 + 엄격 반경(원 밖 0% 보장) + 카메라 시선 겉면/윗면 최우선 락온!
         /// </summary>
         public void UpdateHoverSelection(bool active, bool isHolding, Vector3 aimPoint, float cursorRadius, int maxSelectCount)
+        {
+            Camera cam = Camera.main;
+            Vector3 cPos = cam != null ? cam.transform.position : aimPoint + Vector3.up * 1.5f;
+            Vector3 cFwd = cam != null ? cam.transform.forward : Vector3.down;
+            UpdateHoverSelection(active, isHolding, aimPoint, cursorRadius, maxSelectCount, cPos, cFwd);
+        }
+
+        public void UpdateHoverSelection(bool active, bool isHolding, Vector3 aimPoint, float cursorRadius, int maxSelectCount, Vector3 camPos, Vector3 camFwd)
         {
             _selectedIndices.Clear();
             _selectedSet.Clear();
@@ -819,7 +838,7 @@ namespace TrashCleaner3D
                 _lockedIndices.Clear();
             }
 
-            if (!active || maxSelectCount <= 0 || _unitCount == 0)
+            if (!active || maxSelectCount <= 0 || _unitCount == 0 || cursorRadius <= 0.01f)
             {
                 MaxSelectedCharge01 = 0f;
                 return;
@@ -827,10 +846,9 @@ namespace TrashCleaner3D
 
             float rSq = cursorRadius * cursorRadius;
 
-            // 홀드 중 기존 락온 유지 (순수 수평 XZ 반경 * 1.15 여유)
+            // [v1.8.1 수정 #5] 홀드 중 락온 유지도 보이는 원 반경(rSq) 엄격 적용 — 원 밖 쓰레기 수거 0%!
             if (isHolding && _lockedIndices.Count > 0)
             {
-                float keepRSq = (cursorRadius * 1.15f) * (cursorRadius * 1.15f);
                 for (int i = _lockedIndices.Count - 1; i >= 0; i--)
                 {
                     int idx = _lockedIndices[i];
@@ -839,9 +857,14 @@ namespace TrashCleaner3D
                         _lockedIndices.RemoveAt(i);
                         continue;
                     }
+                    if (Mathf.Abs(_units[idx].pos.y - aimPoint.y) > 1.35f)
+                    {
+                        _lockedIndices.RemoveAt(i);
+                        continue;
+                    }
                     Vector3 d = _units[idx].pos - aimPoint;
                     d.y = 0f;
-                    if (d.sqrMagnitude > keepRSq)
+                    if (d.sqrMagnitude > rSq)
                     {
                         _lockedIndices.RemoveAt(i);
                         continue;
@@ -853,7 +876,7 @@ namespace TrashCleaner3D
                 }
             }
 
-            // Spatial Hash Grid 주변 셀만 O(1) 스캔!
+            // Spatial Hash Grid 주변 셀만 O(1) 스캔 + [v1.8.1 수정 #4] 내 눈에 정면으로 보이는 겉면/윗면 쓰레기 최우선!
             if (_selectedIndices.Count < maxSelectCount)
             {
                 _candidates.Clear();
@@ -861,6 +884,7 @@ namespace TrashCleaner3D
                 int maxCx = Mathf.FloorToInt(aimPoint.x + cursorRadius);
                 int minCz = Mathf.FloorToInt(aimPoint.z - cursorRadius);
                 int maxCz = Mathf.FloorToInt(aimPoint.z + cursorRadius);
+                Vector3 fwdN = camFwd.sqrMagnitude > 0.001f ? camFwd.normalized : Vector3.down;
 
                 for (int cx = minCx; cx <= maxCx; cx++)
                 {
@@ -871,11 +895,24 @@ namespace TrashCleaner3D
                         {
                             int idx = bucket[b];
                             if (_units[idx].state != 0 || _selectedSet.Contains(idx)) continue;
-                            if (Mathf.Abs(_units[idx].pos.y - aimPoint.y) > 1.45f) continue;
-                            Vector3 d = _units[idx].pos - aimPoint;
-                            d.y = 0f;
-                            float dSq = d.sqrMagnitude;
-                            if (dSq <= rSq) _candidates.Add((idx, dSq));
+                            Vector3 uPos = _units[idx].pos;
+                            if (Mathf.Abs(uPos.y - aimPoint.y) > 1.35f) continue;
+
+                            // 1) 엄격한 수평 원 반경 검사 (보이는 바닥 링 밖이면 절대 탈락!)
+                            Vector3 dFlat = uPos - aimPoint;
+                            dFlat.y = 0f;
+                            if (dFlat.sqrMagnitude > rSq) continue;
+
+                            // 2) 내 시선 광선과의 거리 + 카메라와의 거리 + 높이(겉면/윗면 우선) 점수!
+                            Vector3 toUnit = uPos - camPos;
+                            float along = Vector3.Dot(toUnit, fwdN);
+                            if (along < 0.05f) continue;
+                            Vector3 closestOnRay = camPos + fwdN * along;
+                            float rayPerpSq = (uPos - closestOnRay).sqrMagnitude;
+                            float topHeight = Mathf.Max(0f, uPos.y - aimPoint.y);
+                            // 시선 중심에 가깝고 + 내 눈에 가깝고(겉면) + 위에 쌓인 쓰레기가 1순위로 락온!
+                            float score = rayPerpSq * 2.8f + along * 0.42f - topHeight * 0.35f;
+                            _candidates.Add((idx, score));
                         }
                     }
                 }
@@ -1302,22 +1339,31 @@ namespace TrashCleaner3D
                         continue;
                     }
 
-                    // 진동 연출
-                    float freq = 52f + ch * 38f;
-                    float amp = 0.012f + ch * 0.032f;
-                    float seed = i * 1.73f;
-                    Vector3 rPos = _units[i].pos + new Vector3(
-                        Mathf.Sin(now * freq + seed) * amp,
-                        ch * 0.09f + Mathf.Abs(Mathf.Sin(now * freq * 0.8f + seed)) * (0.025f * ch),
-                        Mathf.Cos(now * freq * 1.13f + seed) * amp
-                    );
-                    Quaternion rRot = _units[i].rot * Quaternion.Euler(
-                        Mathf.Sin(now * freq * 0.9f + seed) * (14f * ch),
-                        Mathf.Cos(now * freq * 0.7f + seed) * (18f * ch),
-                        Mathf.Sin(now * freq * 1.05f + seed) * (14f * ch)
-                    );
-                    float rScale = _units[i].curScale * (1f + ch * 0.14f);
-                    Matrix4x4 mtx = Matrix4x4.TRS(rPos, rRot, Vector3.one * rScale);
+                    // [v1.8.1 수정 #1] 쓰레기 진동 모션은 진공청소기(ToolTier >= 2)부터만! 맨손·빗자루는 제자리에 가만히 있다가 손이 집어 당김!
+                    bool vacuumVibe = manager != null && manager.ToolTier >= 2;
+                    Matrix4x4 mtx;
+                    if (vacuumVibe)
+                    {
+                        float freq = 52f + ch * 38f;
+                        float amp = 0.012f + ch * 0.032f;
+                        float seed = i * 1.73f;
+                        Vector3 rPos = _units[i].pos + new Vector3(
+                            Mathf.Sin(now * freq + seed) * amp,
+                            ch * 0.09f + Mathf.Abs(Mathf.Sin(now * freq * 0.8f + seed)) * (0.025f * ch),
+                            Mathf.Cos(now * freq * 1.13f + seed) * amp
+                        );
+                        Quaternion rRot = _units[i].rot * Quaternion.Euler(
+                            Mathf.Sin(now * freq * 0.9f + seed) * (14f * ch),
+                            Mathf.Cos(now * freq * 0.7f + seed) * (18f * ch),
+                            Mathf.Sin(now * freq * 1.05f + seed) * (14f * ch)
+                        );
+                        float rScale = _units[i].curScale * (1f + ch * 0.14f);
+                        mtx = Matrix4x4.TRS(rPos, rRot, Vector3.one * rScale);
+                    }
+                    else
+                    {
+                        mtx = _units[i].cachedMatrix;
+                    }
                     PushChunk(_dynChunks, _dynCounts, _units[i].typeIdx, mtx);
 
                     if (_selectedSet.Contains(i))
