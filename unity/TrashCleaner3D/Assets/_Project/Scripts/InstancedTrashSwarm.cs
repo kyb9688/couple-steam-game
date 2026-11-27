@@ -6,17 +6,30 @@ using UnityEngine.Rendering;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v1.4 초고속 8,000+ GPU-Instanced 쓰레기 엔진 (WebGL 60fps 대응):
-    /// 1) 멀티청크 GPU Instancing(1023개 제한 해제): 8,000개도 드로우콜 ~16개로 렌더!
-    /// 2) 정적/동적 분리 + Dirty-Flag 캐시: 멈춰있는 7,990개는 매 프레임 Matrix4x4 재계산 0회!
-    /// 3) 2D Spatial Hash Grid (1m 셀): 8,000개 중 커서 반경/로봇 주변 셀만 O(1) 탐색!
+    /// v1.7 초고속 GPU-Instanced 쓰레기 엔진 (WebGL 60fps 대응):
+    /// 1) 멀티청크 GPU Instancing(1023개 제한 해제): 웨이브 6,500개도 드로우콜 ~35개로 렌더!
+    /// 2) 정적/동적 분리 + Dirty-Flag 캐시(0.18초 스로틀): 멈춰있는 수천 개는 매 프레임 재계산 0회!
+    /// 3) 2D Spatial Hash Grid (1m 셀): 6,500개 중 커서 반경/로봇 주변 셀만 O(1) 탐색!
+    /// 4) [v1.7] 청소된 슬롯 재사용(_freeSlots) → 누적 13만 개 물량에도 배열·순회 비용은 동시 생존 수만큼만.
     /// 4) 바닥 원형 색 매트 제거 → 실제 방 단위(1단계 원룸 1방 / 2단계 거실·주방·안방·화장실 4방) 클리어 추적!
     /// 5) HOLD 락온 유지(순수 수평 XZ 반경) + 포물선 흡입 연출!
     /// </summary>
     public class InstancedTrashSwarm : MonoBehaviour
     {
-        public const int Stage1SwarmCount = 1650;
-        public const int Stage2SwarmCount = 8000;
+        public const int Stage1SwarmCount = 960;
+        public const int Stage2SwarmCount = 2700;
+
+        // ===== v1.7 : 스테이지별 총 쓰레기 물량과 다중 웨이브 =====
+        // 한 번에 화면에 뿌리는 양(웨이브)은 1,200~5,000개로 제한해 WebGL 프레임 예산을 지키고,
+        // 웨이브를 계속 공급해 4시간 캠페인에 맞는 물량(총 7.7만 개)을 만든다.
+        // countToSpawn 은 '웨이브 1회당' 개수다.
+        public static readonly int[] StageWaveCounts = { 0, 1, 4, 6, 7, 6, 9, 20 };
+
+        public int StageTotalItems { get; private set; }
+        public int WaveIndex { get; private set; }
+        public int WaveCount { get; private set; }
+        public bool AllWavesSpawned => WaveIndex >= WaveCount;
+        private const int SpawnCapacityMargin = 1400;
 
         public struct RoomZoneDef
         {
@@ -63,13 +76,15 @@ namespace TrashCleaner3D
         public GamePrototypeManager manager;
 
         private TrashUnit[] _units = new TrashUnit[0];
-        private int _unitCount;
-        private int _cleanedCount;
+        private int _unitCount;          // 배열 하이워터마크(순회 범위)
+        private int _spawnedCount;       // 누적 스폰 수(웨이브 포함 진행률 계산용)
+        private int _cleanedCount;       // 누적 청소 수
+        private readonly List<int> _freeSlots = new List<int>(4096);   // 청소된 슬롯 재사용(메모리·순회 비용 억제)
         private int _currentStageLayout = 1;
         private Transform _suckDestination;
         private Transform _robotSuckDest;
 
-        // 2D Spatial Hash Grid (1.0m cells) -> O(1) lookup even at 8,000+ units!
+        // 2D Spatial Hash Grid (1.0m cells) -> O(1) lookup even at 6,500+ units!
         private readonly Dictionary<int, List<int>> _grid = new Dictionary<int, List<int>>(512);
         // Active-only update list (only popping / sucking / vibrating units!)
         private readonly List<int> _activeIndices = new List<int>(128);
@@ -78,6 +93,8 @@ namespace TrashCleaner3D
         private List<Matrix4x4[]>[] _staticChunks;
         private int[] _staticCounts;
         private bool _staticDirty = true;
+        private float _staticRebuildTimer;
+        private const float StaticRebuildInterval = 0.18f;   // v1.7: 3만 개 시대의 정적 청크 재구축 스로틀
 
         private List<Matrix4x4[]>[] _dynChunks;
         private int[] _dynCounts;
@@ -120,8 +137,9 @@ namespace TrashCleaner3D
         public int HoveredCount => _selectedIndices.Count;
         public float MaxSelectedCharge01 { get; private set; }
         public int TotalCount => _unitCount;
+        public int SpawnedCount => _spawnedCount;
         public int CleanedCount => _cleanedCount;
-        public int RemainingCount => Mathf.Max(0, _unitCount - _cleanedCount);
+        public int RemainingCount => Mathf.Max(0, _spawnedCount - _cleanedCount);
 
         // ===== 방 단위 클리어 추적 (원룸 1방 / 2단계 거실·주방·안방·화장실 4방) =====
         public event System.Action<int, string, Vector3> RoomCleared;
@@ -139,52 +157,58 @@ namespace TrashCleaner3D
         public bool IsRoomCleared(int idx) => idx >= 0 && idx < _roomClearedFlags.Length && _roomClearedFlags[idx];
         public Vector3 GetRoomCenter(int idx) => (idx >= 0 && idx < _rooms.Length) ? _rooms[idx].center : Vector3.zero;
 
-        // Stage 1: +30% 확장 원룸 (9.36 x 7.80, x: -4.68..+4.68, z: -3.90..+3.90) — 기존 원룸 그대로 유지!
+        // Stage 1: +30% 확장 원룸 (9.36 x 7.80) — 튜토리얼은 그대로
         private static readonly RoomZoneDef[] Stage1Rooms =
         {
-            new RoomZoneDef { name = "반지하 원룸", minX = -4.35f, maxX = 4.35f, minZ = -3.60f, maxZ = 3.55f, floorY = 0f, center = new Vector3(0f, 0f, 0f), countToSpawn = Stage1SwarmCount }
+            new RoomZoneDef { name = "반지하 원룸", minX = -4.35f, maxX = 4.35f, minZ = -3.60f, maxZ = 3.55f, floorY = 0f, center = new Vector3(0f, 0f, 0f), countToSpawn = 960 }
         };
 
-        // Stage 2: 택배 중독 오피스텔 (4.2 x 6.8, 문 x=1.10 z=3.60, 북서 화장실 x:-2.1..-0.55 z:1.7..3.4)
+        // Stage 2: 택배 중독 오피스텔 (4.2 x 6.8) — 방 끝까지 + 화장실·현관 복도 (사용 면적 +31%)
         private static readonly RoomZoneDef[] Stage2Rooms =
         {
-            new RoomZoneDef { name = "오피스텔 본실", minX = -1.75f, maxX = 1.75f, minZ = -3.05f, maxZ = 1.45f, floorY = 0f, center = new Vector3(0f, 0f, -0.80f), countToSpawn = 1450 },
-            new RoomZoneDef { name = "현관 복도",     minX =  0.30f, maxX = 1.75f, minZ =  1.45f, maxZ = 2.35f, floorY = 0f, center = new Vector3(1.05f, 0f, 1.90f), countToSpawn = 350 }
+            new RoomZoneDef { name = "오피스텔 본실", minX = -2.00f, maxX =  2.00f, minZ = -3.25f, maxZ = 1.35f, floorY = 0f, center = new Vector3(0f, 0f, -0.95f), countToSpawn = 550 },
+            new RoomZoneDef { name = "화장실",        minX = -1.95f, maxX = -0.75f, minZ =  1.85f, maxZ = 3.25f, floorY = 0f, center = new Vector3(-1.35f, 0f, 2.55f), countToSpawn = 40 },
+            new RoomZoneDef { name = "현관 복도",     minX =  0.35f, maxX =  1.95f, minZ =  1.55f, maxZ = 3.25f, floorY = 0f, center = new Vector3(1.15f, 0f, 2.40f), countToSpawn = 85 }
         };
 
-        // Stage 3: 치킨집 주방 (5.5 x 5.0, 문 x=1.55 z=2.70, 서/남/전면 조리대 회피)
+        // Stage 3: 치킨집 주방 (5.5 x 5.0) — 주방 바닥 끝까지 + 홀/카운터 앞 (사용 면적 +12%)
         private static readonly RoomZoneDef[] Stage3Rooms =
         {
-            new RoomZoneDef { name = "치킨집 주방", minX = -1.55f, maxX = 2.30f, minZ = -1.40f, maxZ = 1.95f, floorY = 0f, center = new Vector3(0.40f, 0f, 0.25f), countToSpawn = 2200 }
+            new RoomZoneDef { name = "치킨집 주방", minX = -1.70f, maxX = 2.55f, minZ = -1.45f, maxZ = 1.10f, floorY = 0f, center = new Vector3(0.42f, 0f, -0.18f), countToSpawn = 975 },
+            new RoomZoneDef { name = "홀·카운터 앞", minX = -0.20f, maxX = 2.55f, minZ =  1.00f, maxZ = 2.35f, floorY = 0f, center = new Vector3(1.20f, 0f, 1.68f), countToSpawn = 195 }
         };
 
-        // Stage 4: 육아 전쟁 맞벌이 집 (7.2 x 5.8, 문 x=2.20 z=3.10, 안방 남서 + 화장실 북서)
+        // Stage 4: 육아 전쟁 맞벌이 집 (7.2 x 5.8) — 거실·안방 끝까지 + 욕실 (사용 면적 +80%)
         private static readonly RoomZoneDef[] Stage4Rooms =
         {
-            new RoomZoneDef { name = "거실·놀이매트", minX = -0.35f, maxX =  3.20f, minZ = -2.55f, maxZ = 2.15f, floorY = 0f, center = new Vector3( 1.40f, 0f, -0.20f), countToSpawn = 1900 },
-            new RoomZoneDef { name = "안방",          minX = -3.20f, maxX = -0.95f, minZ = -2.55f, maxZ = 0.25f, floorY = 0f, center = new Vector3(-2.10f, 0f, -1.15f), countToSpawn = 1100 }
+            new RoomZoneDef { name = "거실·놀이매트", minX = -0.55f, maxX =  3.45f, minZ = -2.75f, maxZ = 2.35f, floorY = 0f, center = new Vector3(1.45f, 0f, -0.20f), countToSpawn = 2040 },
+            new RoomZoneDef { name = "안방",          minX = -3.45f, maxX = -0.75f, minZ = -2.75f, maxZ = 0.40f, floorY = 0f, center = new Vector3(-2.10f, 0f, -1.18f), countToSpawn = 460 },
+            new RoomZoneDef { name = "욕실",          minX = -3.45f, maxX = -1.80f, minZ =  1.15f, maxZ = 2.80f, floorY = 0f, center = new Vector3(-2.60f, 0f, 1.98f), countToSpawn = 170 }
         };
 
-        // Stage 5: 야근 지옥 스타트업 사무실 (8.5 x 7.0, 문 x=2.60 z=3.70, 대표실 남서 + 탕비실 북서)
+        // Stage 5: 야근 지옥 스타트업 사무실 (8.5 x 7.0) — 오픈 오피스 끝까지 + 대표실·탕비실 (사용 면적 +48%)
         private static readonly RoomZoneDef[] Stage5Rooms =
         {
-            new RoomZoneDef { name = "오픈 오피스", minX = -1.00f, maxX =  3.85f, minZ = -3.15f, maxZ =  2.65f, floorY = 0f, center = new Vector3( 1.45f, 0f, -0.25f), countToSpawn = 2700 },
-            new RoomZoneDef { name = "대표실",      minX = -3.85f, maxX = -1.55f, minZ = -3.15f, maxZ = -0.80f, floorY = 0f, center = new Vector3(-2.70f, 0f, -1.95f), countToSpawn = 900 },
-            new RoomZoneDef { name = "탕비실",      minX = -3.85f, maxX = -2.45f, minZ =  0.20f, maxZ =  3.10f, floorY = 0f, center = new Vector3(-3.15f, 0f,  1.65f), countToSpawn = 600 }
+            new RoomZoneDef { name = "오픈 오피스", minX = -1.20f, maxX =  4.05f, minZ = -3.35f, maxZ =  3.30f, floorY = 0f, center = new Vector3(1.42f, 0f, -0.02f), countToSpawn = 3150 },
+            new RoomZoneDef { name = "대표실",      minX = -4.10f, maxX = -1.45f, minZ = -3.35f, maxZ = -0.65f, floorY = 0f, center = new Vector3(-2.78f, 0f, -2.00f), countToSpawn = 540 },
+            new RoomZoneDef { name = "탕비실",      minX = -4.10f, maxX = -2.40f, minZ =  0.75f, maxZ =  3.30f, floorY = 0f, center = new Vector3(-3.25f, 0f, 2.02f), countToSpawn = 310 }
         };
 
-        // Stage 6: 시골집 농막 (4.2 x 3.6, 문 x=1.10 z=2.00)
+        // Stage 6: 시골집 농막 (4.2 x 3.6) — 좁은 방을 끝까지 (사용 면적 +27%) · 최강 악취
         private static readonly RoomZoneDef[] Stage6Rooms =
         {
-            new RoomZoneDef { name = "시골 농막", minX = -1.75f, maxX = 1.75f, minZ = -1.45f, maxZ = 1.15f, floorY = 0f, center = new Vector3(0f, 0f, -0.15f), countToSpawn = 2400 }
+            new RoomZoneDef { name = "시골 농막", minX = -1.95f, maxX = 1.95f, minZ = -1.65f, maxZ = 1.65f, floorY = 0f, center = new Vector3(0f, 0f, 0f), countToSpawn = 1130 }
         };
 
-        // Stage 7: 졸부 파티광 3층 복층 펜트하우스 (10 x 8 x 3층 — 1F y=0, 2F y=3.11, 3F y=6.11!)
+        // Stage 7: 졸부 파티광 3층 복층 펜트하우스 (10 x 8 x 3층) — 층별 바닥 전체 + 2층 욕실·3층 금고방 (사용 면적 +55%)
         private static readonly RoomZoneDef[] Stage7Rooms =
         {
-            new RoomZoneDef { name = "1층 거실·바",     minX = -2.35f, maxX = 4.35f, minZ = -3.55f, maxZ = 2.75f, floorY = 0.00f, center = new Vector3( 1.00f, 0.00f, -0.40f), countToSpawn = 2200 },
-            new RoomZoneDef { name = "2층 파티홀",      minX = -2.35f, maxX = 2.20f, minZ = -3.55f, maxZ = 3.45f, floorY = 3.11f, center = new Vector3( 0.00f, 3.11f, -0.05f), countToSpawn = 2000 },
-            new RoomZoneDef { name = "3층 VIP 금고방",  minX = -4.55f, maxX = 2.35f, minZ = -3.55f, maxZ = 3.45f, floorY = 6.11f, center = new Vector3(-1.10f, 6.11f, -0.05f), countToSpawn = 1800 }
+            new RoomZoneDef { name = "1층 거실·바",     minX = -4.80f, maxX =  3.00f, minZ = -3.80f, maxZ = 3.80f, floorY = 0.00f, center = new Vector3(-0.90f, 0.00f, 0.00f), countToSpawn = 2130 },
+            new RoomZoneDef { name = "2층 파티홀",      minX = -2.70f, maxX =  2.30f, minZ = -3.80f, maxZ = 3.80f, floorY = 3.11f, center = new Vector3(-0.20f, 3.11f, 0.00f), countToSpawn = 1400 },
+            new RoomZoneDef { name = "2층 서쪽 랜딩",   minX = -4.80f, maxX = -2.90f, minZ =  0.70f, maxZ = 3.90f, floorY = 3.11f, center = new Vector3(-3.85f, 3.11f, 2.30f), countToSpawn = 310 },
+            new RoomZoneDef { name = "2층 욕실",        minX =  2.50f, maxX =  4.70f, minZ =  1.70f, maxZ = 3.80f, floorY = 3.11f, center = new Vector3(3.60f, 3.11f, 2.75f), countToSpawn = 180 },
+            new RoomZoneDef { name = "3층 VIP홀",       minX = -1.70f, maxX =  2.70f, minZ = -3.80f, maxZ = 3.80f, floorY = 6.11f, center = new Vector3(0.50f, 6.11f, 0.00f), countToSpawn = 1400 },
+            new RoomZoneDef { name = "3층 금고방",      minX = -4.80f, maxX = -2.00f, minZ = -3.80f, maxZ = -1.10f, floorY = 6.11f, center = new Vector3(-3.40f, 6.11f, -2.45f), countToSpawn = 1080 }
         };
 
         /// <summary>v1.6: 스테이지별 실제 플레이 가능 바닥 구역(다른 시스템의 소품 배치에도 사용).</summary>
@@ -207,9 +231,9 @@ namespace TrashCleaner3D
 
         private void Awake()
         {
-            // [v1.5.1] 여기서 Stage 1 규격(1,650개)을 미리 스폰하지 않는다.
+            // [v1.5.1] 여기서 Stage 1 규격을 미리 스폰하지 않는다.
             //  - Stage 2~7 씬에서는 매니저가 활성화하자마자 실제 스테이지 규격으로 다시 스폰하므로,
-            //    예전에는 같은 프레임에 1,650개를 만들었다 버리는 이중 작업이 있었다(진입 히치의 한 몫).
+            //    예전에는 같은 프레임에 Stage 1 물량을 만들었다 버리는 이중 작업이 있었다(진입 히치의 한 몫).
             //  - 스폰은 Start(또는 매니저)에서 스테이지당 정확히 한 번만 한다.
         }
 
@@ -231,7 +255,9 @@ namespace TrashCleaner3D
         {
             _units = new TrashUnit[capacity];
             _unitCount = 0;
+            _spawnedCount = 0;
             _cleanedCount = 0;
+            _freeSlots.Clear();
             _grid.Clear();
             _activeIndices.Clear();
             _selectedIndices.Clear();
@@ -407,29 +433,39 @@ namespace TrashCleaner3D
             _roomClearedFlags = new bool[_rooms.Length];
             ClearedRoomCount = 0;
 
-            int totalSpawn = 0;
-            for (int r = 0; r < _rooms.Length; r++) totalSpawn += _rooms[r].countToSpawn;
-            InitializeCapacity(totalSpawn + 900);
+            int perWave = 0;
+            for (int r = 0; r < _rooms.Length; r++) perWave += _rooms[r].countToSpawn;
+            WaveCount = (_currentStageLayout < StageWaveCounts.Length && StageWaveCounts[_currentStageLayout] > 0)
+                ? StageWaveCounts[_currentStageLayout] : 1;
+            StageTotalItems = perWave * WaveCount;
+            WaveIndex = 0;
+
+            // [v1.7] 웨이브마다 청소된 슬롯을 재사용하므로, 필요한 배열은 '웨이브 1회분 + 여유'면 충분하다.
+            InitializeCapacity(perWave + SpawnCapacityMargin);
             SpawnInProgress = true;
 
             if (!isActiveAndEnabled)
             {
                 // 비활성 상태에서는 코루틴을 돌릴 수 없으므로 즉시 채운다(결과는 기존과 동일).
-                IEnumerator it = CoSpawnStage(false);
-                while (it.MoveNext()) { }
+                for (int w = 0; w < WaveCount; w++)
+                {
+                    IEnumerator it = CoSpawnWave(false, w);
+                    while (it.MoveNext()) { }
+                }
+                SpawnInProgress = false;
                 return;
             }
 
-            Debug.Log($"[TrashCleaner3D] Stage {_currentStageLayout} 스폰 시작: {totalSpawn:N0}개 · t={Time.realtimeSinceStartup:0.00}s");
-            _spawnRoutine = StartCoroutine(CoSpawnStage(true));
+            Debug.Log($"[TrashCleaner3D] Stage {_currentStageLayout} 스폰 시작: 웨이브당 {perWave:N0}개 × {WaveCount} = {StageTotalItems:N0}개 · t={Time.realtimeSinceStartup:0.00}s");
+            _spawnRoutine = StartCoroutine(CoSpawnWave(true, 0));
         }
 
         /// <summary>
-        /// [v1.5.1] 스폰 히치 완화: 6,000개(Stage 7)를 한 프레임에 몰아 만들던 것을
-        /// 프레임 예산(SpawnFrameBudgetSeconds) 단위로 나눠 채운다. 유닛 좌표·개수·난수 순서는
-        /// v1.5와 동일한 계산식이라 게임 로직·배치는 그대로 유지된다.
+        /// [v1.7] 웨이브 단위 스폰. 4시간 캠페인 물량(총 7.7만 개)을 한 번에 만들지 않고,
+        /// 프레임 예산(SpawnFrameBudgetSeconds) · 웨이브 상한(1,200~5,000개) 안에서 나누어 채운다.
+        /// 유닛 좌표·개수·난수 순서는 기존 계산식과 같다.
         /// </summary>
-        private IEnumerator CoSpawnStage(bool frameSpread)
+        private IEnumerator CoSpawnWave(bool frameSpread, int waveIndex)
         {
             float stageStart = Time.realtimeSinceStartup;
 
@@ -470,7 +506,8 @@ namespace TrashCleaner3D
             _staticDirty = true;
             SpawnInProgress = false;
             _spawnRoutine = null;
-            Debug.Log($"[TrashCleaner3D] Stage {_currentStageLayout} 스폰 완료: {_unitCount:N0}개 · {(Time.realtimeSinceStartup - stageStart) * 1000f:0}ms · t={Time.realtimeSinceStartup:0.00}s");
+            WaveIndex = waveIndex + 1;
+            Debug.Log($"[TrashCleaner3D] Stage {_currentStageLayout} 웨이브 {WaveIndex}/{WaveCount} 스폰 완료: 현재 {_unitCount:N0}개 · {(Time.realtimeSinceStartup - stageStart) * 1000f:0}ms · t={Time.realtimeSinceStartup:0.00}s");
         }
 
         private void SpawnOneUnit(RoomZoneDef room, int i, int n, float baseY, float maxRad, Vector3[] mounds, byte roomIdx)
@@ -549,13 +586,25 @@ namespace TrashCleaner3D
 
         private void AddUnit(Vector3 startPos, Vector3 endPos, bool popAnimation, int tIdx, byte roomIdx)
         {
-            if (_unitCount >= _units.Length) return;
             tIdx = Mathf.Clamp(tIdx, 0, meshTypes.Count - 1);
             float baseS = meshTypes[tIdx].normalizedScale * Random.Range(0.86f, 1.22f);
             Quaternion baseOffset = Quaternion.Euler(meshTypes[tIdx].baseEulerOffset);
             Quaternion rot = Quaternion.Euler(Random.Range(-16f, 16f), Random.Range(0f, 360f), Random.Range(-16f, 16f)) * baseOffset;
 
-            int idx = _unitCount++;
+            int idx;
+            if (_freeSlots.Count > 0)
+            {
+                // [v1.7] 청소로 비워진 슬롯 재사용 → 13만 개 누적 물량에도 배열·순회 비용은 '동시 생존 수'만큼만 든다.
+                idx = _freeSlots[_freeSlots.Count - 1];
+                _freeSlots.RemoveAt(_freeSlots.Count - 1);
+                RemoveFromGrid(idx);
+            }
+            else
+            {
+                if (_unitCount >= _units.Length) return;
+                idx = _unitCount++;
+            }
+            _spawnedCount++;
             int cellKey = CellKeyForPos(endPos);
 
             _units[idx] = new TrashUnit
@@ -596,6 +645,16 @@ namespace TrashCleaner3D
             }
         }
 
+        private void RemoveFromGrid(int idx)
+        {
+            int key = _units[idx].gridKey;
+            if (_grid.TryGetValue(key, out var bucket))
+            {
+                bucket.Remove(idx);
+                if (bucket.Count == 0) _grid.Remove(key);
+            }
+        }
+
         private void ActivateUnit(int idx)
         {
             if (!_units[idx].inActiveList)
@@ -610,12 +669,12 @@ namespace TrashCleaner3D
         {
             if (rIdx >= _roomRemaining.Length) return;
             if (_roomRemaining[rIdx] > 0) _roomRemaining[rIdx]--;
-            if (_roomRemaining[rIdx] == 0 && !_roomClearedFlags[rIdx])
+            // v1.7: 아직 웨이브가 남아 있으면 방 '클리어' 연출을 띄우지 않는다(뒤에서 또 쏟아진다).
+            if (_roomRemaining[rIdx] == 0 && !_roomClearedFlags[rIdx] && AllWavesSpawned)
             {
                 _roomClearedFlags[rIdx] = true;
                 ClearedRoomCount++;
-                RoomCleared?.Invoke(rIdx, _rooms[rIdx].name, _rooms[rIdx].center);
-            }
+                RoomCleared?.Invoke(rIdx, _rooms[rIdx].name, _rooms[rIdx].center);            }
         }
 
         public void SetCursorRing(bool visible, Vector3 center, float radius)
@@ -840,14 +899,15 @@ namespace TrashCleaner3D
             _units[idx].arcHeight = Mathf.Clamp(0.28f + dist * 0.12f, 0.28f, 0.72f);
         }
 
-        public bool TryFindNearestIdlePos(Vector3 fromPos, out Vector3 foundPos)
+        public bool TryFindNearestIdlePos(Vector3 fromPos, out Vector3 foundPos, float searchRadius = 3f)
         {
             foundPos = Vector3.zero;
-            // 먼저 주변 반경 3m 셀에서 빠르게 탐색
+            // 먼저 주변 반경 셀에서 빠르게 탐색
             float best = float.MaxValue;
             int bestIdx = -1;
-            int minCx = Mathf.FloorToInt(fromPos.x - 3f), maxCx = Mathf.FloorToInt(fromPos.x + 3f);
-            int minCz = Mathf.FloorToInt(fromPos.z - 3f), maxCz = Mathf.FloorToInt(fromPos.z + 3f);
+            int minCx = Mathf.FloorToInt(fromPos.x - searchRadius), maxCx = Mathf.FloorToInt(fromPos.x + searchRadius);
+            int minCz = Mathf.FloorToInt(fromPos.z - searchRadius), maxCz = Mathf.FloorToInt(fromPos.z + searchRadius);
+            float searchSq = searchRadius * searchRadius;
             for (int cx = minCx; cx <= maxCx; cx++)
             {
                 for (int cz = minCz; cz <= maxCz; cz++)
@@ -858,6 +918,7 @@ namespace TrashCleaner3D
                         int i = bucket[b];
                         if (_units[i].state != 0) continue;
                         float dSq = (_units[i].pos - fromPos).sqrMagnitude;
+                        if (dSq > searchSq) continue;
                         if (dSq < best) { best = dSq; bestIdx = i; }
                     }
                 }
@@ -1035,6 +1096,7 @@ namespace TrashCleaner3D
                         _units[i].inActiveList = false;
                         _activeIndices.RemoveAt(k);
                         _cleanedCount++;
+                        _freeSlots.Add(i);   // 슬롯 재사용 대기열
                         NotifyUnitCleaned(_units[i].roomIdx);
                         if (st == 2 && manager != null)
                         {
@@ -1050,8 +1112,27 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 정적 청크는 변경이 생겼을 때만 재구축!
-            if (_staticDirty) RebuildStaticChunks();
+            // v1.7: 웨이브가 남아 있고 현재 웨이브를 거의 다 비웠다면 다음 더미를 공급한다.
+            if (!AllWavesSpawned && _spawnRoutine == null && _unitCount > 0)
+            {
+                int perWave = 0;
+                for (int r = 0; r < _rooms.Length; r++) perWave += _rooms[r].countToSpawn;
+                int trigger = Mathf.Max(150, Mathf.RoundToInt(perWave * 0.10f));
+                if (RemainingCount <= trigger)
+                {
+                    _spawnRoutine = StartCoroutine(CoSpawnWave(true, WaveIndex));
+                    if (manager != null)
+                        manager.ShowToast($"무너진 더미에서 또 쏟아졌다! ({WaveIndex + 1}/{WaveCount})");
+                }
+            }
+
+            // 정적 청크는 변경이 생겼을 때만 재구축! (v1.7: 3만 개 규모 → 0.18초 스로틀)
+            _staticRebuildTimer -= dt;
+            if (_staticDirty && (_staticRebuildTimer <= 0f || _activeIndices.Count == 0))
+            {
+                _staticRebuildTimer = StaticRebuildInterval;
+                RebuildStaticChunks();
+            }
 
             // 호버 선택된 정적 유닛 하얀 외곽선 수집
             for (int k = 0; k < _selectedIndices.Count; k++)

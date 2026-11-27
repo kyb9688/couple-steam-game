@@ -649,7 +649,7 @@ namespace TrashCleaner3D
                 {
                     _binHintCooldown = 1.6f;
                     manager.ShowToast(manager.VehicleHasRemoteSettle
-                        ? $"1톤 트럭 · 수거통 80%만 차면 방 안에서 자동 정산! (담긴 {manager.CollectingCount}개)"
+                        ? $"1톤 트럭 · 수거통 {manager.RemoteSettleFill01 * 100f:0}%만 차면 방 안에서 자동 정산! (담긴 {manager.CollectingCount}개)"
                         : manager.VehicleHasPorchSettle
                             ? $"현관 문 앞만 가도 자동 정산! (담긴 {manager.CollectingCount}개)"
                             : manager.VehicleHasYardSuction
@@ -675,7 +675,7 @@ namespace TrashCleaner3D
             {
                 _binHintCooldown = 1.4f;
                 manager.ShowToast(manager.VehicleHasRemoteSettle
-                    ? $"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · 곷 원격 자동수거"
+                    ? $"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · 원격 자동수거"
                     : $"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · [RMB] 트럭 정산");
             }
 
@@ -698,9 +698,12 @@ namespace TrashCleaner3D
                     {
                         _punchCooldown = 0.12f;
                         _punchTimer = 0.15f;
-                        float dmg = manager.FistDamage;
+                        // [v1.7] 봉투 치명타: '급소' 가지 노드로 확률·배율이 열린다.
+                        float dmg = manager.RollFistDamage(out bool fistCrit);
                         if (hitPile.ApplyCleanDamage(dmg, null)) manager.OnBigPileBurst(hitPile);
                         else manager.sfx.PlayScrub();
+                        if (fistCrit) manager.SpawnFloatingText(hitPile.transform.position + Vector3.up * 0.9f,
+                            $"CRIT ×{manager.FistCritMult:0.0}!", new Color(1f, 0.62f, 0.24f), 0.8f);
                         ClearSwarmSelection();
                         return;
                     }

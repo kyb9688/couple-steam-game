@@ -3,8 +3,8 @@ using UnityEngine;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v1.6 통합 강화소 키오스크 — 트럭 옆 작업대 1대.
-    /// 앞에서 [E]를 누르면 56노드 나뭇가지 강화 트리(기존 28 + 마이크로 28)가 열린다.
+    /// v1.7 통합 강화소 키오스크 — 트럭 옆 작업대 1대.
+    /// 앞에서 [E]를 누르면 220노드 8계열 강화 트리(코어 28 + 마이크로 192)가 열린다.
     /// 트리 창은 마우스 휠 확대/축소 · 드래그 이동 · [R] 초기 위치를 지원한다.
     /// </summary>
     public class FieldUpgradeStation : MonoBehaviour

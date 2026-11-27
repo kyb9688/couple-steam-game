@@ -19,6 +19,25 @@ namespace TrashCleaner3D
         private float _suckTimer;
         private bool _hasTarget;
 
+        // [v1.7] 방 규격이 커졌으므로(층별 바닥 전체) 로봇 이동 범위도 방 정의에서 직접 계산한다.
+        private float _minX, _maxX, _minZ, _maxZ;
+        private bool _boundsReady;
+
+        private void RefreshRoomBounds()
+        {
+            var rooms = InstancedTrashSwarm.RoomsForStage(manager.CurrentStage);
+            if (rooms == null || rooms.Length == 0) { _minX = -4f; _maxX = 4f; _minZ = -3.5f; _maxZ = 3.5f; return; }
+            _minX = float.MaxValue; _maxX = float.MinValue; _minZ = float.MaxValue; _maxZ = float.MinValue;
+            for (int i = 0; i < rooms.Length; i++)
+            {
+                // 로봇은 바닥(y≈0.05)에서만 움직인다 → 같은 층(1F) 구역만 범위로 사용
+                if (rooms[i].floorY > 0.5f) continue;
+                _minX = Mathf.Min(_minX, rooms[i].minX); _maxX = Mathf.Max(_maxX, rooms[i].maxX);
+                _minZ = Mathf.Min(_minZ, rooms[i].minZ); _maxZ = Mathf.Max(_maxZ, rooms[i].maxZ);
+            }
+            if (_maxX < _minX) { _minX = -4f; _maxX = 4f; _minZ = -3.5f; _maxZ = 3.5f; }
+        }
+
         public static AutoRoombaCleaner Spawn(GamePrototypeManager mgr, Vector3 startPos, int index)
         {
             GameObject root = new GameObject($"AutoRoomba_{index + 1:00}");
@@ -56,14 +75,16 @@ namespace TrashCleaner3D
             _retargetTimer -= dt;
             _suckTimer -= dt;
 
+            if (!_boundsReady) { _boundsReady = true; RefreshRoomBounds(); }
+
             if (_retargetTimer <= 0f || !_hasTarget)
             {
                 _retargetTimer = 0.65f;
-                _hasTarget = manager.trashSwarm.TryFindNearestIdlePos(transform.position, out _targetPos);
+                _hasTarget = manager.trashSwarm.TryFindNearestIdlePos(transform.position, out _targetPos, manager.RoombaDetectRadius);
                 if (!_hasTarget)
                 {
                     // 쓰레기가 없으면 방 안을 순찰
-                    _targetPos = new Vector3(Random.Range(-2.8f, 2.8f), 0.05f, Random.Range(-2.3f, 2.2f));
+                    _targetPos = new Vector3(Random.Range(_minX + 0.4f, _maxX - 0.4f), 0.05f, Random.Range(_minZ + 0.4f, _maxZ - 0.4f));
                 }
             }
 
@@ -74,9 +95,8 @@ namespace TrashCleaner3D
             {
                 float spd = manager.RoombaMoveSpeed;
                 Vector3 next = transform.position + to.normalized * (spd * dt);
-                bool st2 = manager.CurrentStage >= 2;
-                next.x = Mathf.Clamp(next.x, st2 ? -7.2f : -4.2f, st2 ? 7.2f : 4.2f);
-                next.z = Mathf.Clamp(next.z, st2 ? -8.4f : -3.5f, 3.4f);
+                next.x = Mathf.Clamp(next.x, _minX + 0.35f, _maxX - 0.35f);
+                next.z = Mathf.Clamp(next.z, _minZ + 0.35f, _maxZ - 0.35f);
                 next.y = 0.05f;
                 transform.position = next;
                 transform.Rotate(Vector3.up * (180f * dt));
@@ -86,8 +106,7 @@ namespace TrashCleaner3D
             {
                 // v1.3: 한 번에 1개, 간격은 1.00초 → 최대 강화해도 0.55초 (플레이어보다 항상 느린 보조)
                 _suckTimer = manager.RoombaEatInterval;
-                int eaten = manager.trashSwarm.SuckNearestForRobot(transform.position, 0.85f, transform, 1);
-                if (eaten > 0)
+                int eaten = manager.trashSwarm.SuckNearestForRobot(transform.position, 0.85f, transform, 1);                if (eaten > 0)
                 {
                     manager.OnRobotAutoCleaned(eaten, transform.position);
                 }

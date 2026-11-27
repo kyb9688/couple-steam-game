@@ -4,21 +4,18 @@ using UnityEngine;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// v1.6 스테이지별 큰 봉투·바닥 얼룩 배치.
+    /// v1.7 스테이지별 큰 봉투·바닥 얼룩 배치.
     ///
-    /// 배경(버그): Stage 2~7 씬은 Room01 씬을 복사해 만든 탓에, 실제 방(Stage0N_xxx)과는 별개로
-    /// 예전 'Stage1_OneRoom_Container'·'Stage2_Apartment_Container'가 통째로 비활성 상태로 남아 있었다.
-    /// 그 안의 큰 봉투 20개·얼룩 10개는 씬에는 존재하지만 꺼져 있어서, Stage 2~7은 작은 쓰레기만
-    /// 빨아들이는 단조로운 판이 되고 진행률 계산에도 잡히지 않는 잔여물이었다.
-    ///
-    /// 이 클래스는 그 오브젝트들을 런타임에 공통 루트로 옮겨, 각 스테이지 실제 방 규격
-    /// (InstancedTrashSwarm 의 RoomZoneDef) 안에 스테이지 특색에 맞는 개수로 다시 배치한다.
+    /// 배경: v1.6에서 Stage 2~7 씬에 비활성으로 묻혀 있던 소품을 실제 방 규격에 맞춰 다시 배치했다.
+    /// v1.7은 방 사용 면적을 방 끝까지 넓히고(스테이지별 +12~80%), 4시간 캠페인에 맞춰
+    /// 큰 봉투·얼룩 개수도 단계적으로 늘린다. 씬에 원본 소품이 모자라면 런타임에 복제해 채운다
+    /// (메시·머티리얼을 공유하므로 추가 메모리·드로우콜 부담은 작다).
     ///  - ST.2 택배 오피스텔: 택배박스/스티로폼 큰 봉투 비중 대폭 증가
     ///  - ST.3 치킨집 주방: 바닥 얼룩(행주질) 비중 대폭 증가
-    ///  - ST.4 맞벌이 부부 집: 방 2구역(거실·안방)에 고르게 분산
+    ///  - ST.4 맞벌이 부부 집: 거실·안방·욕실 3구역에 분산
     ///  - ST.5 스타트업 사무실: 대량 물량전에 맞춰 봉투 다수
     ///  - ST.6 시골 농막: 좁은 방에 악취와 함께 굵직한 봉투 위주
-    ///  - ST.7 3층 펜트하우스: 1F·2F·3F 층별로 분산
+    ///  - ST.7 3층 펜트하우스: 1F·2F·3F(랜딩·욕실·금고방 포함) 층별로 분산
     /// </summary>
     public static class StagePropLayout
     {
@@ -35,18 +32,19 @@ namespace TrashCleaner3D
         {
             switch (stage)
             {
-                case 1: return new Plan { pileCount = 8,  stainCount = 5,  pileHp = 9f,  stainHp = 2.6f, stainReward = 18 };
-                case 2: return new Plan { pileCount = 26, stainCount = 4,  pileHp = 10f, stainHp = 2.6f, stainReward = 22 };
-                case 3: return new Plan { pileCount = 8,  stainCount = 16, pileHp = 10f, stainHp = 2.1f, stainReward = 24 };
-                case 4: return new Plan { pileCount = 16, stainCount = 8,  pileHp = 11f, stainHp = 2.4f, stainReward = 26 };
-                case 5: return new Plan { pileCount = 18, stainCount = 8,  pileHp = 12f, stainHp = 2.5f, stainReward = 30 };
-                case 6: return new Plan { pileCount = 12, stainCount = 6,  pileHp = 12f, stainHp = 2.5f, stainReward = 30 };
-                case 7: return new Plan { pileCount = 24, stainCount = 10, pileHp = 13f, stainHp = 2.6f, stainReward = 34 };
-                default: return new Plan { pileCount = 8, stainCount = 5, pileHp = 9f, stainHp = 2.6f, stainReward = 18 };
+                case 1: return new Plan { pileCount = 8,  stainCount = 5,  pileHp = 7f,  stainHp = 2.4f, stainReward = 18 };
+                case 2: return new Plan { pileCount = 30, stainCount = 10, pileHp = 8f,  stainHp = 2.4f, stainReward = 22 };
+                case 3: return new Plan { pileCount = 20, stainCount = 40, pileHp = 8f,  stainHp = 2.2f, stainReward = 24 };
+                case 4: return new Plan { pileCount = 36, stainCount = 20, pileHp = 9f,  stainHp = 2.3f, stainReward = 26 };
+                case 5: return new Plan { pileCount = 45, stainCount = 24, pileHp = 9f,  stainHp = 2.3f, stainReward = 30 };
+                case 6: return new Plan { pileCount = 30, stainCount = 16, pileHp = 10f, stainHp = 2.4f, stainReward = 30 };
+                case 7: return new Plan { pileCount = 60, stainCount = 30, pileHp = 10f, stainHp = 2.4f, stainReward = 34 };
+                default: return new Plan { pileCount = 8, stainCount = 5, pileHp = 7f, stainHp = 2.4f, stainReward = 18 };
             }
         }
 
         private static Transform _root;
+        private static readonly List<CleanableTarget> _clones = new List<CleanableTarget>(64);
 
         /// <summary>배치된 큰 봉투·얼룩의 공통 부모(매니저 집계용).</summary>
         public static Transform Root => _root;
@@ -57,14 +55,18 @@ namespace TrashCleaner3D
         /// </summary>
         public static void Apply(GamePrototypeManager mgr, int stage)
         {
+            ClearClones();
+
             var all = Object.FindObjectsByType<CleanableTarget>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             if (all == null || all.Length == 0) return;
 
-            var piles = new List<CleanableTarget>(40);
+            var piles = new List<CleanableTarget>(48);
             var stains = new List<CleanableTarget>(24);
             foreach (var c in all)
             {
                 if (c == null) continue;
+                // v1.7: 지난 스테이지에서 복제한 소품(Destroy 예약분)은 다시 세지 않는다(중복 누적 방지).
+                if (c.name.Contains("_v17_")) continue;
                 if (c.kind == CleanableKind.TrashPile) piles.Add(c);
                 else if (c.kind == CleanableKind.FloorStain) stains.Add(c);
             }
@@ -98,50 +100,74 @@ namespace TrashCleaner3D
             var rooms = InstancedTrashSwarm.RoomsForStage(stage);
             Plan plan = GetPlan(stage);
 
-            int pileUse = Mathf.Min(plan.pileCount, piles.Count);
-            int stainUse = Mathf.Min(plan.stainCount, stains.Count);
-
             // 1) 큰 봉투: 방 구역별로 나눠 배치 (앞쪽일수록 바깥 구역 → 동선 분산)
-            var placed = new List<Vector3>(pileUse);
-            for (int i = 0; i < piles.Count; i++)
+            var list = ExpandTo(piles, plan.pileCount);
+            var placed = new List<Vector3>(list.Count);
+            for (int i = 0; i < list.Count; i++)
             {
-                var c = piles[i];
-                bool used = i < pileUse;
-                if (used)
-                {
-                    var room = PickRoom(rooms, i, pileUse, stage);
-                    Vector3 p = PickPoint(room, placed, 0.85f, 1.6f, stage);
-                    c.ConfigureForLayout(_root, p, plan.pileHp, 0);
-                    placed.Add(p);
-                }
-                else
-                {
-                    // 쓰지 않는 잔여 소품은 트리 밖으로 빼고 끈다 → 진행률 집계에 끼지 않는다.
-                    c.transform.SetParent(null, true);
-                    c.gameObject.SetActive(false);
-                }
+                var c = list[i];
+                var room = PickRoom(rooms, i, list.Count, stage);
+                Vector3 p = PickPoint(room, placed, 0.85f, 1.6f, stage);
+                c.ConfigureForLayout(_root, p, plan.pileHp, 0);
+                c.gameObject.SetActive(true);
+                placed.Add(p);
             }
 
             // 2) 바닥 얼룩: 바닥 높이에 밀착
+            var slist = ExpandTo(stains, plan.stainCount);
             placed.Clear();
-            for (int i = 0; i < stains.Count; i++)
+            for (int i = 0; i < slist.Count; i++)
             {
-                var c = stains[i];
-                bool used = i < stainUse;
-                if (used)
-                {
-                    var room = PickRoom(rooms, i, stainUse, stage);
-                    Vector3 p = PickPoint(room, placed, 0.7f, 1.1f, stage);
-                    p.y = room.floorY + 0.012f;
-                    c.ConfigureForLayout(_root, p, plan.stainHp, plan.stainReward);
-                    placed.Add(p);
-                }
-                else
-                {
-                    c.transform.SetParent(null, true);
-                    c.gameObject.SetActive(false);
-                }
+                var c = slist[i];
+                var room = PickRoom(rooms, i, slist.Count, stage);
+                Vector3 p = PickPoint(room, placed, 0.7f, 1.1f, stage);
+                p.y = room.floorY + 0.012f;
+                c.ConfigureForLayout(_root, p, plan.stainHp, plan.stainReward);
+                c.gameObject.SetActive(true);
+                placed.Add(p);
             }
+        }
+
+        /// <summary>[v1.7] 씬 원본이 모자라면 원본을 복제해 목표 개수까지 채운다.</summary>
+        private static List<CleanableTarget> ExpandTo(List<CleanableTarget> source, int target)
+        {
+            var list = new List<CleanableTarget>(Mathf.Max(source.Count, target));
+            list.AddRange(source);
+            if (target <= 0)
+            {
+                list.Clear();
+                return list;
+            }
+            if (list.Count > target)
+            {
+                list.RemoveRange(target, list.Count - target);
+                return list;
+            }
+            int src = 0;
+            while (list.Count < target)
+            {
+                var template = source[src % source.Count];
+                src++;
+                if (template == null) break;
+                // 비활성 템플릿도 복제 가능(복제 후 Awake 전에 ConfigureForLayout → SetActive 순서).
+                var clone = Object.Instantiate(template.gameObject);
+                clone.name = template.name + "_v17_" + list.Count;
+                var comp = clone.GetComponent<CleanableTarget>();
+                if (comp == null) { Object.Destroy(clone); break; }
+                _clones.Add(comp);
+                list.Add(comp);
+            }
+            return list;
+        }
+
+        private static void ClearClones()
+        {
+            // 스테이지 재진입/재시작 시 이전에 복제한 소품을 정리(중복 누적 방지)
+            for (int i = 0; i < _clones.Count; i++)
+            {
+                if (_clones[i] != null) Object.Destroy(_clones[i].gameObject);
+            }
+            _clones.Clear();
         }
 
         private static int BoxScore(CleanableTarget c)
@@ -160,7 +186,7 @@ namespace TrashCleaner3D
 
             if (rooms.Length == 1) return rooms[0];
 
-            // 방이 여러 개면 라운드로빈으로 고르게 분산 (ST.7은 3개 층을 순서대로)
+            // 방이 여러 개면 라운드로빈으로 고르게 분산 (ST.7은 층별 순서대로)
             if (stage == 7)
                 return rooms[index % rooms.Length];
 

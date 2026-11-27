@@ -42,7 +42,7 @@ namespace TrashCleaner3D
                 shortName = "반지하 원룸",
                 title = "직장인 반지하 원룸",
                 sizeLabel = "9.4m × 7.8m · 원룸",
-                trashLabel = "쓰레기 1,650개",
+                trashLabel = "쓰레기 960개",
                 cctvLabel = "CCTV 없음",
                 clientMemo = "야근하다 방이 이렇게 됐네요... 침대 밑 엄마가 주신 금반지만 꼭 선반에 놔주세요!",
                 thumbResourcePath = "StageThumbs/stage_01",
@@ -54,8 +54,8 @@ namespace TrashCleaner3D
                 sceneName = "Stage02_Layout_Eunju",
                 shortName = "택배 오피스텔",
                 title = "택배 중독 오피스텔",
-                sizeLabel = "4.2m × 6.8m · 복도형",
-                trashLabel = "쓰레기 1,800개",
+                sizeLabel = "4.2m × 6.8m · 본실·화장실·복도",
+                trashLabel = "쓰레기 2,700개 (4웨이브)",
                 cctvLabel = "펫캠 1대",
                 clientMemo = "택배 뜯을 힘도 없어요... 책상 근처 강아지 은색 인식표 꼭 챙겨주세요!",
                 thumbResourcePath = "StageThumbs/stage_02",
@@ -67,8 +67,8 @@ namespace TrashCleaner3D
                 sceneName = "Stage03_Layout_Eunju",
                 shortName = "치킨집 주방",
                 title = "치킨집 주방 대청소",
-                sizeLabel = "5.5m × 5.0m · ㄷ자 주방",
-                trashLabel = "쓰레기 2,200개",
+                sizeLabel = "5.5m × 5.0m · 주방·홀",
+                trashLabel = "쓰레기 7,020개 (6웨이브)",
                 cctvLabel = "주방 CCTV 1대",
                 clientMemo = "장사 접기 전에 위생 점검 때문에요. 카운터 개업 첫날 받은 행운의 2달러만 남겨주세요!",
                 thumbResourcePath = "StageThumbs/stage_03",
@@ -81,7 +81,7 @@ namespace TrashCleaner3D
                 shortName = "맞벌이 육아집",
                 title = "육아 전쟁 맞벌이 부부 집",
                 sizeLabel = "7.2m × 5.8m · 거실·안방·욕실",
-                trashLabel = "쓰레기 3,000개",
+                trashLabel = "쓰레기 18,690개 (7웨이브)",
                 cctvLabel = "베이비캠 1대",
                 clientMemo = "둘 다 야근이라 집이 난장판이네요... 거실장 위 아기 첫 돌 금반지만 꼭 챙겨주세요!",
                 thumbResourcePath = "StageThumbs/stage_04",
@@ -94,7 +94,7 @@ namespace TrashCleaner3D
                 shortName = "스타트업 사무실",
                 title = "야근 지옥 스타트업 사무실",
                 sizeLabel = "8.5m × 7.0m · 오피스·대표실·탕비실",
-                trashLabel = "쓰레기 4,200개",
+                trashLabel = "쓰레기 24,000개 (6웨이브)",
                 cctvLabel = "교차 CCTV 2대",
                 clientMemo = "투자사 실사 오기 전에 치워야 합니다! 대표실 법인 인감 도장은 절대 버리지 마세요!!",
                 thumbResourcePath = "StageThumbs/stage_05",
@@ -107,7 +107,7 @@ namespace TrashCleaner3D
                 shortName = "시골집 농막",
                 title = "시골집 농막 청소 (최강 악취)",
                 sizeLabel = "4.2m × 3.6m · 목조 농막",
-                trashLabel = "쓰레기 2,400개 · 악취 ×1.6",
+                trashLabel = "쓰레기 10,170개 · 악취 ×1.6",
                 cctvLabel = "처마 방범캠 1대",
                 clientMemo = "오랜만에 내려왔더니 썩은 내가 진동하네... 구석 할아버지 회중시계만 찾아주게.",
                 thumbResourcePath = "StageThumbs/stage_06",
@@ -120,7 +120,7 @@ namespace TrashCleaner3D
                 shortName = "3층 펜트하우스",
                 title = "최종 의뢰: 3층 복층 펜트하우스",
                 sizeLabel = "10m × 8m × 3층 복층!",
-                trashLabel = "쓰레기 6,000개 (1F·2F·3F)",
+                trashLabel = "쓰레기 130,000개 (20웨이브 · 1F·2F·3F)",
                 cctvLabel = "고속 홈캠 2대",
                 clientMemo = "파티 후 방치했더니 엉망이네요. 3층 금고 옆 스포츠카 차 키만 보관해 주세요. 수당 넉넉히 드립니다.",
                 thumbResourcePath = "StageThumbs/stage_07",
@@ -141,7 +141,7 @@ namespace TrashCleaner3D
         /// <summary>테스트/검수용 전체 스테이지 잠금 해제 토글 (기본 false = 순차 해금)</summary>
         public static bool DevUnlockAll = false;
 
-        // ===== 씬 전환 간 플레이어 현금 · 강화 상태 보존 (기존 28노드 + v1.6 마이크로 노드) =====
+        // ===== 씬 전환 간 플레이어 현금 · 강화 상태 보존 (코어 28노드 + v1.7 마이크로 192노드) =====
         public static bool HasSavedPlayerState;
         public static int SavedMoney;
         public static int SavedTrustTokens;
@@ -153,8 +153,8 @@ namespace TrashCleaner3D
         public static int LvSpeed1, LvMask1, LvSpeed2, LvMask2, LvScrubPower;
         public static bool HasMopUnlocked;
         public static int LvFist1, LvRoombaCount, LvRoombaSpd1, LvFist2, LvRoombaSpd2;
-        /// <summary>v1.6 세분화 마이크로 노드 레벨("grip:2,scale:1" 형식) — 씬 전환 시 유지.</summary>
-        public static string SavedV16Nodes = "";
+        /// <summary>v1.7 세분화 마이크로 노드 레벨("suction_0_1:2,bin_1_0:1" 형식) — 씬 전환 시 유지.</summary>
+        public static string SavedV17Nodes = "";
 
         private static void EnsureLoaded()
         {
@@ -242,7 +242,7 @@ namespace TrashCleaner3D
             LvSpeed1 = LvMask1 = LvSpeed2 = LvMask2 = LvScrubPower = 0;
             HasMopUnlocked = false;
             LvFist1 = LvRoombaCount = LvRoombaSpd1 = LvFist2 = LvRoombaSpd2 = 0;
-            SavedV16Nodes = "";
+            SavedV17Nodes = "";
         }
 
         public static StageCampaignInfo GetInfo(int stageNum)

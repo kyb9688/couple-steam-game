@@ -37,13 +37,14 @@ namespace TrashCleaner3D
     }
 
     /// <summary>
-    /// TrashCleaner3D v1.6 중앙 매니저:
+    /// TrashCleaner3D v1.7 중앙 매니저:
     /// - 1~7 스테이지 청소 + 큰 봉투·바닥 얼룩을 스테이지 규격에 맞게 재배치(StagePropLayout)
     /// - 1:1 GPU-Instanced 트럭 낱개 투입 & 적재
-    /// - 수거 차량(쓰레기통→리어카→다마스→1톤 트럭): 적재 제한/4초 대기 삭제,
-    ///   정산 단가 배수(×1.00→×1.20→×1.45→×1.80) + 마당 자동흡입 → 문 앞 자동정산 → 80% 원격 자동수거
-    /// - v1.6 강화 트리: 기존 28노드 + 마이크로 노드 28개 = 56노드 (마우스 휠 줌/드래그 팬 UI)
-    /// - 방독면 산소 부스트(저악취 시 이동·흡입 +, 피버 유지)
+    /// - 수거 차량(쓰레기통→리어카→다마스→1톤 트럭): 정산 단가 배수 + 편의성 해금
+    /// - v1.7 강화 트리: 코어 28노드 + 마이크로 노드 192개 = **220노드** (8계열 · 휠 줌 0.22~1.5x)
+    /// - '공짜 효과' 전면 제거: 연쇄 흡입·봉투 피버/현금·산소 부스트·콤보·대량 정산 보너스 등은
+    ///   전부 강화 노드로 해금해야 작동한다(기본 0/비활성).
+    /// - 4시간 캠페인 밸런스: 1회 강화당 1~3% 상승, 스테이지 물량 다중 웨이브(작은 쓰레기 7만+)
     /// </summary>
     public class GamePrototypeManager : MonoBehaviour
     {
@@ -80,7 +81,8 @@ namespace TrashCleaner3D
         public bool KioskOpen => Phase == GamePhase.MindMapUpgrade;
         public bool IsStageMindMapOpen => Phase == GamePhase.StageMindMap;
         public int CurrentStage { get; private set; } = 1;
-        public float StageRewardMult => 1f + (CurrentStage - 1) * 0.35f;
+        // [v1.7] 스테이지 보상 배수 폭주 억제: 0.35 → 0.12 (ST7 ×1.72)
+        public float StageRewardMult => 1f + (CurrentStage - 1) * 0.12f;
 
         public string CurrentClientHint => CampaignProgressStore.GetInfo(CurrentStage).clientMemo;
         public string CurrentStageTitle => CampaignProgressStore.GetInfo(CurrentStage).title;
@@ -103,21 +105,29 @@ namespace TrashCleaner3D
         private float _coughTimer = 3.0f;
 
         public int StenchStage => StenchPercent >= 99.5f ? 4 : StenchPercent >= 75f ? 3 : StenchPercent >= 50f ? 2 : StenchPercent >= 25f ? 1 : 0;
-        public float StenchMoveSpeedMult => StenchStage == 4 ? 0.45f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.72f : StenchStage == 1 ? 0.85f : 1.0f;
-        public float StenchWorkSpeedMult => StenchStage == 4 ? 0.42f : StenchStage == 3 ? 0.52f : StenchStage == 2 ? 0.68f : StenchStage == 1 ? 0.84f : 1.0f;
-        public float StenchBlur01 => IsOutsideVentilating ? 0f : Mathf.Clamp01((StenchPercent - 22f) / 78f);
+        // [v1.7] 악취 둔화 저항은 강화 노드로만 얻는다(기본 0 = 기존 감속 그대로).
+        public float StenchSlowResist01 => Mathf.Clamp(V17Sum(V17Effect.StenchSlowResist), 0f, 0.60f);
+        private float ResistSlow(float baseMult) => 1f - (1f - baseMult) * (1f - StenchSlowResist01);
+        public float StenchMoveSpeedMult => ResistSlow(StenchStage == 4 ? 0.45f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.72f : StenchStage == 1 ? 0.85f : 1.0f);
+        public float StenchWorkSpeedMult => ResistSlow(StenchStage == 4 ? 0.42f : StenchStage == 3 ? 0.52f : StenchStage == 2 ? 0.68f : StenchStage == 1 ? 0.84f : 1.0f);
+        public float StenchBlur01 => IsOutsideVentilating ? 0f
+            : Mathf.Clamp01((StenchPercent - 22f) / 78f) * (1f - Mathf.Clamp(V17Sum(V17Effect.BlurReduce), 0f, 0.60f));
         public float StenchGainPerSec => CoreLoopConfig.EnableStenchGimmick
-            ? (CurrentStage == 6 ? 5.1f : 3.2f) * Mathf.Max(0.18f, 1f - TotalMaskLv * 0.10f) * (1f - Mathf.Clamp(V16Sum(V16Effect.MaskFilter), 0f, 0.55f))
+            ? (CurrentStage == 6 ? 5.1f : 3.2f) * Mathf.Max(0.18f, 1f - TotalMaskLv * 0.08f) * (1f - Mathf.Clamp(V17Sum(V17Effect.MaskFilter), 0f, 0.55f))
             : 0f;
 
-        // ===== v1.6 방독면 '산소 부스트' =====
+        // ===== v1.7 방독면 '산소 부스트' (기본 잠김 → 산소 부스트 노드로 해금) =====
         // 악취가 낮은(45% 이하 → 25% 이하에서 최대) 상태에서 방독면을 갖추면
-        // 이동·흡입 속도가 빨라지고 피버가 천천히 식는다. '불쾌함 제거'가 아니라 '템포 강화'.
+        // 이동·흡입이 빨라지고 피버가 천천히 식는다. v1.6의 기본 15%는 삭제하고 노드로만 얻는다.
         public float OxygenZone01 => IsOutsideVentilating ? 1f : Mathf.Clamp01((45f - StenchPercent) / 20f);
         public float OxygenMaskFactor01 => Mathf.Clamp01(TotalMaskLv / 5f);
-        public float OxygenBoost01 => Mathf.Clamp01(OxygenZone01 * OxygenMaskFactor01);
-        public float OxygenBoostMult => 1f + (0.15f + V16Sum(V16Effect.OxygenTank)) * OxygenBoost01;
-        public float OxygenFeverHold01 => OxygenBoost01;
+        public bool HasOxygenBoost => V17Sum(V17Effect.OxygenUnlock) > 0f;
+        public float OxygenBoost01 => HasOxygenBoost ? Mathf.Clamp01(OxygenZone01 * OxygenMaskFactor01) : 0f;
+        public float OxygenPower01 => V17Sum(V17Effect.OxygenPower);
+        public float OxygenSuctionMult => 1f + OxygenPower01 * OxygenBoost01;
+        public float OxygenMoveMult => 1f + (OxygenPower01 + V17Sum(V17Effect.OxygenMove)) * OxygenBoost01;
+        public float OxygenBoostMult => OxygenMoveMult;
+        public float OxygenFeverHold01 => Mathf.Clamp01(V17Sum(V17Effect.OxygenFeverHold) * OxygenBoost01);
 
         // ===== 의심 (CoreLoopConfig 제어) =====
         public float SuspicionPercent { get; private set; } = 0f;
@@ -197,13 +207,25 @@ namespace TrashCleaner3D
         public bool VehicleHasPorchSettle => VehicleVisualStage >= 2;    // 현관 문 앞 자동정산
         public bool VehicleHasRemoteSettle => VehicleVisualStage >= 3;   // 80% 원격 자동수거
         public bool HasAutoVehicleSuction => VehicleHasYardSuction;
-        public float VehicleBulkBonus => V16Sum(V16Effect.BulkBonus);    // 강화 트리 가산
-        public float VehicleEffectiveSettleMult => VehicleSettleMultiplier + VehicleBulkBonus;
-        public float RemoteSettleFill01 => 0.80f;
-        public float ChainSuckRadius => 2.4f + V16Sum(V16Effect.BlackHole);
+        // [v1.7] 차량 보조 효과도 전부 노드화: 기본은 차량 단계 배수뿐이고,
+        //        대량 정산 보너스(기준 이상 채워 정산하면 추가 수익)·거래 배수·원격 쿨다운은 노드로 해금.
+        public float VehicleBulkBonus => V17Sum(V17Effect.VehicleBulk);
+        public float VehicleTradeMult => 1f + V17Sum(V17Effect.VehicleMult);
+        public float VehicleEffectiveSettleMult => (VehicleSettleMultiplier + VehicleBulkBonus) * VehicleTradeMult;
+        public float BulkThreshold01 => Mathf.Clamp(0.80f - V17Sum(V17Effect.BulkThreshold), 0.35f, 0.80f);
+        public float BulkSettleBonus => V17Sum(V17Effect.BulkSettle);
+        public float RemoteSettleFill01 => BulkThreshold01;
+        public float RemoteSettleCooldownSec => Mathf.Max(0.08f, 0.35f * (1f - Mathf.Clamp(V17Sum(V17Effect.RemoteCooldown), 0f, 0.60f)));
+
+        // ===== v1.7 큰 봉투 터짐: 연쇄 흡입·피버 충전·현금 보너스는 노드로만 해금 =====
+        public bool HasChainSuck => V17Sum(V17Effect.ChainUnlock) > 0f;
+        public float ChainSuckRadius => HasChainSuck ? 1.8f + V17Sum(V17Effect.ChainRadius) : 0f;
+        public int ChainSuckMax => HasChainSuck ? 8 + Mathf.RoundToInt(V17Sum(V17Effect.ChainCount) * 2f) : 0;
+        public float BurstFeverGain => V17Sum(V17Effect.BurstFever);
+        public float BurstCashBonus => V17Sum(V17Effect.BurstCash);
 
         public string VehiclePerkLabel =>
-            VehicleVisualStage == 3 ? "방 안 80% 원격 자동수거"
+            VehicleVisualStage == 3 ? $"방 안 {RemoteSettleFill01 * 100f:0}% 원격 자동수거"
             : VehicleVisualStage == 2 ? "현관 문 앞 자동정산"
             : VehicleVisualStage == 1 ? "마당 자동흡입"
             : "차량 앞 정산";
@@ -213,31 +235,35 @@ namespace TrashCleaner3D
         private float _feverDecayDelay = 0f;
         public bool HasFeverEngine => LvFever > 0;
         public bool IsFeverHot => ContinuousFever01 >= 0.75f;
-        public float FeverRadiusBonus => ContinuousFever01 * (0.04f + LvFever * 0.10f);
-        public float FeverSpeedBonus => ContinuousFever01 * (0.08f + LvFever * 0.16f);
-        public float FeverPriceMult => (LvFever > 0 && IsFeverHot) ? (1.15f + LvFever * 0.12f) : 1.0f;
+        public float FeverMaxMult => 1f + V17Sum(V17Effect.FeverMax);
+        public float FeverRadiusBonus => ContinuousFever01 * (0.04f + LvFever * 0.06f) * FeverMaxMult;
+        public float FeverSpeedBonus => ContinuousFever01 * (0.08f + LvFever * 0.10f) * FeverMaxMult;
+        public float FeverPriceMult => (LvFever > 0 && IsFeverHot)
+            ? 1f + (0.15f + LvFever * 0.08f) * FeverMaxMult + V17Sum(V17Effect.FeverPrice)
+            : 1.0f;
 
         // ===== 수거통 (초반 35칸 → 11단계 최대 1,500칸!) =====
         private static readonly int[] BinCaps = { 35, 50, 70, 95, 130, 180, 250, 340, 480, 680, 980, 1500 };
         public int CollectingCount { get; private set; } = 0;
         public int CollectingPendingValue { get; private set; } = 0;
-        public int BinCapacity => Mathf.RoundToInt(BinCaps[Mathf.Clamp(TotalBinLv, 0, BinCaps.Length - 1)] * (HasVacuum ? 2 : 1) * (1f + V16Sum(V16Effect.BinCap)));
+        public int BinCapacity => Mathf.RoundToInt(BinCaps[Mathf.Clamp(TotalBinLv, 0, BinCaps.Length - 1)] * (HasVacuum ? 2 : 1) * (1f + V17Sum(V17Effect.BinCap)));
         public float BinFill01 => Mathf.Clamp01(CollectingCount / (float)Mathf.Max(1, BinCapacity));
         public bool IsBinFull => CollectingCount >= BinCapacity;
         public bool CanSettle => CollectingCount > 0;
 
         // ===== 파생 스탯 =====
-        private static readonly float[] HoldDurCurve = { 1.00f, 0.84f, 0.70f, 0.56f, 0.42f, 0.33f, 0.25f, 0.19f, 0.14f, 0.10f, 0.07f };
+        // [v1.7] 1회 강화당 1~3% 단위로 완만해진 커브(4시간 캠페인).
+        private static readonly float[] HoldDurCurve = { 1.00f, 0.98f, 0.96f, 0.94f, 0.92f, 0.90f, 0.88f, 0.86f, 0.84f, 0.82f, 0.80f };
         public float EffectiveHoldDuration
         {
             get
             {
                 float baseDur = HoldDurCurve[Mathf.Clamp(TotalHoldLv, 0, HoldDurCurve.Length - 1)];
-                if (HasBroom) baseDur *= 0.86f;
-                if (HasVacuum) baseDur *= 0.75f;
+                if (HasBroom) baseDur *= 0.96f;
+                if (HasVacuum) baseDur *= 0.92f;
                 float workMult = Mathf.Max(0.45f, StenchWorkSpeedMult);
-                float totalSpd = workMult * (1f + FeverSpeedBonus) * AdrenalineSpeedMult * OxygenBoostMult * (1f + V16Sum(V16Effect.HoldSpeed));
-                return Mathf.Clamp(baseDur / totalSpd, 0.045f, 1.35f);
+                float totalSpd = workMult * (1f + FeverSpeedBonus) * AdrenalineSpeedMult * OxygenSuctionMult * (1f + V17Sum(V17Effect.HoldSpeed));
+                return Mathf.Clamp(baseDur / totalSpd, 0.12f, 1.6f);
             }
         }
 
@@ -246,8 +272,8 @@ namespace TrashCleaner3D
             get
             {
                 float toolBase = HasVacuum ? 0.62f : HasBroom ? 0.34f : 0.15f;
-                float r = toolBase + TotalRadLv * 0.11f;
-                return r * (1f + FeverRadiusBonus) * (1f + V16Sum(V16Effect.Radius));
+                float r = toolBase + TotalRadLv * 0.05f;
+                return r * (1f + FeverRadiusBonus) * (1f + V17Sum(V17Effect.Radius));
             }
         }
 
@@ -255,27 +281,45 @@ namespace TrashCleaner3D
         {
             get
             {
-                if (HasVacuum) return 8 + LvRad2 * 2 + LvHold3 * 2 + Mathf.RoundToInt(V16Sum(V16Effect.GrabCount));
-                if (HasBroom) return 3 + LvRad1 / 2 + LvRad2 + Mathf.RoundToInt(V16Sum(V16Effect.GrabCount));
-                return 1 + LvRad1 / 3 + Mathf.RoundToInt(V16Sum(V16Effect.GrabCount));
+                int extra = Mathf.RoundToInt(V17Sum(V17Effect.GrabCount));
+                if (HasVacuum) return 2 + LvRad2 + LvHold3 + extra;
+                if (HasBroom) return 2 + LvRad1 / 2 + LvRad2 + extra;
+                return 1 + LvRad1 / 3 + extra;
             }
         }
 
-        public float CritChance => 0f;
-        public float ChainChance => 0f;
-        public int ChainExtraCount => 0;
-        public float MoveSpeedTotalMult => StenchMoveSpeedMult * (1f + TotalSpeedLv * 0.10f) * (IsFeverHot && HasFeverEngine ? 1.12f : 1f) * OxygenBoostMult * (1f + V16Sum(V16Effect.MoveSpeed));
-        public float EffectiveTrashPriceMult => (1f + TotalPriceLv * 0.18f) * StageRewardMult * (HasVipContract ? 1.5f : 1f) * FeverPriceMult * (1f + V16Sum(V16Effect.Price));
-        public float FistDamage => (1.35f + TotalFistLv * 0.95f + (HasVacuum ? 1.6f : 0f)) * (1f + V16Sum(V16Effect.FistPower));
-        public float ScrubSpeedMult => (HasMopUnlocked ? 2.4f : 1.0f) * (1f + LvScrubPower * 0.38f) * (1f + V16Sum(V16Effect.ScrubPower));
+        // [v1.7] 작은 쓰레기 치명타·연쇄는 '예민한 감각' 가지 노드로만 열린다.
+        public float CritChance => Mathf.Clamp(V17Sum(V17Effect.CritChance), 0f, 0.45f);
+        public float ChainChance => Mathf.Clamp(V17Sum(V17Effect.ChainChance), 0f, 0.45f);
+        public int ChainExtraCount => V17Sum(V17Effect.ChainCount) > 0f ? 1 + Mathf.RoundToInt(V17Sum(V17Effect.ChainCount)) : 0;
+        public float MoveSpeedTotalMult => StenchMoveSpeedMult * (1f + TotalSpeedLv * 0.03f) * (IsFeverHot && HasFeverEngine ? 1.06f : 1f) * OxygenMoveMult * (1f + V17Sum(V17Effect.MoveSpeed));
+        public float EffectiveTrashPriceMult => (1f + TotalPriceLv * 0.04f) * StageRewardMult * (HasVipContract ? 1.5f : 1f) * FeverPriceMult * (1f + V17Sum(V17Effect.Price));
+        public float FistDamage => (1.35f + TotalFistLv * 0.10f + (HasVacuum ? 0.5f : 0f)) * (1f + V17Sum(V17Effect.FistPower));
+        public float FistCritChance => Mathf.Clamp(V17Sum(V17Effect.FistCritChance), 0f, 0.60f);
+        public float FistCritMult => 1.6f + V17Sum(V17Effect.FistCritMult);
+
+        /// <summary>[v1.7] 큰 봉투 타격 1회의 데미지(치명타 판정 포함).</summary>
+        public float RollFistDamage(out bool crit)
+        {
+            crit = FistCritChance > 0.001f && Random.value < FistCritChance;
+            return FistDamage * (crit ? FistCritMult : 1f);
+        }
+
+        public float ScrubSpeedMult => (HasMopUnlocked ? 2.4f : 1.0f) * (1f + LvScrubPower * 0.12f)
+            * (1f + V17Sum(V17Effect.ScrubSpeed)) * (1f + V17Sum(V17Effect.ScrubRange) * 0.6f);
+        public float StainRewardMult => 1f + V17Sum(V17Effect.StainReward);
+        public float ScrubFeverGain => V17Sum(V17Effect.ScrubFever);
         public int RoombaCount => LvRoombaCount;
-        public float RoombaEatInterval => Mathf.Max(0.48f, (1.00f - TotalRoombaSpdLv * 0.085f) * (1f - Mathf.Clamp(V16Sum(V16Effect.RoombaPickup), 0f, 0.30f)));
-        public float RoombaMoveSpeed => (1.95f + TotalRoombaSpdLv * 0.14f) * (1f + V16Sum(V16Effect.RoombaSpeed));
+        public float RoombaEatInterval => Mathf.Max(0.45f, (1.00f - TotalRoombaSpdLv * 0.02f)
+            * (1f - Mathf.Clamp(V17Sum(V17Effect.RoombaPickup), 0f, 0.35f))
+            * (1f - Mathf.Clamp(V17Sum(V17Effect.RoombaBattery), 0f, 0.30f)));
+        public float RoombaMoveSpeed => (1.60f + TotalRoombaSpdLv * 0.03f) * (1f + V17Sum(V17Effect.RoombaSpeed));
+        public float RoombaDetectRadius => 0.85f + V17Sum(V17Effect.RoombaDetect);
 
         // ===== 연속 정산 콤보 =====
         public int ThrowComboCount { get; private set; } = 0;
         public float ThrowComboTimer { get; private set; } = 0f;
-        public float MaxComboWindow => 6.0f + LvComboTime * 2.5f;
+        public float MaxComboWindow => 6.0f + LvComboTime * 2.5f + V17Sum(V17Effect.ComboWindow);
 
         // ===== 특전/암시장 호환 =====
         public bool HasVipContract { get; private set; }
@@ -296,7 +340,7 @@ namespace TrashCleaner3D
         private readonly List<CleanableTarget> _activeBigPiles = new List<CleanableTarget>();
         private readonly List<CleanableTarget> _activeStains = new List<CleanableTarget>();
 
-        public int Phase1Total => _activeBigPiles.Count * 10 + (trashSwarm != null ? trashSwarm.TotalCount : 0);
+        public int Phase1Total => _activeBigPiles.Count * 10 + (trashSwarm != null ? trashSwarm.StageTotalItems : 0);
         public int Phase1Cleaned
         {
             get
@@ -373,35 +417,35 @@ namespace TrashCleaner3D
         private float _porchSettleCooldown;
         private float _remoteSettleCooldown;
 
-        // ===== v1.6 세분화 강화 트리 (기존 28노드 + 마이크로 노드 28개) =====
-        private readonly Dictionary<string, int> _v16Levels = new Dictionary<string, int>();
-        private readonly float[] _v16Sums = new float[32];
+        // ===== v1.7 세분화 강화 트리 (코어 28노드 + 마이크로 노드 192개 = 220노드) =====
+        private readonly Dictionary<string, int> _v17Levels = new Dictionary<string, int>();
+        private readonly float[] _v17Sums = new float[(int)V17Effect.Count];
         private Transform _propRoot;
         private InteractiveDoor _entranceDoor;
 
-        /// <summary>v1.6 노드 효과 레벨 합계(구매할 때마다 재계산).</summary>
-        public float V16Sum(V16Effect effect)
+        /// <summary>v1.7 노드 효과 레벨 합계(구매할 때마다 재계산).</summary>
+        public float V17Sum(V17Effect effect)
         {
             int i = (int)effect;
-            return (i >= 0 && i < _v16Sums.Length) ? _v16Sums[i] : 0f;
+            return (i >= 0 && i < _v17Sums.Length) ? _v17Sums[i] : 0f;
         }
 
-        private void RebuildV16Sums()
+        private void RebuildV17Sums()
         {
-            for (int i = 0; i < _v16Sums.Length; i++) _v16Sums[i] = 0f;
-            foreach (var kv in _v16Levels)
+            for (int i = 0; i < _v17Sums.Length; i++) _v17Sums[i] = 0f;
+            foreach (var kv in _v17Levels)
             {
-                var n = UpgradeTreeV16.Get(kv.Key);
+                var n = UpgradeTreeV17.Get(kv.Key);
                 if (n == null || kv.Value <= 0) continue;
                 int i = (int)n.effect;
-                if (i >= 0 && i < _v16Sums.Length) _v16Sums[i] += n.perLevel * kv.Value;
+                if (i >= 0 && i < _v17Sums.Length) _v17Sums[i] += n.perLevel * kv.Value;
             }
         }
 
-        private string SerializeV16Nodes()
+        private string SerializeV17Nodes()
         {
             var sb = new System.Text.StringBuilder();
-            foreach (var kv in _v16Levels)
+            foreach (var kv in _v17Levels)
             {
                 if (kv.Value <= 0) continue;
                 if (sb.Length > 0) sb.Append(',');
@@ -410,9 +454,9 @@ namespace TrashCleaner3D
             return sb.ToString();
         }
 
-        private void DeserializeV16Nodes(string data)
+        private void DeserializeV17Nodes(string data)
         {
-            _v16Levels.Clear();
+            _v17Levels.Clear();
             if (!string.IsNullOrEmpty(data))
             {
                 var parts = data.Split(',');
@@ -422,12 +466,12 @@ namespace TrashCleaner3D
                     if (c <= 0) continue;
                     string id = p.Substring(0, c);
                     if (!int.TryParse(p.Substring(c + 1), out int lv)) continue;
-                    var n = UpgradeTreeV16.Get(id);
+                    var n = UpgradeTreeV17.Get(id);
                     if (n == null) continue;
-                    _v16Levels[id] = Mathf.Clamp(lv, 0, n.maxLevel);
+                    _v17Levels[id] = Mathf.Clamp(lv, 0, n.maxLevel);
                 }
             }
-            RebuildV16Sums();
+            RebuildV17Sums();
         }
 
         private void Awake()
@@ -539,13 +583,13 @@ namespace TrashCleaner3D
             CampaignProgressStore.LvRoombaSpd1 = LvRoombaSpd1;
             CampaignProgressStore.LvFist2 = LvFist2;
             CampaignProgressStore.LvRoombaSpd2 = LvRoombaSpd2;
-            CampaignProgressStore.SavedV16Nodes = SerializeV16Nodes();
+            CampaignProgressStore.SavedV17Nodes = SerializeV17Nodes();
         }
 
         private void RestoreStateFromCampaignStore()
         {
-            // v1.6 세분화 노드는 저장 여부와 무관하게 항상 복원(빈 문자열이면 0레벨)
-            DeserializeV16Nodes(CampaignProgressStore.SavedV16Nodes);
+            // v1.7 세분화 노드는 저장 여부와 무관하게 항상 복원(빈 문자열이면 0레벨)
+            DeserializeV17Nodes(CampaignProgressStore.SavedV17Nodes);
             if (!CampaignProgressStore.HasSavedPlayerState) return;
             Money = CampaignProgressStore.SavedMoney;
             DisplayMoney = Money;
@@ -779,8 +823,8 @@ namespace TrashCleaner3D
             if (_feverDecayDelay > 0f) _feverDecayDelay -= dt;
             else if (ContinuousFever01 > 0f)
             {
-                // v1.6: 산소 부스트(저악취 + 방독면) 상태에서는 피버가 천천히 식는다.
-                float hold = Mathf.Clamp(OxygenBoost01 * 0.55f + V16Sum(V16Effect.FeverHold), 0f, 0.85f);
+                // v1.7: 산소 부스트(저악취 + 방독면 노드) + 피버 유지 노드로 피버가 천천히 식는다.
+                float hold = Mathf.Clamp(OxygenFeverHold01 + V17Sum(V17Effect.FeverHold), 0f, 0.85f);
                 ContinuousFever01 = Mathf.MoveTowards(ContinuousFever01, 0f, dt * 0.28f * (1f - hold));
             }
 
@@ -819,11 +863,11 @@ namespace TrashCleaner3D
                         }
                     }
 
-                    // v1.6 차량 4단계(1톤 트럭): 방 안에서 수거통이 80% 차면 원격 자동 정산(왕복 면제)
+                    // v1.7 차량 4단계(1톤 트럭): 방 안에서 수거통이 기준(기본 80%·노드로 하향) 차면 원격 자동 정산
                     if (VehicleHasRemoteSettle && _remoteSettleCooldown <= 0f &&
                         CollectingCount > 0 && BinFill01 >= RemoteSettleFill01)
                     {
-                        _remoteSettleCooldown = 0.35f;
+                        _remoteSettleCooldown = RemoteSettleCooldownSec;
                         SettleBinAtTruck(GetLowRightPourOrigin(), true, true);
                     }
                 }
@@ -894,7 +938,7 @@ namespace TrashCleaner3D
             CollectingPendingValue += gainedVal;
 
             _feverDecayDelay = 1.75f;
-            ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + (HasFeverEngine ? 0.045f : 0.025f) * (1f + V16Sum(V16Effect.FeverGain)));
+            ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + (HasFeverEngine ? 0.045f : 0.020f) * (1f + V17Sum(V17Effect.FeverGain)));
 
             _pitchResetTimer = 0.48f;
             _pitchCombo = Mathf.Min(1.65f, _pitchCombo + 0.06f);
@@ -933,6 +977,7 @@ namespace TrashCleaner3D
 
             int count = CollectingCount;
             int rawBase = Mathf.Max(CollectingPendingValue, count * 2);
+            float fill01 = BinFill01;
             CollectingCount = 0;
             CollectingPendingValue = 0;
 
@@ -940,9 +985,12 @@ namespace TrashCleaner3D
             else ThrowComboCount = 1;
             ThrowComboTimer = MaxComboWindow;
 
-            float comboMult = 1f + (ThrowComboCount - 1) * 0.20f;
-            float settleBonus = 1f + V16Sum(V16Effect.SettleBonus);
-            int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * comboMult * VehicleEffectiveSettleMult * settleBonus));
+            // [v1.7] 정산 콤보는 '정산 콤보' 코어 노드를 찍어야 작동한다(공짜 효과 제거).
+            float comboMult = LvComboTime > 0 ? 1f + (ThrowComboCount - 1) * 0.20f : 1f;
+            float settleBonus = 1f + V17Sum(V17Effect.SettleBonus);
+            // [v1.7] 대량 정산 보너스: 기준(기본 80%) 이상 채워 정산하면 추가 수익 — '대량 정산 보너스' 노드로만 작동.
+            float bulkSettleBonus = fill01 >= BulkThreshold01 ? 1f + BulkSettleBonus : 1f;
+            int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * comboMult * VehicleEffectiveSettleMult * settleBonus * bulkSettleBonus));
 
             Money += totalPay;
             sfx.PlayChime();
@@ -959,7 +1007,7 @@ namespace TrashCleaner3D
             }
 
             string prefix = remote ? "원격 정산! " : triggeredByAutoSuction ? "자동 정산! " : (ThrowComboCount >= 2 ? $"{ThrowComboCount}연속! " : "");
-            string multTag = $" (×{VehicleEffectiveSettleMult:0.00})";
+            string multTag = $" (×{VehicleEffectiveSettleMult:0.00}{(bulkSettleBonus > 1f ? $" · 대량 +{(bulkSettleBonus - 1f) * 100f:0}%" : "")})";
             Vector3 popPos = truckBedGoal != null ? truckBedGoal.position + Vector3.up * 0.9f : lowPourOrigin + Vector3.up * 0.5f;
             SpawnFloatingText(popPos, $"{prefix}{count}개 정산 +${totalPay}{multTag}", new Color(0.45f, 1f, 0.55f), 1.9f);
 
@@ -968,10 +1016,12 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// v1.6 큰 봉투 터짐:
+        /// v1.7 큰 봉투 터짐:
         ///  파편 파티클 + 충격 링 + 짧은 화면 흔들림 + 경쾌한 "팡!"
-        ///  + 피버 게이지 +25% + 현금 보너스 팝업
-        ///  + 주변 작은 쓰레기가 공중으로 튀어 플레이어 손으로 빨려오는 '미니 블랙홀 연쇄 흡입'
+        ///  + [연쇄 흡입 노드] 주변 작은 쓰레기 미니 블랙홀
+        ///  + [봉투 피버 노드] 피버 게이지 충전
+        ///  + [봉투 현금 노드] 현금 보너스 팝업
+        ///  → v1.6의 '공짜 피버 +25%·현금 보너스·연쇄 흡입'은 전부 기본 잠김.
         /// </summary>
         public void OnBigPileBurst(CleanableTarget pile)
         {
@@ -979,31 +1029,39 @@ namespace TrashCleaner3D
 
             sfx.PlayBigBurst();
             if (player != null) player.AddCameraShake(0.052f, 0.17f);
-            BurstImpactFx.Spawn(pos + Vector3.up * 0.04f, new Color(1f, 0.86f, 0.34f), ChainSuckRadius + 0.7f);
+            BurstImpactFx.Spawn(pos + Vector3.up * 0.04f, new Color(1f, 0.86f, 0.34f), Mathf.Max(0.8f, ChainSuckRadius + 0.7f));
             SparkleBurst.Spawn(pos, 28, 1.15f, new Color(1f, 0.94f, 0.66f));
 
-            // 피버 게이지 +25%
-            ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + 0.25f);
-            _feverDecayDelay = 2.4f;
+            // [노드] 봉투 피버 충전
+            float feverGain = BurstFeverGain;
+            if (feverGain > 0f)
+            {
+                ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + feverGain);
+                _feverDecayDelay = 2.4f;
+            }
 
-            // 현금 보너스 팝업
-            int cash = Mathf.RoundToInt((20f + CurrentStage * 2f + V16Sum(V16Effect.BurstCash)) * StageRewardMult);
-            cash = Mathf.Max(1, cash);
-            Money += cash;
-            SpawnFloatingText(pos + Vector3.up * 1.05f, $"+${cash} 봉투 보너스 · FEVER +25%", new Color(1f, 0.90f, 0.42f), 2.1f);
+            // [노드] 봉투 현금 보너스
+            int cash = Mathf.RoundToInt(BurstCashBonus * StageRewardMult);
+            if (cash > 0)
+            {
+                Money += cash;
+                SpawnFloatingText(pos + Vector3.up * 1.05f,
+                    feverGain > 0f ? $"+${cash} 봉투 보너스 · FEVER +{feverGain * 100f:0}%" : $"+${cash} 봉투 보너스",
+                    new Color(1f, 0.90f, 0.42f), 2.1f);
+            }
 
-            // 미니 블랙홀 연쇄 흡입 (주변 작은 쓰레기 → 플레이어 손)
+            // [노드] 미니 블랙홀 연쇄 흡입 (주변 작은 쓰레기 → 플레이어 손)
             int chained = 0;
-            if (trashSwarm != null && player != null)
+            if (HasChainSuck && trashSwarm != null && player != null)
             {
                 Transform hand = player.rightToolPivot != null ? player.rightToolPivot : player.cameraTransform;
-                chained = trashSwarm.ChainSuckAround(pos, ChainSuckRadius, hand, 36);
+                chained = trashSwarm.ChainSuckAround(pos, ChainSuckRadius, hand, ChainSuckMax);
             }
             if (chained > 0)
                 SpawnFloatingText(pos + Vector3.up * 0.55f, $"연쇄 흡입 {chained}개!", new Color(0.45f, 0.95f, 1f), 1.3f);
 
             // 파편(작은 쓰레기) 일부 추가 배출 — 연쇄 흡입과 함께 '와르르' 손맛
-            if (trashSwarm != null) trashSwarm.SpawnBurstFountain(pos, 14);
+            if (trashSwarm != null) trashSwarm.SpawnBurstFountain(pos, 10);
 
             CheckPhase1Complete();
         }
@@ -1032,8 +1090,13 @@ namespace TrashCleaner3D
 
         public void OnStainCleaned(CleanableTarget stain)
         {
-            int pay = Mathf.Max(1, Mathf.RoundToInt(stain.rewardMoney * EffectiveTrashPriceMult));
+            int pay = Mathf.Max(1, Mathf.RoundToInt(stain.rewardMoney * EffectiveTrashPriceMult * StainRewardMult));
             Money += pay;
+            if (ScrubFeverGain > 0f)
+            {
+                ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + ScrubFeverGain);
+                _feverDecayDelay = 1.2f;
+            }
             sfx.PlayChime();
             SparkleBurst.Spawn(stain.transform.position + Vector3.up * 0.08f, 14, 0.65f, new Color(0.85f, 0.97f, 1f));
             SpawnFloatingText(stain.transform.position + Vector3.up * 0.42f, $"✦ 반짝! +${pay}", new Color(0.55f, 0.96f, 1f), 1.5f);
@@ -1135,11 +1198,11 @@ namespace TrashCleaner3D
 
         public void ResolveActiveTreasure(bool steal) { ActiveTreasure = null; Phase = _phaseBeforeOverlay; UnlockCursor(false); }
 
-        // ===== v1.6 강화 트리 가격 & 선행 조건 (기존 28노드 + 마이크로 28노드 = 56노드) =====
+        // ===== v1.7 강화 트리 가격 & 선행 조건 (코어 28노드 + 마이크로 192노드 = 220노드) =====
         public int GetNodeCost(string id)
         {
-            var v16 = UpgradeTreeV16.Get(id);
-            if (v16 != null) return UpgradeTreeV16.Cost(v16, GetNodeLevel(id));
+            var v17 = UpgradeTreeV17.Get(id);
+            if (v17 != null) return UpgradeTreeV17.Cost(v17, GetNodeLevel(id));
 
             switch (id)
             {
@@ -1184,11 +1247,11 @@ namespace TrashCleaner3D
 
         public bool IsNodeUnlocked(string id)
         {
-            var v16 = UpgradeTreeV16.Get(id);
-            if (v16 != null)
+            var v17 = UpgradeTreeV17.Get(id);
+            if (v17 != null)
             {
-                if (string.IsNullOrEmpty(v16.prereq)) return true;
-                return GetNodeLevel(v16.prereq) >= v16.prereqLevel;
+                if (string.IsNullOrEmpty(v17.prereq)) return true;
+                return GetNodeLevel(v17.prereq) >= v17.prereqLevel;
             }
 
             switch (id)
@@ -1233,8 +1296,8 @@ namespace TrashCleaner3D
 
         public int GetNodeLevel(string id)
         {
-            var v16 = UpgradeTreeV16.Get(id);
-            if (v16 != null) return _v16Levels.TryGetValue(id, out int lv16) ? lv16 : 0;
+            var v17 = UpgradeTreeV17.Get(id);
+            if (v17 != null) return _v17Levels.TryGetValue(id, out int lv17) ? lv17 : 0;
 
             return id switch
             {
@@ -1248,8 +1311,8 @@ namespace TrashCleaner3D
 
         public int GetNodeMaxLevel(string id)
         {
-            var v16 = UpgradeTreeV16.Get(id);
-            if (v16 != null) return v16.maxLevel;
+            var v17 = UpgradeTreeV17.Get(id);
+            if (v17 != null) return v17.maxLevel;
 
             return id switch
             {
@@ -1272,7 +1335,7 @@ namespace TrashCleaner3D
             int c = 0;
             foreach (var id in all)
                 if (IsNodeUnlocked(id) && GetNodeLevel(id) < GetNodeMaxLevel(id) && Money >= GetNodeCost(id)) c++;
-            foreach (var node in UpgradeTreeV16.Nodes)
+            foreach (var node in UpgradeTreeV17.Nodes)
                 if (IsNodeUnlocked(node.id) && GetNodeLevel(node.id) < node.maxLevel && Money >= GetNodeCost(node.id)) c++;
             return c;
         }
@@ -1285,13 +1348,13 @@ namespace TrashCleaner3D
             int cost = GetNodeCost(id);
             if (Money < cost) return false;
 
-            var v16 = UpgradeTreeV16.Get(id);
-            if (v16 != null)
+            var v17 = UpgradeTreeV17.Get(id);
+            if (v17 != null)
             {
                 Money -= cost;
-                _v16Levels[id] = lv + 1;
-                RebuildV16Sums();
-                if (v16.milestone) ShowToast($"★ {v16.title} Lv.{lv + 1} · {v16.EffectText(lv + 1)}");
+                _v17Levels[id] = lv + 1;
+                RebuildV17Sums();
+                if (v17.milestone) ShowToast($"★ {v17.title} Lv.{lv + 1} · {v17.EffectText(lv + 1)}");
                 sfx.PlayChime();
                 SaveStateToCampaignStore();
                 return true;
