@@ -87,10 +87,10 @@ namespace TrashCleaner3D
         public int CurrentStage { get; private set; } = 1;
         public float StageRewardMult => 1f + (CurrentStage - 1) * 0.22f;
 
-        /// <summary>[v1.9] 스테이지별 일반 쓰레기 기본 단가(계단식 3시간 경제).</summary>
+        /// <summary>[v2.0] 스테이지별 일반 쓰레기 기본 단가(중복 곱연산 제거 → 7스테이지 지수 경제 곡선).</summary>
         public int CurrentStageTrashBaseValue => CurrentStage switch
         {
-            1 => 2, 2 => 3, 3 => 5, 4 => 8, 5 => 14, 6 => 22, 7 => 32, _ => 2
+            1 => 2, 2 => 4, 3 => 8, 4 => 15, 5 => 28, 6 => 50, 7 => 90, _ => 2
         };
 
         public string CurrentClientHint => CampaignProgressStore.GetInfo(CurrentStage).clientMemo;
@@ -196,19 +196,19 @@ namespace TrashCleaner3D
         public bool HasTwoHand => V18Sum(V18Effect.TwoHand) > 0f;
 
         public string CurrentToolName =>
-            HasBlackHole ? (HasWhiteHole ? "4단계 미니 블랙홀 건 · 화이트홀" : "4단계 미니 블랙홀 건") :
-            HasOrbGun ? "3단계 원기옥 압축 빔포" :
-            HasVacuum ? $"2단계 진공청소기 (속도 +{LvHold3})" :
-            HasBroom ? $"빗자루 (속도 +{LvHold2})" : "1단계 장갑 맨손";
+            HasBlackHole ? (HasWhiteHole ? "5단계 청소 드론 편대 · 직결 호스" : "5단계 자율 청소 드론 편대") :
+            HasOrbGun ? "4단계 산업용 사이클론 청소기" :
+            HasVacuum ? $"3단계 진공청소기 (속도 +{LvHold3})" :
+            HasBroom ? $"2단계 빗자루 (속도 +{LvHold2})" : "1단계 장갑 맨손";
 
-        // ===== v1.8 장비 4단계 (맨손 → 진공 → 원기옥 → 블랙홀) =====
+        // ===== v2.0 장비 5단계 (맨손 → 빗자루 → 진공 → 산업용 사이클론 → 자율 청소 드론) =====
         public bool HasOrbGun => V18Sum(V18Effect.OrbUnlock) > 0f || V18Sum(V18Effect.BhUnlock) > 0f;
         public bool HasBlackHole => V18Sum(V18Effect.BhUnlock) > 0f;
         public bool HasWhiteHole => V18Sum(V18Effect.WhUnlock) > 0f;
         public int GearTierIndex => HasBlackHole ? 3 : HasOrbGun ? 2 : HasVacuum ? 1 : 0;
-        /// <summary>[v1.8] HUD 아이콘용 짧은 장비 표기(무설명 UX).</summary>
-        public string ToolBadge => Mode == GearMode.BlackHole ? "● 블랙홀"
-            : Mode == GearMode.Orb ? "* 원기옥"
+        /// <summary>[v2.0] HUD 아이콘용 짧은 장비 표기(깨짐 없는 기호).</summary>
+        public string ToolBadge => Mode == GearMode.BlackHole ? "★ 청소 드론"
+            : Mode == GearMode.Orb ? "★ 사이클론"
             : Mode == GearMode.Vacuum ? "진공청소기"
             : Mode == GearMode.Broom ? "빗자루" : "맨손";
         public GearMode Mode => HasBlackHole ? GearMode.BlackHole : HasOrbGun ? GearMode.Orb
@@ -428,8 +428,12 @@ namespace TrashCleaner3D
         public float CritChance => Mathf.Clamp(V18Sum(V18Effect.CritChance), 0f, 0.45f);
         public float ChainChance => Mathf.Clamp(V18Sum(V18Effect.ChainChance), 0f, 0.45f);
         public int ChainExtraCount => V18Sum(V18Effect.ChainCount) > 0f ? 1 + Mathf.RoundToInt(V18Sum(V18Effect.ChainCount)) : 0;
-        public float MoveSpeedTotalMult => StenchMoveSpeedMult * (1f + TotalSpeedLv * 0.06f) * (IsFeverHot && HasFeverEngine ? 1.10f : 1f) * OxygenMoveMult * (1f + V18Sum(V18Effect.MoveSpeed));
-        public float EffectiveTrashPriceMult => (1f + TotalPriceLv * 0.10f) * StageRewardMult * (HasVipContract ? 1.5f : 1f) * FeverPriceMult * (1f + V18Sum(V18Effect.Price));
+        // [v2.0] 이동속도 폭주 방지 상한선(최대 1.85배 — 실내 쾌속 + 벽 충돌 방지!)
+        public float MoveSpeedTotalMult => Mathf.Clamp(
+            StenchMoveSpeedMult * (1f + TotalSpeedLv * 0.05f) * (IsFeverHot && HasFeverEngine ? 1.08f : 1f) * Mathf.Min(1.25f, OxygenMoveMult) * (1f + Mathf.Min(0.35f, V18Sum(V18Effect.MoveSpeed))),
+            0.45f, 1.85f);
+        // [v2.0] 중복 곱연산 제거 (StageRewardMult 이중 곱 제거! 합연산 중심으로 예측 가능한 7스테이지 경제!)
+        public float EffectiveTrashPriceMult => (1f + TotalPriceLv * 0.12f + V18Sum(V18Effect.Price)) * (HasVipContract ? 1.25f : 1f) * Mathf.Min(1.65f, FeverPriceMult);
         public float FistDamage => (1.45f + TotalFistLv * 0.60f + (HasVacuum ? 1.5f : 0f)) * (1f + V18Sum(V18Effect.FistPower));
         public float FistCritChance => Mathf.Clamp(V18Sum(V18Effect.FistCritChance), 0f, 0.60f);
         public float FistCritMult => 1.6f + V18Sum(V18Effect.FistCritMult);
@@ -476,6 +480,15 @@ namespace TrashCleaner3D
         private readonly List<CleanableTarget> _activeBigPiles = new List<CleanableTarget>();
         private readonly List<CleanableTarget> _activeStains = new List<CleanableTarget>();
 
+        public int RemainingBigPileCount
+        {
+            get
+            {
+                int rem = 0;
+                foreach (var p in _activeBigPiles) if (p != null && !p.IsCleaned) rem++;
+                return rem;
+            }
+        }
         public int Phase1Total => _activeBigPiles.Count * 10 + (trashSwarm != null ? trashSwarm.StageTotalItems : 0);
         public int Phase1Cleaned
         {
@@ -1149,10 +1162,16 @@ namespace TrashCleaner3D
         public void OnBulkTrashCollected(int items, int rawValue)
         {
             if (items <= 0) return;
-            CollectingCount += items;
-            CollectingPendingValue += Mathf.Max(1, Mathf.RoundToInt(rawValue * EffectiveTrashPriceMult));
+            // [v2.0] 수거통 용량 엄수 — 절대 BinCapacity를 초과하지 않는다!
+            int cap = Mathf.Max(1, BinCapacity);
+            int space = Mathf.Max(0, cap - CollectingCount);
+            if (space <= 0) return;
+            int addItems = Mathf.Min(items, space);
+            float ratio = addItems / (float)items;
+            CollectingCount += addItems;
+            CollectingPendingValue += Mathf.Max(1, Mathf.RoundToInt(rawValue * ratio * EffectiveTrashPriceMult));
             _feverDecayDelay = 1.75f;
-            ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + 0.004f * items);
+            ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + 0.004f * addItems);
             CheckPhase1Complete();
         }
 
@@ -1185,12 +1204,14 @@ namespace TrashCleaner3D
             else ThrowComboCount = 1;
             ThrowComboTimer = MaxComboWindow;
 
-            // [v1.7] 정산 콤보는 '정산 콤보' 코어 노드를 찍어야 작동한다(공짜 효과 제거).
-            float comboMult = LvComboTime > 0 ? 1f + (ThrowComboCount - 1) * 0.20f : 1f;
-            float settleBonus = 1f + V18Sum(V18Effect.SettleBonus);
-            // [v1.7] 대량 정산 보너스: 기준(기본 80%) 이상 채워 정산하면 추가 수익 — '대량 정산 보너스' 노드로만 작동.
-            float bulkSettleBonus = fill01 >= BulkThreshold01 ? 1f + BulkSettleBonus : 1f;
-            int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * comboMult * VehicleEffectiveSettleMult * settleBonus * bulkSettleBonus * Mathf.Max(1f, extraMult)));
+            // [v2.0] 정산 배율 합연산 통합 (10억 달러 6중 곱연산 폭발 원천 차단!)
+            float comboAdd = LvComboTime > 0 ? (ThrowComboCount - 1) * 0.08f : 0f;
+            float settleAdd = V18Sum(V18Effect.SettleBonus) * 0.5f;
+            float bulkAdd = fill01 >= BulkThreshold01 ? BulkSettleBonus * 0.5f : 0f;
+            float vehAdd = VehicleBulkBonus * 0.45f + V18Sum(V18Effect.VehicleMult) * 0.45f;
+            float extraAdd = Mathf.Max(0f, extraMult - 1f) * 0.5f;
+            float finalSettleMult = VehicleSettleMultiplier * (1f + comboAdd + settleAdd + bulkAdd + vehAdd + extraAdd);
+            int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * finalSettleMult));
 
             Money += totalPay;
             sfx.PlayChime();
@@ -1278,8 +1299,8 @@ namespace TrashCleaner3D
         {
             if (Phase != GamePhase.Phase1_TrashRemoval && Phase != GamePhase.Phase2_FloorMopping) return;
 
-            // [v1.9] 95% 달성 시 구석 잔여 쓰레기·얼룩 자동 마무리 스윕!
-            if (OverallCleanPercent >= 95.0f)
+            // [v2.0] 95% 달성 시에도 큰 쓰레기봉지/박스가 1개라도 남아있으면 절대 완청 처리하지 않음!
+            if (OverallCleanPercent >= 95.0f && RemainingBigPileCount == 0)
             {
                 if (trashSwarm != null)
                 {
@@ -1506,37 +1527,37 @@ namespace TrashCleaner3D
 
             switch (id)
             {
-                case "hold1": return Mathf.RoundToInt(8 * Mathf.Pow(1.65f, LvHold1));
-                case "rad1": return Mathf.RoundToInt(10 * Mathf.Pow(1.70f, LvRad1));
-                case "broom": return 240;
-                case "hold2": return Mathf.RoundToInt(210 * Mathf.Pow(1.85f, LvHold2));
-                case "rad2": return Mathf.RoundToInt(290 * Mathf.Pow(1.85f, LvRad2));
-                case "vacuum": return 3200;
-                case "hold3": return Mathf.RoundToInt(2800 * Mathf.Pow(1.92f, LvHold3));
-                case "fever": return Mathf.RoundToInt(280 * Mathf.Pow(1.90f, LvFever));
+                case "hold1": return Mathf.RoundToInt(25 * Mathf.Pow(2.0f, LvHold1));
+                case "rad1": return Mathf.RoundToInt(30 * Mathf.Pow(2.0f, LvRad1));
+                case "broom": return 850;
+                case "hold2": return Mathf.RoundToInt(1100 * Mathf.Pow(2.2f, LvHold2));
+                case "rad2": return Mathf.RoundToInt(1400 * Mathf.Pow(2.2f, LvRad2));
+                case "vacuum": return 18000;
+                case "hold3": return Mathf.RoundToInt(24000 * Mathf.Pow(2.4f, LvHold3));
+                case "fever": return Mathf.RoundToInt(1800 * Mathf.Pow(2.3f, LvFever));
 
-                case "bin1": return Mathf.RoundToInt(9 * Mathf.Pow(1.65f, LvBin1));
-                case "price1": return Mathf.RoundToInt(12 * Mathf.Pow(1.70f, LvPrice1));
-                case "cart": return 200;
-                case "bin2": return Mathf.RoundToInt(210 * Mathf.Pow(1.85f, LvBin2));
-                case "price2": return Mathf.RoundToInt(320 * Mathf.Pow(1.85f, LvPrice2));
-                case "damas": return 1400;
-                case "bin3": return Mathf.RoundToInt(1900 * Mathf.Pow(1.90f, LvBin3));
-                case "combo": return Mathf.RoundToInt(160 * Mathf.Pow(1.85f, LvComboTime));
-                case "truck1t": return 9500;
+                case "bin1": return Mathf.RoundToInt(28 * Mathf.Pow(2.0f, LvBin1));
+                case "price1": return Mathf.RoundToInt(35 * Mathf.Pow(2.0f, LvPrice1));
+                case "cart": return 650;
+                case "bin2": return Mathf.RoundToInt(1200 * Mathf.Pow(2.2f, LvBin2));
+                case "price2": return Mathf.RoundToInt(1600 * Mathf.Pow(2.25f, LvPrice2));
+                case "damas": return 9500;
+                case "bin3": return Mathf.RoundToInt(16000 * Mathf.Pow(2.35f, LvBin3));
+                case "combo": return Mathf.RoundToInt(900 * Mathf.Pow(2.25f, LvComboTime));
+                case "truck1t": return 120000;
 
-                case "speed1": return Mathf.RoundToInt(10 * Mathf.Pow(1.65f, LvSpeed1));
-                case "mask1": return Mathf.RoundToInt(10 * Mathf.Pow(1.65f, LvMask1));
-                case "mop": return 110;
-                case "speed2": return Mathf.RoundToInt(220 * Mathf.Pow(1.85f, LvSpeed2));
-                case "mask2": return Mathf.RoundToInt(260 * Mathf.Pow(1.85f, LvMask2));
-                case "scrub": return Mathf.RoundToInt(180 * Mathf.Pow(1.85f, LvScrubPower));
+                case "speed1": return Mathf.RoundToInt(30 * Mathf.Pow(2.0f, LvSpeed1));
+                case "mask1": return Mathf.RoundToInt(30 * Mathf.Pow(2.0f, LvMask1));
+                case "mop": return 350;
+                case "speed2": return Mathf.RoundToInt(1300 * Mathf.Pow(2.2f, LvSpeed2));
+                case "mask2": return Mathf.RoundToInt(1500 * Mathf.Pow(2.2f, LvMask2));
+                case "scrub": return Mathf.RoundToInt(950 * Mathf.Pow(2.2f, LvScrubPower));
 
-                case "fist1": return Mathf.RoundToInt(11 * Mathf.Pow(1.66f, LvFist1));
-                case "roomba": return LvRoombaCount == 0 ? 320 : LvRoombaCount == 1 ? 1200 : 3800;
-                case "rspd1": return Mathf.RoundToInt(260 * Mathf.Pow(1.85f, LvRoombaSpd1));
-                case "fist2": return Mathf.RoundToInt(280 * Mathf.Pow(1.85f, LvFist2));
-                case "rspd2": return Mathf.RoundToInt(1200 * Mathf.Pow(1.90f, LvRoombaSpd2));
+                case "fist1": return Mathf.RoundToInt(35 * Mathf.Pow(2.0f, LvFist1));
+                case "roomba": return LvRoombaCount == 0 ? 1800 : LvRoombaCount == 1 ? 14000 : 85000;
+                case "rspd1": return Mathf.RoundToInt(1600 * Mathf.Pow(2.2f, LvRoombaSpd1));
+                case "fist2": return Mathf.RoundToInt(1800 * Mathf.Pow(2.25f, LvFist2));
+                case "rspd2": return Mathf.RoundToInt(18000 * Mathf.Pow(2.35f, LvRoombaSpd2));
                 default: return 999999;
             }
         }

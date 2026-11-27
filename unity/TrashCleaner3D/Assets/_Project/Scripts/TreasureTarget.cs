@@ -42,11 +42,15 @@ namespace TrashCleaner3D
         private Renderer[] _renderers;
         private MaterialPropertyBlock _mpb;
         private bool _highlighted;
+        private Transform _beaconBeam;
+        private Transform _beaconRing;
+        private float _sparkleTimer;
 
         private void Awake()
         {
             _initialPos = transform.position;
             _initialRot = transform.rotation;
+            _sparkleTimer = Random.Range(0.4f, 2.0f);
             CacheRenderers();
         }
 
@@ -66,21 +70,104 @@ namespace TrashCleaner3D
             }
         }
 
+        private void EnsureBeaconVisuals()
+        {
+            if (_beaconBeam != null) return;
+            Shader unlit = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Standard");
+            Color beamCol = isDesignatedLostItem
+                ? new Color(0.22f, 0.88f, 1.0f, 0.30f)
+                : new Color(1.0f, 0.80f, 0.16f, 0.28f);
+
+            Material MakeAdditive(Color c)
+            {
+                Material m = new Material(unlit);
+                if (m.HasProperty("_Surface")) m.SetFloat("_Surface", 1f);
+                if (m.HasProperty("_SrcBlend")) m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (m.HasProperty("_DstBlend")) m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                if (m.HasProperty("_ZWrite")) m.SetFloat("_ZWrite", 0f);
+                m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+                m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 15;
+                if (m.HasProperty("_BaseColor")) m.SetColor("_BaseColor", c);
+                m.color = c;
+                return m;
+            }
+
+            // 수직 빛기둥(멀리서도 보물·분실물 위치가 은은하게 반짝여 발견 쾌감 극대화!)
+            GameObject beam = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            Destroy(beam.GetComponent<Collider>());
+            beam.name = "_TreasureBeaconBeam";
+            beam.transform.SetParent(transform, false);
+            beam.transform.localPosition = new Vector3(0f, 0.65f, 0f);
+            beam.transform.localScale = new Vector3(0.085f, 0.65f, 0.085f);
+            var br = beam.GetComponent<Renderer>();
+            br.sharedMaterial = MakeAdditive(beamCol);
+            br.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            br.receiveShadows = false;
+            _beaconBeam = beam.transform;
+
+            // 바닥 글로우 후광 원반
+            GameObject ring = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            Destroy(ring.GetComponent<Collider>());
+            ring.name = "_TreasureGlowDisc";
+            ring.transform.SetParent(transform, false);
+            ring.transform.localPosition = new Vector3(0f, 0.015f, 0f);
+            ring.transform.localScale = new Vector3(0.36f, 0.008f, 0.36f);
+            var rr = ring.GetComponent<Renderer>();
+            rr.sharedMaterial = MakeAdditive(new Color(beamCol.r, beamCol.g, beamCol.b, 0.42f));
+            rr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            rr.receiveShadows = false;
+            _beaconRing = ring.transform;
+        }
+
+        private void SetBeaconActive(bool on)
+        {
+            if (_beaconBeam != null) _beaconBeam.gameObject.SetActive(on);
+            if (_beaconRing != null) _beaconRing.gameObject.SetActive(on);
+        }
+
         private void Update()
         {
             if (State != TreasureState.HiddenInRoom || _renderers == null || _mpb == null) return;
 
-            // 은은한 황금빛 반짝임 (지정 분실물은 시안-블루 펄스)
-            float pulse = 0.24f + 0.22f * Mathf.Sin(Time.time * 3.8f);
-            if (_highlighted) pulse += 0.45f;
+            // 우아한 공중 부유 + 회전으로 쓰레기와 확실히 구분되는 보물 존재감!
+            float bob = 0.07f + 0.035f * Mathf.Sin(Time.time * 3.1f + _initialPos.x);
+            transform.position = _initialPos + Vector3.up * bob;
+            transform.Rotate(Vector3.up, 42f * Time.deltaTime, Space.World);
+
+            if (_beaconBeam != null)
+            {
+                float w = 0.075f + 0.025f * Mathf.Sin(Time.time * 4.5f);
+                if (_highlighted) w *= 1.45f;
+                _beaconBeam.localScale = new Vector3(w, _highlighted ? 0.85f : 0.65f, w);
+            }
+            if (_beaconRing != null)
+            {
+                float rs = 0.34f + 0.08f * Mathf.Sin(Time.time * 3.8f);
+                if (_highlighted) rs *= 1.30f;
+                _beaconRing.localScale = new Vector3(rs, 0.008f, rs);
+            }
+
+            _sparkleTimer -= Time.deltaTime;
+            if (_sparkleTimer <= 0f)
+            {
+                _sparkleTimer = _highlighted ? 0.8f : 2.4f;
+                Color spCol = isDesignatedLostItem ? new Color(0.35f, 0.92f, 1f) : new Color(1f, 0.88f, 0.32f);
+                SparkleBurst.Spawn(transform.position + Vector3.up * 0.14f, 6, 0.42f, spCol);
+            }
+
+            // 선명한 황금빛 / 시안-블루 발광 펄스
+            float pulse = 0.42f + 0.32f * Mathf.Sin(Time.time * 4.2f);
+            if (_highlighted) pulse += 0.65f;
 
             Color glow = isDesignatedLostItem
-                ? new Color(0.18f, 0.78f, 1.0f) * pulse
-                : new Color(1.0f, 0.78f, 0.14f) * pulse;
+                ? new Color(0.20f, 0.84f, 1.0f) * pulse
+                : new Color(1.0f, 0.80f, 0.16f) * pulse;
 
             for (int i = 0; i < _renderers.Length; i++)
             {
                 if (_renderers[i] == null) continue;
+                if (_beaconBeam != null && _renderers[i].transform == _beaconBeam) continue;
+                if (_beaconRing != null && _renderers[i].transform == _beaconRing) continue;
                 _renderers[i].GetPropertyBlock(_mpb);
                 _mpb.SetColor("_EmissionColor", glow);
                 _renderers[i].SetPropertyBlock(_mpb);
@@ -106,6 +193,8 @@ namespace TrashCleaner3D
             _initialRot = transform.rotation;
             gameObject.SetActive(true);
             EnsureCollider();
+            EnsureBeaconVisuals();
+            SetBeaconActive(true);
             CacheRenderers();
             foreach (var col in GetComponentsInChildren<Collider>(true)) col.enabled = true;
         }
@@ -114,8 +203,8 @@ namespace TrashCleaner3D
         {
             var box = GetComponent<BoxCollider>();
             if (box == null) box = gameObject.AddComponent<BoxCollider>();
-            box.size = new Vector3(0.42f, 0.36f, 0.42f);
-            box.center = new Vector3(0f, 0.08f, 0f);
+            box.size = new Vector3(0.56f, 0.52f, 0.56f);
+            box.center = new Vector3(0f, 0.14f, 0f);
             box.isTrigger = true;
         }
 
@@ -123,6 +212,7 @@ namespace TrashCleaner3D
         {
             State = TreasureState.ReturnedToClient;
             _highlighted = false;
+            SetBeaconActive(false);
             foreach (var col in GetComponentsInChildren<Collider>(true)) col.enabled = false;
             if (returnShelfSlot != null)
             {
@@ -151,6 +241,7 @@ namespace TrashCleaner3D
         {
             State = TreasureState.StolenByPlayer;
             _highlighted = false;
+            SetBeaconActive(false);
             foreach (var col in GetComponentsInChildren<Collider>(true)) col.enabled = false;
             gameObject.SetActive(false);
         }
@@ -167,6 +258,7 @@ namespace TrashCleaner3D
             transform.position = _initialPos;
             transform.rotation = _initialRot;
             gameObject.SetActive(true);
+            SetBeaconActive(true);
             foreach (var col in GetComponentsInChildren<Collider>(true)) col.enabled = true;
         }
 
@@ -177,6 +269,7 @@ namespace TrashCleaner3D
             if (parent != null) go.transform.SetParent(parent, true);
             go.transform.position = pos;
             go.transform.rotation = Quaternion.Euler(0f, Random.Range(-35f, 35f), 0f);
+            go.transform.localScale = Vector3.one * 1.38f;
 
             Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
             Material MakeMat(Color c, float smooth, float metal = 0.25f)

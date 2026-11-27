@@ -295,12 +295,12 @@ namespace TrashCleaner3D
             int shownMoney = Mathf.RoundToInt(manager.DisplayMoney);
             if (manager.CollectingPendingValue > 0)
             {
-                GUI.Label(new Rect(badge.x + 12, badge.y + 1, 200, 28), $"${shownMoney:N0}", _moneyBadgeStyle);
-                GUI.Label(new Rect(badge.x + 12, badge.y + 24, 200, 18), $"대기 +${manager.CollectingPendingValue:N0}", _moneyPendingStyle);
+                GUI.Label(new Rect(badge.x + 12, badge.y + 1, 200, 28), FormatCash(shownMoney), _moneyBadgeStyle);
+                GUI.Label(new Rect(badge.x + 12, badge.y + 24, 200, 18), $"대기 +{FormatCash(manager.CollectingPendingValue)}", _moneyPendingStyle);
             }
             else
             {
-                GUI.Label(new Rect(badge.x + 12, badge.y + 5, 200, 34), $"${shownMoney:N0}", _moneyBadgeStyle);
+                GUI.Label(new Rect(badge.x + 12, badge.y + 5, 200, 34), FormatCash(shownMoney), _moneyBadgeStyle);
             }
 
             bool showExtraRow = manager.ContinuousFever01 > 0.05f || manager.CanEarlyCheckout;
@@ -787,9 +787,9 @@ namespace TrashCleaner3D
             GUI.Label(new Rect(hdr.x + 14, hdr.y + 27, 560, 18),
                 "[휠] 확대·축소   [드래그] 이동   [R] 중앙 복귀   [클릭] 즉시 강화", _inkSmall);
 
-            Rect cash = new Rect(hdr.xMax - 208, hdr.y + 8, 194, 36);
+            Rect cash = new Rect(hdr.xMax - 236, hdr.y + 8, 222, 36);
             DrawBorderedBox(cash, new Color(0.043f, 0.243f, 0.149f), new Color(0.98f, 0.845f, 0.35f), 2);
-            GUI.Label(new Rect(cash.x + 10, cash.y + 4, 174, 28), $"${manager.Money:N0}", _moneyBadgeStyle);
+            GUI.Label(new Rect(cash.x + 10, cash.y + 4, 202, 28), FormatCash(manager.Money), _moneyBadgeStyle);
 
             // ===== 툴바 (고대비 10계열 탭 + 전체노드 토글 + 줌) =====
             float toolY = hdr.yMax + 8f;
@@ -1062,7 +1062,7 @@ namespace TrashCleaner3D
                     _nodeSubStyle.normal.textColor = sCol;
                     string sub = !n.unlocked ? "잠김"
                                : isMax ? "MAX"
-                               : midText ? $"{n.level}/{n.maxLevel} · ${n.cost:N0}"
+                               : midText ? $"{n.level}/{n.maxLevel} · {FormatCash(n.cost)}"
                                : $"{n.level}/{n.maxLevel}";
                     GUI.Label(new Rect(r.x + 3, r.y + r.height * 0.50f, r.width - 6, r.height * 0.45f), sub, _nodeSubStyle);
                 }
@@ -1666,6 +1666,16 @@ namespace TrashCleaner3D
 
             if (GUI.Button(new Rect(r.x + 115, r.y + 252, 160, 38), "계속하기 [ESC]", _btnStyle))
                 manager.ToggleSettingsMenu();
+        }
+
+        private static string FormatCash(long amount)
+        {
+            long abs = amount < 0 ? -amount : amount;
+            string sign = amount < 0 ? "-" : "";
+            if (abs >= 1000000000L) return $"{sign}${abs / 1000000000f:0.00}B";
+            if (abs >= 1000000L) return $"{sign}${abs / 1000000f:0.00}M";
+            if (abs >= 100000L) return $"{sign}${abs / 1000f:0.#}K";
+            return $"{sign}${abs:N0}";
         }
 
         private static Color ReadableOn(Color bg)

@@ -89,23 +89,15 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// 문을 열거나 닫는다. 닫을 때 플레이어가 문틱에 서 있으면 끼이지 않도록 닫기를 거부한다.
-        /// (라운드 시작 시 매니저가 이 메서드로 문을 활짝 열어 둔다)
+        /// [v2.0] 문을 열거나 닫는다. 청소 중에도 문 뒤 쓰레기봉지 청소를 위해 언제든 자유롭게 닫고 열 수 있다.
         /// </summary>
         public void SetOpen(bool open, ProceduralSfx sfx = null)
         {
             if (IsOpen == open) return;
 
-            if (!open && blockCloseWhenPlayerNear && IsCleaningRound())
-            {
-                // 청소 중에는 방↔트럭 왕복 동선이 막히지 않도록 문을 닫지 않는다.
-                if (manager != null) manager.ShowToast("청소 중에는 현관문을 열어 둡니다 · 왕복 동선 확보");
-                return;
-            }
-
             if (!open && blockCloseWhenPlayerNear && IsPlayerAtDoorway())
             {
-                if (manager != null) manager.ShowToast("문 앞에서는 닫히지 않아요 · 동선 확보");
+                if (manager != null) manager.ShowToast("문틀 바로 앞에서는 닫히지 않아요 · 한 걸음 비켜서 [F]");
                 return;
             }
 
@@ -126,7 +118,7 @@ namespace TrashCleaner3D
             if (_player == null || hingePivot == null) return false;
             Vector3 d = _player.transform.position - hingePivot.position;
             d.y = 0f;
-            return d.sqrMagnitude <= 1.25f * 1.25f;
+            return d.sqrMagnitude <= 0.62f * 0.62f;
         }
 
         private void Update()

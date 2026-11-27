@@ -22,7 +22,8 @@ namespace TrashCleaner3D
         public int WaveCount { get; private set; }
         public bool AllWavesSpawned => WaveIndex >= WaveCount;
         private const int SpawnCapacityMargin = 1600;
-        private const int ExposedMaxPerCell = 44;
+        // [v2.0] 셀 숨김 팝인(리스폰 착시) 완전 제거 — 전량 처음부터 노출하고 섹터+절두체+저폴리로 60fps 유지!
+        private const int ExposedMaxPerCell = 5000;
         private const int MaxDynamicFlyingVisuals = 420;
         private const float SectorSizeXZ = 3.5f;
 
@@ -635,6 +636,10 @@ namespace TrashCleaner3D
 
         private void RemoveFromCellAndPromote(int idx)
         {
+            Vector3 removedPos = _units[idx].pos;
+            byte roomIdx = _units[idx].roomIdx;
+            float floorY = (_rooms != null && roomIdx < _rooms.Length) ? _rooms[roomIdx].floorY : 0f;
+
             RemoveFromSector(idx);
             int key = _units[idx].gridKey;
             if (!_grid.TryGetValue(key, out CellBucket bucket)) return;
@@ -642,19 +647,43 @@ namespace TrashCleaner3D
             if (!bucket.exposed.Remove(idx))
                 bucket.buried.Remove(idx);
 
-            while (bucket.exposed.Count < ExposedMaxPerCell && bucket.buried.Count > 0)
+            // [v2.0] 아래 쓰레기를 빼면 바로 위에 얹혀있던 쓰레기가 자연스럽게 아래로 툭 내려앉음!
+            int settled = 0;
+            List<int> exp = bucket.exposed;
+            for (int i = 0; i < exp.Count && settled < 10; i++)
             {
-                int topIdx = bucket.buried[bucket.buried.Count - 1];
-                bucket.buried.RemoveAt(bucket.buried.Count - 1);
-                if (topIdx >= 0 && topIdx < _unitCount && _units[topIdx].state == 0)
-                {
-                    bucket.exposed.Add(topIdx);
-                    AddToSector(topIdx);
-                }
+                int u = exp[i];
+                if (u < 0 || u >= _unitCount || _units[u].state != 0) continue;
+                Vector3 p = _units[u].pos;
+                if (p.y <= removedPos.y + 0.03f) continue;
+                float dx = p.x - removedPos.x;
+                float dz = p.z - removedPos.z;
+                if (dx * dx + dz * dz > 0.11f) continue;
+
+                p.y = Mathf.Max(floorY + 0.045f, p.y - 0.12f);
+                _units[u].pos = p;
+                UpdateUnitMatrixInSector(u);
+                settled++;
             }
 
             if (bucket.exposed.Count == 0 && bucket.buried.Count == 0)
                 _grid.Remove(key);
+        }
+
+        private void UpdateUnitMatrixInSector(int idx)
+        {
+            int sIdx = _units[idx].sectorIdx;
+            int slot = _units[idx].sectorSlot;
+            if (sIdx < 0 || sIdx >= _sectors.Count || slot < 0) return;
+            RenderSector sec = _sectors[sIdx];
+            int t = _units[idx].typeIdx;
+            if (t < 0 || t >= sec.chunks.Length) return;
+            int cIdx = slot / 1023;
+            int lIdx = slot % 1023;
+            if (cIdx < sec.chunks[t].Count)
+            {
+                sec.chunks[t][cIdx][lIdx] = Matrix4x4.TRS(_units[idx].pos, _units[idx].rot, Vector3.one * _units[idx].curScale);
+            }
         }
 
         private void RebuildExposedShellsForGrid()
@@ -1363,7 +1392,10 @@ namespace TrashCleaner3D
         public int PullToOrb(int maxNew)
         {
             if (!_orbActive || maxNew <= 0 || _unitCount == 0) return 0;
-            int budget = Mathf.Max(maxNew, 140);
+            // [v2.0] 수거통 용량 엄수 — 가득 차면 즉시 흡입 중단!
+            int binSpace = manager != null ? Mathf.Max(0, manager.BinCapacity - manager.CollectingCount) : maxNew;
+            if (binSpace <= 0) return 0;
+            int budget = Mathf.Min(maxNew, binSpace);
             int started = 0;
             float rSq = _orbRadius * _orbRadius;
             int band = FloorBandForY(_orbCenter.y);
@@ -1426,7 +1458,10 @@ namespace TrashCleaner3D
         public int BlackHoleTick(int maxNew)
         {
             if (_bhCount <= 0 || maxNew <= 0 || _unitCount == 0) return 0;
-            int budget = Mathf.Max(maxNew, 240);
+            // [v2.0] 수거통 용량 엄수 — 절대 용량을 초과해 쌓이지 않는다!
+            int binSpace = manager != null ? Mathf.Max(0, manager.BinCapacity - manager.CollectingCount) : maxNew;
+            if (binSpace <= 0) return 0;
+            int budget = Mathf.Min(maxNew, binSpace);
             int started = 0;
             float rSq = _bhRadius * _bhRadius;
 

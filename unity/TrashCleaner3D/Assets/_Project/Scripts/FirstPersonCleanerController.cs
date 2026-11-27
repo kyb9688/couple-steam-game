@@ -61,6 +61,11 @@ namespace TrashCleaner3D
         private Camera _cam;
         private float _pitch;
         private float _verticalVel;
+        private bool _isCrouching;
+        private bool _camInit;
+        private float _camStandLocalY = 1.50f;
+        private float _ccStandHeight = 1.75f;
+        private float _ccStandCenterY = 0.875f;
         private CleanableTarget _lastTarget;
         private InteractiveDoor _lastDoor;
         private float _punchCooldown;
@@ -450,8 +455,8 @@ namespace TrashCleaner3D
         }
 
         /// <summary>
-        /// [v1.8] 3단계 원기옥 / 4단계 블랙홀: 전방에 구슬을 뭉치거나 구멍을 전개한다.
-        /// (진공청소기의 전방 흡입 모션과는 별개의 장비 기믹)
+        /// [v2.0] 4티어 산업용 사이클론 청소기 / 5티어 자율 청소 드론 편대 + 직결 호스.
+        /// 수거통 용량(IsBinFull)을 철저히 준수해 용량 초과 버그를 원천 차단한다.
         /// </summary>
         private void HandleGearMode(bool lmbHeld, float floorPlaneY)
         {
@@ -460,44 +465,63 @@ namespace TrashCleaner3D
             Vector3 camPos = cameraTransform.position;
             Vector3 fwd = cameraTransform.forward;
 
+            // 수거통이 가득 찼고 직결 호스 자동정산이 아니면 흡입 중단 + 안내
+            bool binFull = manager.IsBinFull && !(manager.Mode == GearMode.BlackHole && manager.HasWhiteHole);
+            if (binFull)
+            {
+                if (_orbProjectile != null) { Destroy(_orbProjectile.gameObject); _orbProjectile = null; }
+                if (_blackHoleRig != null) { Destroy(_blackHoleRig.gameObject); _blackHoleRig = null; }
+                AimProgress01 = -1f;
+                if (lmbHeld && _binHintCooldown <= 0f)
+                {
+                    _binHintCooldown = 1.4f;
+                    manager.ShowToast(manager.FillBinTag);
+                }
+                return;
+            }
+
             if (manager.Mode == GearMode.Orb)
             {
-                Vector3 center = camPos + fwd * 2.4f;
-                center.y = Mathf.Max(floorPlaneY + 0.85f, center.y - 0.30f);
+                // 4티어: 산업용 사이클론 청소기 (전방 회오리 원뿔 흡입)
+                Vector3 center = camPos + fwd * 2.15f;
+                center.y = Mathf.Max(floorPlaneY + 0.35f, center.y - 0.35f);
                 if (lmbHeld)
                 {
+                    _isVacuumingNow = true;
                     if (_orbProjectile == null)
                     {
                         _orbProjectile = GarbageOrbProjectile.Spawn(manager, manager.trashSwarm, center);
-                        manager.sfx.PlayChime();
+                        manager.sfx.PlayPop(0.75f);
                     }
                     _orbProjectile.AbsorbTick(center, Time.deltaTime);
-                    if (_orbProjectile == null) AimProgress01 = -1f;
-                    else AimProgress01 = manager.OrbCapacity > 0
-                        ? Mathf.Clamp01(_orbProjectile.Absorbed / (float)manager.OrbCapacity) : 0f;
+                    AimProgress01 = manager.BinFill01;
                 }
                 else if (_orbProjectile != null)
                 {
-                    _orbProjectile.Launch();
+                    Destroy(_orbProjectile.gameObject);
                     _orbProjectile = null;
                     AimProgress01 = -1f;
                 }
                 return;
             }
 
-            // 4단계: 미니 블랙홀 전개
+            // 5티어: 자율 청소 드론 편대 + 트럭 직결 호스
             if (lmbHeld)
             {
+                _isVacuumingNow = true;
                 if (_blackHoleRig == null)
                 {
                     _blackHoleRig = BlackHoleRig.Spawn(manager, manager.trashSwarm, fwd, transform.position);
-                    manager.sfx.PlaySteal();
+                    manager.sfx.PlayChime();
                 }
+                _blackHoleRig.FollowPlayer(transform.position, fwd, floorPlaneY, Time.deltaTime);
+                AimProgress01 = manager.BinFill01;
             }
             else if (_blackHoleRig != null)
             {
                 Destroy(_blackHoleRig.gameObject);
                 _blackHoleRig = null;
+                AimProgress01 = -1f;
             }
         }
 
@@ -664,7 +688,7 @@ namespace TrashCleaner3D
         {
             float mx = 0f, mz = 0f;
             Vector2 lookDelta = Vector2.zero;
-            bool toggleFlash = false, jumpDown = false;
+            bool toggleFlash = false, jumpDown = false, crouchHold = false, crouchToggle = false;
             bool lmbHeldNow = false;
 
 #if ENABLE_INPUT_SYSTEM
@@ -677,6 +701,8 @@ namespace TrashCleaner3D
                 if (kb.dKey.isPressed) mx += 1f;
                 if (kb.aKey.isPressed) mx -= 1f;
                 if (kb.spaceKey.wasPressedThisFrame) jumpDown = true;
+                if (kb.leftCtrlKey.isPressed) crouchHold = true;
+                if (kb.cKey.wasPressedThisFrame) crouchToggle = true;
                 if (kb.tKey.wasPressedThisFrame) toggleFlash = true;
                 if (kb.hKey.wasPressedThisFrame) ShowHelp = !ShowHelp;
                 if (!GamePrototypeManager.UiCursorFree)
@@ -699,6 +725,8 @@ namespace TrashCleaner3D
                 lmbHeldNow = Input.GetMouseButton(0);
             }
             if (Input.GetKeyDown(KeyCode.Space)) jumpDown = true;
+            if (Input.GetKey(KeyCode.LeftControl)) crouchHold = true;
+            if (Input.GetKeyDown(KeyCode.C)) crouchToggle = true;
             if (Input.GetKeyDown(KeyCode.T)) toggleFlash = true;
             if (Input.GetKeyDown(KeyCode.H)) ShowHelp = !ShowHelp;
             if (!GamePrototypeManager.UiCursorFree)
@@ -707,6 +735,32 @@ namespace TrashCleaner3D
                 else if (Input.GetKeyDown(KeyCode.Alpha2)) manager.SetToolSlot(true);
             }
 #endif
+
+            // [v2.0] [C] 토글 / [LeftCtrl] 홀드 앉기 — 침대·의자·책상 밑 청소!
+            if (crouchToggle) _isCrouching = !_isCrouching;
+            bool wantCrouch = _isCrouching || crouchHold;
+            if (!_camInit && cameraTransform != null)
+            {
+                _camInit = true;
+                _camStandLocalY = cameraTransform.localPosition.y;
+                if (_cc != null) { _ccStandHeight = _cc.height; _ccStandCenterY = _cc.center.y; }
+            }
+            if (cameraTransform != null)
+            {
+                float targetCamY = wantCrouch ? Mathf.Max(0.62f, _camStandLocalY * 0.48f) : _camStandLocalY;
+                Vector3 lp = cameraTransform.localPosition;
+                lp.y = Mathf.Lerp(lp.y, targetCamY, 12f * Time.deltaTime);
+                cameraTransform.localPosition = lp;
+            }
+            if (_cc != null)
+            {
+                float targetH = wantCrouch ? 1.05f : _ccStandHeight;
+                float targetCy = wantCrouch ? 0.525f : _ccStandCenterY;
+                _cc.height = Mathf.Lerp(_cc.height, targetH, 12f * Time.deltaTime);
+                Vector3 ccC = _cc.center;
+                ccC.y = Mathf.Lerp(ccC.y, targetCy, 12f * Time.deltaTime);
+                _cc.center = ccC;
+            }
 
             if (toggleFlash && flashlight != null) flashlight.enabled = !flashlight.enabled;
 
@@ -859,7 +913,14 @@ namespace TrashCleaner3D
                     continue;
                 }
 
-                if (h.distance < blockerDist) blockerDist = h.distance;
+                // [v2.0] 벽/천장/문틀 같은 대형 구조물만 시선 차단! 의자·침대·책상 같은 가구는 밑 쓰레기 흡입 허용!
+                string hName = h.collider.name;
+                bool isWallOrStructure =
+                    h.collider.bounds.size.y >= 1.85f ||
+                    hName.IndexOf("Wall", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    hName.IndexOf("Partition", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    hName.IndexOf("Ceiling", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (isWallOrStructure && h.distance < blockerDist) blockerDist = h.distance;
             }
 
             Vector3 aimPoint = Vector3.zero;
