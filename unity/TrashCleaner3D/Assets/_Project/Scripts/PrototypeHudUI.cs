@@ -1,12 +1,13 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// TrashCleaner3D v1.4 UI:
+    /// TrashCleaner3D v1.6 UI:
     /// - WebGL 번들 한글 폰트(Resources/Fonts/KRFont) + 데스크톱 맑은 고딕 자동 폴백
-    /// - 통합 강화소([E]) 내부 28노드 4방향 나뭇가지 분할 강화 트리 (흡입속도 I/II/III, 빗자루, 진공기, 리어카, 다마스, 1톤 트럭)
-    /// - 차량 적재량 게이지 / 4초 비움 대기 바 / 다마스·트럭 마당 자동흡입 배지
+    /// - 통합 강화소([E]) 내부 56노드 나뭇가지 강화 트리 + 마우스 휠 줌(0.45x~1.5x)·드래그 팬·[R] 초기 위치
+    /// - 차량 칩: 적재 제한·배차 대기 없이 정산 배수(×1.0~×1.8)와 편의성 해금(마당/문앞/80% 원격)만 표시
     /// - Stage 2 4방(거실·주방·안방·화장실) 실시간 클리어 체크리스트 + Before→After 점등 플래시
     /// - WebGL 포인터 잠금 클릭 안내 + [ESC] 설정(Stage 1/2 빠른 전환 포함)
     /// </summary>
@@ -297,6 +298,16 @@ namespace TrashCleaner3D
                 : manager.CurrentToolName;
             GUI.Label(new Rect(tl.x + 10, tl.y + 42, cardW - 20, 22), toolTag, _inkSmall);
 
+            // v1.6 산소 부스트 표시 (저악취 + 방독면 → 이동·흡입 가속 · 피버 유지)
+            if (manager.OxygenBoost01 > 0.02f)
+            {
+                Rect o2 = new Rect(tl.x + cardW - 132, tl.y + 42, 122, 20);
+                DrawBorderedBox(o2, new Color(0.86f, 0.97f, 0.90f, 0.95f), new Color(0.18f, 0.62f, 0.40f), 1);
+                GUI.color = new Color(0.10f, 0.44f, 0.26f);
+                GUI.Label(o2, $"O₂ +{(manager.OxygenBoostMult - 1f) * 100f:0}%", _nodeSubStyle);
+                GUI.color = Color.white;
+            }
+
             if (showExtraRow)
             {
                 float ry = tl.y + 62f;
@@ -414,40 +425,16 @@ namespace TrashCleaner3D
             float bx = Mathf.Round((w - bw) * 0.5f);
             float by = Mathf.Round(h - botSafe - 48f);
 
-            // 1) 수거 차량 상태 칩 (적재 한계 / 비움 대기 / 자동흡입 / 대량 정산 배율)
+            // 1) 수거 차량 칩 — v1.6: 적재량/배차 대기 삭제, '정산 배수 + 편의성 해금'만 표시
             Rect vehR = new Rect(bx, by - 32f, bw, 26f);
-            if (manager.IsVehicleDispatching)
-            {
-                DrawPaperCard(vehR, new Color(0.88f, 0.45f, 0.14f), 2);
-                float ratio = 1f - Mathf.Clamp01(manager.VehicleDispatchTimer / GamePrototypeManager.VehicleDispatchDuration);
-                DrawRect(new Rect(vehR.x + 2, vehR.y + 2, (vehR.width - 4) * ratio, vehR.height - 4), new Color(0.98f, 0.78f, 0.28f, 0.45f));
-                GUI.color = new Color(0.62f, 0.24f, 0.04f);
-                GUI.Label(vehR, $"▶ {manager.CurrentVehicleName} 비우는 중... ({manager.VehicleDispatchTimer:0.0}초)", _lightCenter);
-                GUI.color = Color.white;
-            }
-            else if (manager.VehicleHasUnlimitedLoad)
-            {
-                DrawPaperCard(vehR, new Color(0.22f, 0.64f, 0.36f), 2);
-                GUI.color = new Color(0.10f, 0.42f, 0.20f);
-                GUI.Label(vehR, $"★ 1톤 트럭 · 적재 무제한 · 마당 자동흡입 · 대량 ×{manager.VehicleMaxBulkMult:0.00}", _lightCenter);
-                GUI.color = Color.white;
-            }
-            else
-            {
-                float loadRatio = Mathf.Clamp01(manager.VehicleCurrentLoad / (float)Mathf.Max(1, manager.VehicleMaxLoad));
-                Color vBd = loadRatio >= 0.85f ? new Color(0.86f, 0.36f, 0.18f)
-                          : manager.HasAutoVehicleSuction ? new Color(0.24f, 0.58f, 0.86f)
-                          : new Color(0.68f, 0.62f, 0.52f);
-                DrawPaperCard(vehR, vBd, 1);
-                DrawRect(new Rect(vehR.x + 2, vehR.y + vehR.height - 5, (vehR.width - 4) * loadRatio, 3),
-                    loadRatio >= 0.85f ? new Color(0.90f, 0.35f, 0.20f) : new Color(0.32f, 0.66f, 0.48f));
-                string extra = manager.HasAutoVehicleSuction
-                    ? $" · 자동흡입 · ×{manager.VehicleMaxBulkMult:0.00}"
-                    : (manager.VehicleVisualStage >= 1 ? $" · 대량 ×{manager.VehicleMaxBulkMult:0.00}" : "");
-                GUI.color = new Color(0.24f, 0.20f, 0.15f);
-                GUI.Label(vehR, $"■ {manager.CurrentVehicleName} 적재 {manager.VehicleCurrentLoad}/{manager.VehicleMaxLoad}{extra}", _lightCenter);
-                GUI.color = Color.white;
-            }
+            Color vBd = manager.VehicleHasRemoteSettle ? new Color(0.22f, 0.64f, 0.36f)
+                      : manager.VehicleHasPorchSettle ? new Color(0.24f, 0.58f, 0.86f)
+                      : manager.VehicleHasYardSuction ? new Color(0.30f, 0.66f, 0.60f)
+                      : new Color(0.68f, 0.62f, 0.52f);
+            DrawPaperCard(vehR, vBd, manager.VehicleVisualStage >= 2 ? 2 : 1);
+            GUI.color = manager.VehicleHasRemoteSettle ? new Color(0.10f, 0.36f, 0.18f) : new Color(0.22f, 0.19f, 0.14f);
+            GUI.Label(vehR, $"■ {manager.CurrentVehicleName} · 정산 ×{manager.VehicleEffectiveSettleMult:0.00} · {manager.VehiclePerkLabel}", _nodeSubStyle);
+            GUI.color = Color.white;
 
             // 2) 수거통 게이지
             bool inZone = controller != null && controller.SettlementZoneActive;
@@ -461,13 +448,18 @@ namespace TrashCleaner3D
             string rightStr = manager.CollectingCount > 0
                 ? (inZone
                     ? $"[RMB] 정산 · ${manager.CollectingPendingValue:N0}"
-                    : manager.HasAutoVehicleSuction
-                        ? $"${manager.CollectingPendingValue:N0} · 마당 자동정산"
-                        : $"${manager.CollectingPendingValue:N0} · 밖에서 정산")
+                    : manager.VehicleHasRemoteSettle
+                        ? $"${manager.CollectingPendingValue:N0} · 80% 원격 자동수거"
+                        : manager.VehicleHasPorchSettle
+                            ? $"${manager.CollectingPendingValue:N0} · 문 앞 자동정산"
+                            : manager.VehicleHasYardSuction
+                                ? $"${manager.CollectingPendingValue:N0} · 마당 자동정산"
+                                : $"${manager.CollectingPendingValue:N0} · 밖에서 정산")
                 : "비어 있음";
             GUI.Label(new Rect(card.x + bw - 205, card.y + 5, 193, 22), rightStr, _lightRight);
             GUI.color = Color.white;
 
+            // v1.6 수거통 막대 아래 남은 폭에 차량 편의 상태가 이미 표시되므로 중복 문구는 줄인다.
             Rect track = new Rect(card.x + 12, card.y + 30, bw - 24, 9);
             DrawRect(track, new Color(0.855f, 0.820f, 0.745f));
             Color fillC = full ? new Color(0.88f, 0.40f, 0.22f) : new Color(0.34f, 0.66f, 0.80f);
@@ -542,9 +534,7 @@ namespace TrashCleaner3D
             string prompt = null;
             if (controller.SettlementZoneActive && manager.CollectingCount > 0)
             {
-                prompt = manager.IsVehicleDispatching
-                    ? $"{manager.CurrentVehicleName} 비우는 중 ({manager.VehicleDispatchTimer:0.0}초)"
-                    : $"[RMB] {manager.CollectingCount}개 낱개 투입 · ${manager.CollectingPendingValue:N0}";
+                prompt = $"[RMB] {manager.CollectingCount}개 정산 · ${manager.CollectingPendingValue:N0} (×{manager.VehicleEffectiveSettleMult:0.00})";
             }
             else if (controller.SettlementZoneActive && manager.CollectingCount <= 0)
             {
@@ -560,13 +550,17 @@ namespace TrashCleaner3D
             }
             else if (controller.AimIsPile)
             {
-                prompt = "[클릭] 큰 봉투 터뜨리기";
+                prompt = "[클릭] 큰 봉투 터뜨리기 · 주변 쓰레기 연쇄 흡입!";
             }
             else if (manager.IsBinFull)
             {
-                prompt = manager.HasAutoVehicleSuction
-                    ? "수거통 가득 · 문 밖 마당에서 자동 정산!"
-                    : "수거통 가득 · 밖 수거함에서 [RMB] 정산";
+                prompt = manager.VehicleHasRemoteSettle
+                    ? "수거통 가득 · 1톤 트럭 원격 자동수거 중!"
+                    : manager.VehicleHasPorchSettle
+                        ? "수거통 가득 · 현관 문 앞에서 자동 정산!"
+                        : manager.VehicleHasYardSuction
+                            ? "수거통 가득 · 문 밖 마당에서 자동 정산!"
+                            : "수거통 가득 · 밖 수거함에서 [RMB] 정산";
             }
 
             if (!string.IsNullOrEmpty(prompt))
@@ -592,136 +586,181 @@ namespace TrashCleaner3D
             }
         }
 
-        // ===== v1.4 통합 강화소([E]) · 28노드 4방향 나뭇가지 분할 강화 트리 =====
+        // ===== v1.6 통합 강화소([E]) · 56노드 나뭇가지 강화 트리 (휠 줌 / 드래그 팬) =====
+        private const float TreeZoomMin = 0.45f;
+        private const float TreeZoomMax = 1.5f;
+        private const float TreeZoomDefault = 0.62f;
+        private float _treeZoom = TreeZoomDefault;
+        private Vector2 _treePan;
+        private bool _treeDragging;
+        private bool _treeDragged;
+
+        private static readonly Color BranchTool = new Color(0.96f, 0.78f, 0.24f);
+        private static readonly Color BranchVeh  = new Color(0.32f, 0.78f, 0.98f);
+        private static readonly Color BranchSurv = new Color(0.36f, 0.90f, 0.54f);
+        private static readonly Color BranchAuto = new Color(0.98f, 0.56f, 0.24f);
+
+        private static Color BranchColor(int branch) =>
+            branch == 0 ? BranchTool : branch == 1 ? BranchVeh : branch == 2 ? BranchSurv : BranchAuto;
+
+        private void ResetTreeView()
+        {
+            _treeZoom = TreeZoomDefault;
+            _treePan = Vector2.zero;
+        }
+
         private void DrawUpgradeKioskTree(float w, float h, bool embeddedInHub)
         {
             if (!embeddedInHub) GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
 
             float topPad = embeddedInHub ? 80f : 22f;
             float botPad = embeddedInHub ? 74f : 22f;
-            float pw = Mathf.Min(w - 32f, 1140f);
-            float ph = Mathf.Min(h - topPad - botPad, 660f);
+            float pw = Mathf.Min(w - 32f, 1180f);
+            float ph = Mathf.Min(h - topPad - botPad, 680f);
             Rect panel = new Rect(Mathf.Round((w - pw) * 0.5f), Mathf.Round(topPad + (h - topPad - botPad - ph) * 0.5f), pw, ph);
 
             DrawBorderedBox(panel, new Color(0.10f, 0.088f, 0.072f, 0.975f), new Color(0.86f, 0.72f, 0.30f), 3);
 
-            // 헤더
-            Rect hdr = new Rect(panel.x + 14, panel.y + 12, panel.width - 28, 48);
+            // ===== 헤더 =====
+            Rect hdr = new Rect(panel.x + 14, panel.y + 12, panel.width - 28, 52);
             DrawReceiptBox(hdr);
             GUI.color = new Color(0.58f, 0.40f, 0.04f);
-            GUI.Label(new Rect(hdr.x + 14, hdr.y + 5, 420, 24), "통합 강화소 · 4방향 나뭇가지 강화 트리", _kioskHeaderStyle);
+            GUI.Label(new Rect(hdr.x + 14, hdr.y + 5, 470, 24), "통합 강화소 · 56노드 나뭇가지 강화 트리", _kioskHeaderStyle);
             GUI.color = Color.white;
-            GUI.Label(new Rect(hdr.x + 14, hdr.y + 27, 460, 18), "마우스로 상세 확인 · 좌클릭 즉시 강화 · [E] / [ESC] 닫기", _inkSmall);
+            GUI.Label(new Rect(hdr.x + 14, hdr.y + 27, 540, 18),
+                "마우스 휠 = 확대/축소 (0.45x~1.5x) · 드래그 = 화면 이동 · [R] 초기 위치 · 좌클릭 즉시 강화", _inkSmall);
 
-            Rect cash = new Rect(hdr.xMax - 204, hdr.y + 6, 192, 36);
+            Rect cash = new Rect(hdr.xMax - 204, hdr.y + 8, 192, 36);
             DrawBorderedBox(cash, new Color(0.043f, 0.243f, 0.149f), new Color(0.98f, 0.845f, 0.35f), 2);
             GUI.Label(new Rect(cash.x + 10, cash.y + 4, 172, 28), $"${manager.Money:N0}", _moneyBadgeStyle);
 
-            // 트리 영역 계산 (좌표: X -520..+520, Y -165..+165)
-            float treeTop = hdr.yMax + 10f;
-            float infoH = 54f;
-            float treeBottom = panel.yMax - infoH - 18f;
-            float treeH = Mathf.Max(220f, treeBottom - treeTop);
-            float treeW = panel.width - 28f;
+            // ===== 툴바 (구역 범례 + 줌 표시 + 초기 위치) =====
+            float toolY = hdr.yMax + 6f;
+            DrawLegendChip(new Rect(panel.x + 16, toolY, 132, 22), BranchTool, "▲ 흡입·도구");
+            DrawLegendChip(new Rect(panel.x + 152, toolY, 142, 22), BranchVeh, "▣ 수거·수익");
+            DrawLegendChip(new Rect(panel.x + 298, toolY, 138, 22), BranchSurv, "☣ 기동·생존");
+            DrawLegendChip(new Rect(panel.x + 440, toolY, 152, 22), BranchAuto, "❖ 파괴·자동화");
 
-            float scale = Mathf.Clamp(Mathf.Min(treeW / 1060f, treeH / 360f), 0.62f, 1.0f);
-            Vector2 center = new Vector2(Mathf.Round(panel.x + panel.width * 0.5f), Mathf.Round(treeTop + treeH * 0.5f));
-
-            Color cTool = new Color(0.96f, 0.78f, 0.24f);  // 좌상: 흡입·도구
-            Color cVeh  = new Color(0.32f, 0.78f, 0.98f);  // 우상: 수거통·차량·단가
-            Color cSurv = new Color(0.36f, 0.90f, 0.54f);  // 좌하: 이동·방독·걸레
-            Color cAuto = new Color(0.98f, 0.56f, 0.24f);  // 우하: 주먹·로봇청소기
-
-            // 4개 구역 라벨
-            GUI.color = new Color(cTool.r, cTool.g, cTool.b, 0.75f);
-            GUI.Label(new Rect(panel.x + 22, treeTop + 2, 180, 18), "▲ 흡입 · 도구 진화", _lightSmall);
-            GUI.color = new Color(cVeh.r, cVeh.g, cVeh.b, 0.75f);
-            GUI.Label(new Rect(panel.xMax - 202, treeTop + 2, 180, 18), "▣ 수거통 · 차량 · 수익", _lightRight);
-            GUI.color = new Color(cSurv.r, cSurv.g, cSurv.b, 0.75f);
-            GUI.Label(new Rect(panel.x + 22, treeBottom - 20, 180, 18), "☣ 이동 · 생존 · 걸레", _lightSmall);
-            GUI.color = new Color(cAuto.r, cAuto.g, cAuto.b, 0.75f);
-            GUI.Label(new Rect(panel.xMax - 202, treeBottom - 20, 180, 18), "❖ 파괴 · 로봇 자동화", _lightRight);
+            Rect zoomTag = new Rect(panel.xMax - 236, toolY, 96, 22);
+            DrawBorderedBox(zoomTag, new Color(0.16f, 0.15f, 0.14f, 0.94f), new Color(0.55f, 0.48f, 0.30f), 1);
+            GUI.color = new Color(0.92f, 0.86f, 0.66f);
+            GUI.Label(zoomTag, $"줌 ×{_treeZoom:0.00}", _nodeSubStyle);
             GUI.color = Color.white;
 
-            var nodes = new[]
+            Rect resetR = new Rect(panel.xMax - 134, toolY, 118, 22);
+            DrawBorderedBox(resetR, new Color(0.26f, 0.21f, 0.12f), new Color(0.86f, 0.70f, 0.28f), 1);
+            GUI.color = new Color(1f, 0.92f, 0.60f);
+            GUI.Label(resetR, "[R] 초기 위치", _nodeSubStyle);
+            GUI.color = Color.white;
+            if (GUI.Button(resetR, GUIContent.none, GUIStyle.none)) ResetTreeView();
+
+            // ===== 트리 뷰포트 =====
+            float infoH = 58f;
+            float viewTop = toolY + 26f;
+            float viewBottom = panel.yMax - infoH - 18f;
+            Rect view = new Rect(panel.x + 14, viewTop, panel.width - 28, Mathf.Max(200f, viewBottom - viewTop));
+            DrawRect(view, new Color(0.062f, 0.058f, 0.050f, 0.92f));
+            // 옅은 격자 (이동/확대 시 위치 감각용)
+            for (float gx = view.x + Mathf.Repeat(_treePan.x, 80f); gx < view.xMax; gx += 80f)
+                DrawRect(new Rect(gx, view.y, 1, view.height), new Color(0.20f, 0.18f, 0.15f, 0.30f));
+            for (float gy = view.y + Mathf.Repeat(_treePan.y, 80f); gy < view.yMax; gy += 80f)
+                DrawRect(new Rect(view.x, gy, view.width, 1), new Color(0.20f, 0.18f, 0.15f, 0.30f));
+
+            var nodes = BuildAllNodes();
+
+            Vector2 viewCenter = new Vector2(view.center.x, view.center.y);
+            float scale = _treeZoom;
+            Vector2 center = viewCenter + _treePan;
+            float nW = Mathf.Round(88f * scale);
+            float nH = Mathf.Round(54f * scale);
+
+            Rect NodeRect(TreeNodeDef n) => new Rect(
+                Mathf.Round(center.x + n.offset.x * scale - nW * 0.5f),
+                Mathf.Round(center.y + n.offset.y * scale - nH * 0.5f), nW, nH);
+
+            // --- 입력 처리 (휠 줌 / 드래그 팬 / [R] 리셋) ---
+            Event e = Event.current;
+            Vector2 mPos = e.mousePosition;
+            int hoveredIdx = -1;
+            for (int i = 0; i < nodes.Count; i++)
+                if (NodeRect(nodes[i]).Contains(mPos)) { hoveredIdx = i; break; }
+
+            if (e.type == EventType.KeyDown && (e.keyCode == KeyCode.R || e.keyCode == KeyCode.Home))
             {
-                // ===== 가지 1: 흡입 · 도구 (8노드) =====
-                BuildNode("hold1",  "흡입속도 I",  "흡입 속도 I (기초)",     $"현재 홀드 {manager.EffectiveHoldDuration:0.00}초 · 1티어 장갑 가속", "시작 노드", "", new Vector2(-96, -54), false, cTool),
-                BuildNode("rad1",   "흡입반경 I",  "흡입 반경 I (기초)",     $"현재 반경 {manager.SweepRadius:0.00}m · 동시 {manager.AutoGrabPerTick}개", "선행: 흡입속도 I Lv.1", "hold1", new Vector2(-190, -54), false, cTool),
-                BuildNode("broom",  "★ 빗자루",   "2티어 도구: 빗자루 해금", "반경 대폭 확장 · 동시 3개+ 쓸어담기 · 홀드 14% 단축", "선행: 속도 I Lv.2 & 반경 I Lv.1", "rad1", new Vector2(-284, -54), true, cTool),
-                BuildNode("hold2",  "흡입속도 II", "흡입 속도 II (중급)",    $"현재 홀드 {manager.EffectiveHoldDuration:0.00}초 · 빗자루 고속화", "선행: 빗자루 해금", "broom", new Vector2(-378, -54), false, cTool),
-                BuildNode("rad2",   "흡입반경 II", "흡입 반경 II (중급)",    $"현재 반경 {manager.SweepRadius:0.00}m · 동시 {manager.AutoGrabPerTick}개", "선행: 빗자루 해금", "broom", new Vector2(-284, -124), false, cTool),
-                BuildNode("fever",  "피버 엔진",   "연속 흡입 피버 엔진",    $"연속 흡입 시 범위·속도·수익 증폭 (Lv.{manager.LvFever}/3)", "선행: 흡입속도 II Lv.1", "hold2", new Vector2(-378, -124), false, cTool),
-                BuildNode("vacuum", "★ 진공기",   "3티어 도구: 진공청소기",  "광역 8개+ 고속 흡입 · 수거통 용량 ×2!", "선행: 속도 II Lv.3 & 반경 II Lv.2", "hold2", new Vector2(-472, -54), true, cTool),
-                BuildNode("hold3",  "흡입속도 III","흡입 속도 III (마스터)", $"현재 홀드 {manager.EffectiveHoldDuration:0.00}초 · 최속 0.05초대!", "선행: 진공청소기 해금", "vacuum", new Vector2(-472, -124), false, cTool),
-
-                // ===== 가지 2: 수거통 · 차량 · 수익 (9노드) =====
-                BuildNode("bin1",    "수거통 I",   "수거통 용량 I (기초)",   $"현재 최대 {manager.BinCapacity}개 휴대", "시작 노드", "", new Vector2(96, -54), false, cVeh),
-                BuildNode("price1",  "정산단가 I", "분리수거 단가 I",        $"쓰레기 수익 배율 ×{manager.EffectiveTrashPriceMult:0.00}", "선행: 수거통 I Lv.1", "bin1", new Vector2(96, -124), false, cVeh),
-                BuildNode("combo",   "정산콤보",   "연속 정산 콤보 유지",    $"연속 정산 시 +20%/스택 · 유지 {manager.MaxComboWindow:0.0}초", "선행: 정산단가 I Lv.2", "price1", new Vector2(190, -124), false, cVeh),
-                BuildNode("cart",    "★ 리어카",   "차량 1단계: 리어카",     "차량 적재 120→350 · 대량 정산 보너스 최대 ×1.20!", "선행: 수거통 I Lv.2", "bin1", new Vector2(190, -54), true, cVeh),
-                BuildNode("bin2",    "수거통 II",  "수거통 용량 II (중급)",  $"현재 최대 {manager.BinCapacity}개 휴대", "선행: 리어카 해금", "cart", new Vector2(284, -54), false, cVeh),
-                BuildNode("price2",  "정산단가 II","분리수거 단가 II",       $"쓰레기 수익 배율 ×{manager.EffectiveTrashPriceMult:0.00}", "선행: 리어카 & 단가 I Lv.2", "cart", new Vector2(284, -124), false, cVeh),
-                BuildNode("damas",   "★ 다마스",   "차량 2단계: 다마스",     "적재 900 · 대량 ×1.45 · 문 밖 마당 진입 시 원거리 자동흡입 정산!", "선행: 수거통 II Lv.2 & 단가 II Lv.1", "bin2", new Vector2(378, -54), true, cVeh),
-                BuildNode("bin3",    "수거통 III", "수거통 용량 III (대형)", $"현재 최대 {manager.BinCapacity}개 휴대", "선행: 다마스 해금", "damas", new Vector2(378, -124), false, cVeh),
-                BuildNode("truck1t", "★ 1톤트럭",  "차량 3단계: 1톤 트럭",   "적재 무제한(비움 대기 0초) · 대량 ×1.80 · 마당 자동흡입!", "선행: 다마스 & 수거통 III Lv.2", "damas", new Vector2(472, -54), true, cVeh),
-
-                // ===== 가지 3: 기동 · 생존 · 걸레 (6노드) =====
-                BuildNode("speed1", "이동속도 I", "운동화 I (기동력)",       $"이동속도 +{manager.TotalSpeedLv * 10}%", "시작 노드", "", new Vector2(-96, 54), false, cSurv),
-                BuildNode("speed2", "이동속도 II","운동화 II (스프린트)",    $"이동속도 +{manager.TotalSpeedLv * 10}% (왕복 단축)", "선행: 이동속도 I Lv.3", "speed1", new Vector2(-190, 54), false, cSurv),
-                BuildNode("mask1",  "방독면 I",   "방독면 필터 I",           $"악취 상승 -{Mathf.Min(70, manager.TotalMaskLv * 10)}%", "선행: 이동속도 I Lv.1", "speed1", new Vector2(-96, 124), false, cSurv),
-                BuildNode("mask2",  "방독면 II",  "방독면 필터 II (고급)",   $"악취 상승 -{Mathf.Min(70, manager.TotalMaskLv * 10)}%", "선행: 방독면 I Lv.3", "mask1", new Vector2(-190, 124), false, cSurv),
-                BuildNode("mop",    "★ 대걸레",   "T자 대걸레 해금",         "2단계 바닥 얼룩 닦기 속도 ×2.4!", "선행: 방독면 I Lv.1", "mask1", new Vector2(-284, 124), true, cSurv),
-                BuildNode("scrub",  "강력 세제",  "강력 바닥 세제",          $"현재 걸레질 배율 ×{manager.ScrubSpeedMult:0.00}", "선행: T자 대걸레 해금", "mop", new Vector2(-378, 124), false, cSurv),
-
-                // ===== 가지 4: 파괴 · 자동화 (5노드) =====
-                BuildNode("fist1",  "주먹 힘 I",  "큰 봉투 파괴력 I",        $"큰 봉투/박스 타격 {manager.FistDamage:0.0}", "시작 노드", "", new Vector2(96, 54), false, cAuto),
-                BuildNode("fist2",  "주먹 힘 II", "큰 봉투 파괴력 II",       $"큰 봉투/박스 타격 {manager.FistDamage:0.0}", "선행: 주먹 힘 I Lv.3", "fist1", new Vector2(190, 54), false, cAuto),
-                BuildNode("roomba", "★ 로봇청소", "로봇청소기 투입 (최대 3대)", manager.RoombaCount == 0 ? "구매 시 방 안 자동 수거 로봇 배치!" : $"현재 {manager.RoombaCount}대 가동 중 ({manager.RoombaEatInterval:0.00}초/개)", "선행: 주먹 힘 I Lv.2", "fist1", new Vector2(96, 124), true, cAuto),
-                BuildNode("rspd1",  "로봇속도 I", "로봇청소기 가속 I",       $"로봇 수거 주기 {manager.RoombaEatInterval:0.00}초", "선행: 로봇청소기 1대", "roomba", new Vector2(190, 124), false, cAuto),
-                BuildNode("rspd2",  "로봇속도 II","로봇청소기 가속 II",      $"로봇 수거 주기 {manager.RoombaEatInterval:0.00}초", "선행: 로봇 2대 & 속도 I Lv.2", "rspd1", new Vector2(284, 124), false, cAuto),
-            };
-
-            // 연결선 그리기
-            foreach (var n in nodes)
+                ResetTreeView();
+                e.Use();
+            }
+            else if (e.type == EventType.ScrollWheel && view.Contains(mPos))
             {
-                Vector2 pPos = center;
-                if (!string.IsNullOrEmpty(n.parentId))
+                float old = _treeZoom;
+                float next = Mathf.Clamp(old * (e.delta.y > 0f ? 0.90f : 1.10f), TreeZoomMin, TreeZoomMax);
+                if (!Mathf.Approximately(next, old))
                 {
-                    foreach (var p in nodes) if (p.id == n.parentId) { pPos = center + p.offset * scale; break; }
+                    // 커서 아래 지점을 고정한 채 확대/축소
+                    Vector2 treePoint = (mPos - viewCenter - _treePan) / old;
+                    _treePan = mPos - viewCenter - treePoint * next;
+                    _treeZoom = next;
+                    ClampTreePan(view);
                 }
-                Vector2 nPos = center + n.offset * scale;
-                Color lineCol = n.unlocked
-                    ? new Color(n.accent.r, n.accent.g, n.accent.b, 0.72f)
-                    : new Color(0.38f, 0.35f, 0.30f, 0.42f);
-                DrawLine(pPos, nPos, lineCol, n.unlocked ? 2.5f : 1.5f);
+                e.Use();
+            }
+            else if (e.type == EventType.MouseDown && view.Contains(mPos) &&
+                     (e.button == 1 || e.button == 2 || (e.button == 0 && hoveredIdx < 0)))
+            {
+                _treeDragging = true;
+                _treeDragged = false;
+                e.Use();
+            }
+            else if (e.type == EventType.MouseDrag && _treeDragging)
+            {
+                _treePan += e.delta;
+                if (e.delta.sqrMagnitude > 0.01f) _treeDragged = true;
+                ClampTreePan(view);
+                e.Use();
+            }
+            else if (e.type == EventType.MouseUp && _treeDragging)
+            {
+                _treeDragging = false;
+                e.Use();
             }
 
-            // 중앙 코어 노드
-            float coreSz = Mathf.Round(56f * scale);
-            Rect coreR = new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz);
-            DrawBorderedBox(coreR, new Color(0.24f, 0.195f, 0.135f), cTool, 2);
-            GUI.color = cTool;
-            GUI.Label(coreR, "$ 강화", _lightCenter);
-            GUI.color = Color.white;
+            // 입력으로 줌/팬이 바뀌었을 수 있으니 다시 계산
+            scale = _treeZoom;
+            center = viewCenter + _treePan;
+            nW = Mathf.Round(88f * scale);
+            nH = Mathf.Round(54f * scale);
 
-            // 28개 노드 카드 렌더링
-            TreeNodeDef? hovered = null;
-            float nW = Mathf.Round(84f * scale);
-            float nH = Mathf.Round(52f * scale);
-            Vector2 mPos = Event.current.mousePosition;
-
+            // --- 연결선 ---
             foreach (var n in nodes)
             {
-                Vector2 p = center + n.offset * scale;
-                Rect r = new Rect(Mathf.Round(p.x - nW * 0.5f), Mathf.Round(p.y - nH * 0.5f), nW, nH);
-                bool isMax = n.level >= n.maxLevel;
+                if (string.IsNullOrEmpty(n.parentId)) continue;
+                Vector2 pPos = center;
+                bool found = false;
+                for (int i = 0; i < nodes.Count; i++)
+                    if (nodes[i].id == n.parentId) { pPos = center + nodes[i].offset * scale; found = true; break; }
+                if (!found) continue;
+                Vector2 nPos = center + n.offset * scale;
+                Color lineCol = n.unlocked
+                    ? new Color(n.accent.r, n.accent.g, n.accent.b, 0.70f)
+                    : new Color(0.38f, 0.35f, 0.30f, 0.40f);
+                DrawLine(pPos, nPos, lineCol, n.unlocked ? 2.4f : 1.4f);
+            }
 
+            bool viewTooSmall = scale < 0.6f;
+
+            // --- 노드 ---
+            TreeNodeDef? hovered = null;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var n = nodes[i];
+                Rect r = NodeRect(n);
+                if (!view.Contains(new Vector2(r.center.x, r.center.y))) continue;    // 화면 밖 노드는 그리지 않음
+
+                bool isMax = n.level >= n.maxLevel;
                 Color bg = !n.unlocked ? new Color(0.15f, 0.14f, 0.125f, 0.94f)
                          : isMax ? new Color(0.14f, 0.28f, 0.18f, 0.98f)
                          : n.affordable ? (n.isMilestone ? new Color(0.36f, 0.27f, 0.10f, 0.98f) : new Color(0.29f, 0.24f, 0.145f, 0.97f))
                          : new Color(0.19f, 0.175f, 0.155f, 0.96f);
-
                 Color bd = !n.unlocked ? new Color(0.28f, 0.28f, 0.30f)
                          : isMax ? new Color(0.40f, 0.95f, 0.55f)
                          : n.affordable ? n.accent
@@ -729,14 +768,18 @@ namespace TrashCleaner3D
 
                 DrawBorderedBox(r, bg, bd, (n.affordable || n.isMilestone) ? 2 : 1);
 
-                _nodeTitleStyle.fontSize = scale < 0.8f ? 10 : 12;
-                _nodeSubStyle.fontSize = scale < 0.8f ? 9 : 11;
+                if (viewTooSmall)
+                {
+                    _nodeSubStyle.fontSize = 9;
+                }
+                _nodeTitleStyle.fontSize = scale < 0.6f ? 9 : scale < 0.9f ? 11 : 13;
+                _nodeSubStyle.fontSize = scale < 0.6f ? 8 : scale < 0.9f ? 10 : 11;
 
                 _nodeTitleStyle.normal.textColor = !n.unlocked ? new Color(0.52f, 0.52f, 0.54f)
                     : isMax ? new Color(0.55f, 1.0f, 0.65f)
                     : n.isMilestone ? new Color(1.0f, 0.92f, 0.45f)
                     : Color.white;
-                GUI.Label(new Rect(r.x + 2, r.y + 4, r.width - 4, r.height * 0.48f), n.shortName, _nodeTitleStyle);
+                GUI.Label(new Rect(r.x + 2, r.y + 3, r.width - 4, r.height * 0.48f), n.shortName, _nodeTitleStyle);
 
                 _nodeSubStyle.normal.textColor = !n.unlocked ? new Color(0.46f, 0.46f, 0.50f)
                     : isMax ? new Color(0.55f, 1.0f, 0.65f)
@@ -749,13 +792,23 @@ namespace TrashCleaner3D
                 GUI.Label(new Rect(r.x + 2, r.y + r.height * 0.50f, r.width - 4, r.height * 0.44f), sub, _nodeSubStyle);
 
                 if (r.Contains(mPos)) hovered = n;
-                if (GUI.Button(r, GUIContent.none, GUIStyle.none) && n.unlocked && !isMax)
+                if (GUI.Button(r, GUIContent.none, GUIStyle.none) && n.unlocked && !isMax && !_treeDragged)
                 {
                     manager.BuyNode(n.id);
                 }
             }
 
-            // 하단 상세 영수증 바 + 닫기 버튼
+            // 중앙 코어 노드
+            float coreSz = Mathf.Round(58f * scale);
+            Rect coreR = new Rect(center.x - coreSz * 0.5f, center.y - coreSz * 0.5f, coreSz, coreSz);
+            if (view.Overlaps(coreR))
+            {
+                DrawBorderedBox(coreR, new Color(0.24f, 0.195f, 0.135f), BranchTool, 2);
+                _nodeTitleStyle.normal.textColor = BranchTool;
+                GUI.Label(coreR, "$ 강화", _nodeTitleStyle);
+            }
+
+            // --- 하단 상세 바 + 닫기 ---
             float closeW = embeddedInHub ? 0f : 146f;
             Rect infoR = new Rect(panel.x + 14, panel.yMax - infoH - 10, panel.width - 28 - (embeddedInHub ? 0f : closeW + 10f), infoH);
             DrawReceiptBox(infoR);
@@ -772,7 +825,7 @@ namespace TrashCleaner3D
             }
             else
             {
-                GUI.Label(infoR, "노드에 마우스를 올리면 효과와 선행 조건을 확인할 수 있습니다 · 좌클릭 즉시 강화", _inkCenter);
+                GUI.Label(infoR, "노드에 마우스를 올리면 효과와 선행 조건을 확인할 수 있습니다 · 휠로 확대하면 먼 가지까지 읽을 수 있어요", _inkCenter);
             }
 
             if (!embeddedInHub)
@@ -782,6 +835,119 @@ namespace TrashCleaner3D
                 GUI.Label(closeR, "[E / ESC] 나가기", _inkCenter);
                 if (GUI.Button(closeR, GUIContent.none, GUIStyle.none)) manager.CloseUpgradeKiosk();
             }
+        }
+
+        private void ClampTreePan(Rect view)
+        {
+            float mx = view.width * 0.8f;
+            float my = view.height * 0.8f;
+            _treePan = new Vector2(Mathf.Clamp(_treePan.x, -mx, mx), Mathf.Clamp(_treePan.y, -my, my));
+        }
+
+        private List<TreeNodeDef> BuildAllNodes()
+        {
+            Color cTool = BranchTool, cVeh = BranchVeh, cSurv = BranchSurv, cAuto = BranchAuto;
+
+            var nodes = new List<TreeNodeDef>
+            {
+                // ===== 기존 28노드: 흡입 · 도구 (8) =====
+                BuildNode("hold1",  "흡입속도 I",  "흡입 속도 I (기초)",     $"현재 홀드 {manager.EffectiveHoldDuration:0.00}초 · 1티어 장갑 가속", "시작 노드", "", new Vector2(-96, -54), false, cTool),
+                BuildNode("rad1",   "흡입반경 I",  "흡입 반경 I (기초)",     $"현재 반경 {manager.SweepRadius:0.00}m · 동시 {manager.AutoGrabPerTick}개", "선행: 흡입속도 I Lv.1", "hold1", new Vector2(-190, -54), false, cTool),
+                BuildNode("broom",  "★ 빗자루",   "2티어 도구: 빗자루 해금", "반경 대폭 확장 · 동시 3개+ 쓸어담기 · 홀드 14% 단축", "선행: 속도 I Lv.2 & 반경 I Lv.1", "rad1", new Vector2(-284, -54), true, cTool),
+                BuildNode("hold2",  "흡입속도 II", "흡입 속도 II (중급)",    $"현재 홀드 {manager.EffectiveHoldDuration:0.00}초 · 빗자루 고속화", "선행: 빗자루 해금", "broom", new Vector2(-378, -54), false, cTool),
+                BuildNode("rad2",   "흡입반경 II", "흡입 반경 II (중급)",    $"현재 반경 {manager.SweepRadius:0.00}m · 동시 {manager.AutoGrabPerTick}개", "선행: 빗자루 해금", "broom", new Vector2(-284, -124), false, cTool),
+                BuildNode("fever",  "피버 엔진",   "연속 흡입 피버 엔진",    $"연속 흡입 시 범위·속도·수익 증폭 (Lv.{manager.LvFever}/3)", "선행: 흡입속도 II Lv.1", "hold2", new Vector2(-378, -124), false, cTool),
+                BuildNode("vacuum", "★ 진공기",   "3티어 도구: 진공청소기",  "광역 8개+ 고속 흡입 · 수거통 용량 ×2!", "선행: 속도 II Lv.3 & 반경 II Lv.2", "hold2", new Vector2(-472, -54), true, cTool),
+                BuildNode("hold3",  "흡입속도 III","흡입 속도 III (마스터)", $"현재 홀드 {manager.EffectiveHoldDuration:0.00}초 · 최속 0.05초대!", "선행: 진공청소기 해금", "vacuum", new Vector2(-472, -124), false, cTool),
+
+                // ===== 기존 28노드: 수거통 · 차량 · 수익 (9) =====
+                BuildNode("bin1",    "수거통 I",   "수거통 용량 I (기초)",   $"현재 최대 {manager.BinCapacity}개 휴대", "시작 노드", "", new Vector2(96, -54), false, cVeh),
+                BuildNode("price1",  "정산단가 I", "분리수거 단가 I",        $"쓰레기 수익 배율 ×{manager.EffectiveTrashPriceMult:0.00}", "선행: 수거통 I Lv.1", "bin1", new Vector2(96, -124), false, cVeh),
+                BuildNode("combo",   "정산콤보",   "연속 정산 콤보 유지",    $"연속 정산 시 +20%/스택 · 유지 {manager.MaxComboWindow:0.0}초", "선행: 정산단가 I Lv.2", "price1", new Vector2(190, -124), false, cVeh),
+                BuildNode("cart",    "★ 리어카",   "차량 1단계: 리어카",     "정산 ×1.20 · 마당 입구 자동흡입 정산!", "선행: 수거통 I Lv.2", "bin1", new Vector2(190, -54), true, cVeh),
+                BuildNode("bin2",    "수거통 II",  "수거통 용량 II (중급)",  $"현재 최대 {manager.BinCapacity}개 휴대", "선행: 리어카 해금", "cart", new Vector2(284, -54), false, cVeh),
+                BuildNode("price2",  "정산단가 II","분리수거 단가 II",       $"쓰레기 수익 배율 ×{manager.EffectiveTrashPriceMult:0.00}", "선행: 리어카 & 단가 I Lv.2", "cart", new Vector2(284, -124), false, cVeh),
+                BuildNode("damas",   "★ 다마스",   "차량 2단계: 다마스",     "정산 ×1.45 · 현관 문 앞만 가도 자동 정산!", "선행: 수거통 II Lv.2 & 단가 II Lv.1", "bin2", new Vector2(378, -54), true, cVeh),
+                BuildNode("bin3",    "수거통 III", "수거통 용량 III (대형)", $"현재 최대 {manager.BinCapacity}개 휴대", "선행: 다마스 해금", "damas", new Vector2(378, -124), false, cVeh),
+                BuildNode("truck1t", "★ 1톤트럭",  "차량 3단계: 1톤 트럭",   "정산 ×1.80 · 방 안에서 80% 차면 원격 자동수거(왕복 면제)!", "선행: 다마스 & 수거통 III Lv.2", "damas", new Vector2(472, -54), true, cVeh),
+
+                // ===== 기존 28노드: 기동 · 생존 · 걸레 (6) =====
+                BuildNode("speed1", "이동속도 I", "운동화 I (기동력)",       $"이동속도 +{manager.TotalSpeedLv * 10}%", "시작 노드", "", new Vector2(-96, 54), false, cSurv),
+                BuildNode("speed2", "이동속도 II","운동화 II (스프린트)",    $"이동속도 +{manager.TotalSpeedLv * 10}% (왕복 단축)", "선행: 이동속도 I Lv.3", "speed1", new Vector2(-190, 54), false, cSurv),
+                BuildNode("mask1",  "방독면 I",   "방독면 필터 I",           $"악취 상승 -{Mathf.Min(70, manager.TotalMaskLv * 10)}% · 산소 부스트 {(manager.OxygenBoost01 * 100f):0}%", "선행: 이동속도 I Lv.1", "speed1", new Vector2(-96, 124), false, cSurv),
+                BuildNode("mask2",  "방독면 II",  "방독면 필터 II (고급)",   $"악취 상승 -{Mathf.Min(70, manager.TotalMaskLv * 10)}% · 산소 부스트 {(manager.OxygenBoost01 * 100f):0}%", "선행: 방독면 I Lv.3", "mask1", new Vector2(-190, 124), false, cSurv),
+                BuildNode("mop",    "★ 대걸레",   "T자 대걸레 해금",         "2단계 바닥 얼룩 닦기 속도 ×2.4!", "선행: 방독면 I Lv.1", "mask1", new Vector2(-284, 124), true, cSurv),
+                BuildNode("scrub",  "강력 세제",  "강력 바닥 세제",          $"현재 걸레질 배율 ×{manager.ScrubSpeedMult:0.00}", "선행: T자 대걸레 해금", "mop", new Vector2(-378, 124), false, cSurv),
+
+                // ===== 기존 28노드: 파괴 · 자동화 (5) =====
+                BuildNode("fist1",  "주먹 힘 I",  "큰 봉투 파괴력 I",        $"큰 봉투/박스 타격 {manager.FistDamage:0.0}", "시작 노드", "", new Vector2(96, 54), false, cAuto),
+                BuildNode("fist2",  "주먹 힘 II", "큰 봉투 파괴력 II",       $"큰 봉투/박스 타격 {manager.FistDamage:0.0}", "선행: 주먹 힘 I Lv.3", "fist1", new Vector2(190, 54), false, cAuto),
+                BuildNode("roomba", "★ 로봇청소", "로봇청소기 투입 (최대 3대)", manager.RoombaCount == 0 ? "구매 시 방 안 자동 수거 로봇 배치!" : $"현재 {manager.RoombaCount}대 가동 중 ({manager.RoombaEatInterval:0.00}초/개)", "선행: 주먹 힘 I Lv.2", "fist1", new Vector2(96, 124), true, cAuto),
+                BuildNode("rspd1",  "로봇속도 I", "로봇청소기 가속 I",       $"로봇 수거 주기 {manager.RoombaEatInterval:0.00}초", "선행: 로봇청소기 1대", "roomba", new Vector2(190, 124), false, cAuto),
+                BuildNode("rspd2",  "로봇속도 II","로봇청소기 가속 II",      $"로봇 수거 주기 {manager.RoombaEatInterval:0.00}초", "선행: 로봇 2대 & 속도 I Lv.2", "rspd1", new Vector2(284, 124), false, cAuto),
+            };
+
+            // ===== v1.6 마이크로 노드 (28개) — 가지가 사방으로 길게 뻗는다 =====
+            foreach (var v in UpgradeTreeV16.Nodes)
+            {
+                nodes.Add(BuildV16Node(v));
+            }
+            return nodes;
+        }
+
+        private TreeNodeDef BuildV16Node(V16Node v)
+        {
+            string hint = string.IsNullOrEmpty(v.prereq)
+                ? "선행 없음"
+                : $"선행: {NodeDisplayName(v.prereq)} Lv.{v.prereqLevel}";
+            string desc = $"{v.EffectText(Mathf.Max(1, manager.GetNodeLevel(v.id)))} · {v.desc}";
+
+            bool unlocked = manager.IsNodeUnlocked(v.id);
+            int lv = manager.GetNodeLevel(v.id);
+            int cost = manager.GetNodeCost(v.id);
+            bool afford = unlocked && lv < v.maxLevel && manager.Money >= cost;
+
+            return new TreeNodeDef
+            {
+                id = v.id,
+                shortName = v.name,
+                fullTitle = v.title,
+                statDesc = desc,
+                unlockHint = hint,
+                parentId = v.prereq,
+                offset = v.pos,
+                level = lv,
+                maxLevel = v.maxLevel,
+                cost = cost,
+                unlocked = unlocked,
+                affordable = afford,
+                isMilestone = v.milestone,
+                accent = BranchColor(v.branch)
+            };
+        }
+
+        private static string NodeDisplayName(string id)
+        {
+            switch (id)
+            {
+                case "hold1": return "흡입속도 I"; case "rad1": return "흡입반경 I";
+                case "broom": return "빗자루"; case "hold2": return "흡입속도 II";
+                case "rad2": return "흡입반경 II"; case "vacuum": return "진공기";
+                case "hold3": return "흡입속도 III"; case "fever": return "피버 엔진";
+                case "bin1": return "수거통 I"; case "price1": return "정산단가 I";
+                case "cart": return "리어카"; case "bin2": return "수거통 II";
+                case "price2": return "정산단가 II"; case "damas": return "다마스";
+                case "bin3": return "수거통 III"; case "combo": return "정산콤보";
+                case "truck1t": return "1톤트럭";
+                case "speed1": return "이동속도 I"; case "mask1": return "방독면 I";
+                case "mop": return "대걸레"; case "speed2": return "이동속도 II";
+                case "mask2": return "방독면 II"; case "scrub": return "강력 세제";
+                case "fist1": return "주먹 힘 I"; case "roomba": return "로봇청소기";
+                case "rspd1": return "로봇속도 I"; case "fist2": return "주먹 힘 II";
+                case "rspd2": return "로봇속도 II";
+            }
+            var n = UpgradeTreeV16.Get(id);
+            return n != null ? n.name : id;
         }
 
         private TreeNodeDef BuildNode(string id, string shortName, string fullTitle, string statDesc, string unlockHint, string parentId, Vector2 offset, bool isMilestone, Color accent)

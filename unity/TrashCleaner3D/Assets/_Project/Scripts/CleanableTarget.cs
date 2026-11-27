@@ -185,6 +185,28 @@ namespace TrashCleaner3D
             return false;
         }
 
+        /// <summary>
+        /// v1.6: 스테이지별 재배치용. 비활성 상태(아직 Awake 전)에서 호출해도 안전하도록
+        /// 체력/보상/초기 위치를 모두 새 값으로 맞춘 뒤 활성화한다.
+        /// </summary>
+        public void ConfigureForLayout(Transform newParent, Vector3 worldPos, float hp, int reward)
+        {
+            if (newParent != null)
+            {
+                transform.SetParent(newParent, true);
+            }
+            transform.position = worldPos;
+
+            maxHp = Mathf.Max(0.5f, hp);
+            _hp = maxHp;
+            rewardMoney = reward;
+            _initialPos = worldPos;
+            _initialScale = transform.localScale;
+            _isCleaned = false;
+            _isSuckingAway = false;
+            _hitShakeTimer = 0f;
+        }
+
         public void ResetForNewRun()
         {
             _isCleaned = false;

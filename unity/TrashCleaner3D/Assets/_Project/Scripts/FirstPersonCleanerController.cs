@@ -648,9 +648,13 @@ namespace TrashCleaner3D
                 if (manager.CollectingCount > 0 && !SettlementZoneActive && _binHintCooldown <= 0f)
                 {
                     _binHintCooldown = 1.6f;
-                    manager.ShowToast(manager.HasAutoVehicleSuction
-                        ? $"현관 밖 마당에 나가면 자동 흡입 정산! (담긴 {manager.CollectingCount}개)"
-                        : $"수거 차량 앞에서 [RMB] 정산 · 담긴 {manager.CollectingCount}개");
+                    manager.ShowToast(manager.VehicleHasRemoteSettle
+                        ? $"1톤 트럭 · 수거통 80%만 차면 방 안에서 자동 정산! (담긴 {manager.CollectingCount}개)"
+                        : manager.VehicleHasPorchSettle
+                            ? $"현관 문 앞만 가도 자동 정산! (담긴 {manager.CollectingCount}개)"
+                            : manager.VehicleHasYardSuction
+                                ? $"현관 밖 마당에 나가면 자동 정산! (담긴 {manager.CollectingCount}개)"
+                                : $"수거 차량 앞에서 [RMB] 정산 · 담긴 {manager.CollectingCount}개");
                 }
             }
 
@@ -670,7 +674,9 @@ namespace TrashCleaner3D
             if (binBlocked && lmbHeld && _binHintCooldown <= 0f)
             {
                 _binHintCooldown = 1.4f;
-                manager.ShowToast($"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · [RMB] 트럭 정산");
+                manager.ShowToast(manager.VehicleHasRemoteSettle
+                    ? $"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · 곷 원격 자동수거"
+                    : $"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · [RMB] 트럭 정산");
             }
 
             float workMult = Mathf.Max(0.35f, manager.StenchWorkSpeedMult);

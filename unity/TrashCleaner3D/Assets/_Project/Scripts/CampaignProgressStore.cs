@@ -141,7 +141,7 @@ namespace TrashCleaner3D
         /// <summary>테스트/검수용 전체 스테이지 잠금 해제 토글 (기본 false = 순차 해금)</summary>
         public static bool DevUnlockAll = false;
 
-        // ===== 씬 전환 간 플레이어 현금 · 28노드 강화 상태 보존 =====
+        // ===== 씬 전환 간 플레이어 현금 · 강화 상태 보존 (기존 28노드 + v1.6 마이크로 노드) =====
         public static bool HasSavedPlayerState;
         public static int SavedMoney;
         public static int SavedTrustTokens;
@@ -153,6 +153,8 @@ namespace TrashCleaner3D
         public static int LvSpeed1, LvMask1, LvSpeed2, LvMask2, LvScrubPower;
         public static bool HasMopUnlocked;
         public static int LvFist1, LvRoombaCount, LvRoombaSpd1, LvFist2, LvRoombaSpd2;
+        /// <summary>v1.6 세분화 마이크로 노드 레벨("grip:2,scale:1" 형식) — 씬 전환 시 유지.</summary>
+        public static string SavedV16Nodes = "";
 
         private static void EnsureLoaded()
         {
@@ -240,6 +242,7 @@ namespace TrashCleaner3D
             LvSpeed1 = LvMask1 = LvSpeed2 = LvMask2 = LvScrubPower = 0;
             HasMopUnlocked = false;
             LvFist1 = LvRoombaCount = LvRoombaSpd1 = LvFist2 = LvRoombaSpd2 = 0;
+            SavedV16Nodes = "";
         }
 
         public static StageCampaignInfo GetInfo(int stageNum)

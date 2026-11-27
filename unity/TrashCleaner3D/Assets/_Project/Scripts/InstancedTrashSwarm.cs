@@ -187,6 +187,9 @@ namespace TrashCleaner3D
             new RoomZoneDef { name = "3층 VIP 금고방",  minX = -4.55f, maxX = 2.35f, minZ = -3.55f, maxZ = 3.45f, floorY = 6.11f, center = new Vector3(-1.10f, 6.11f, -0.05f), countToSpawn = 1800 }
         };
 
+        /// <summary>v1.6: 스테이지별 실제 플레이 가능 바닥 구역(다른 시스템의 소품 배치에도 사용).</summary>
+        public static RoomZoneDef[] RoomsForStage(int stage) => GetRoomsForStage(stage);
+
         private static RoomZoneDef[] GetRoomsForStage(int stage) => stage switch
         {
             1 => Stage1Rooms,
@@ -763,6 +766,64 @@ namespace TrashCleaner3D
             MaxSelectedCharge01 = picked > 0 ? 0f : maxC;
             if (picked > 0) _staticDirty = true;
             return picked;
+        }
+
+        /// <summary>
+        /// v1.6 큰 봉투가 터질 때의 '미니 블랙홀 연쇄 흡입'.
+        /// 반경 안의 작은 쓰레기들이 공중으로 튀어 오르며(포물선 아치) 플레이어 손으로 연쇄로 빨려 들어간다.
+        /// 시작 시점을 조금씩 어긋나게(delay) 두어 한꺼번에 사라지지 않고 '와르르' 빨려오는 느낌을 만든다.
+        /// </summary>
+        public int ChainSuckAround(Vector3 origin, float radius, Transform dest, int maxCount)
+        {
+            if (_unitCount == 0 || maxCount <= 0 || radius <= 0.05f) return 0;
+            if (dest != null) _suckDestination = dest;
+
+            int picked = 0;
+            int minCx = Mathf.FloorToInt(origin.x - radius);
+            int maxCx = Mathf.FloorToInt(origin.x + radius);
+            int minCz = Mathf.FloorToInt(origin.z - radius);
+            int maxCz = Mathf.FloorToInt(origin.z + radius);
+            float rSq = radius * radius;
+
+            for (int cx = minCx; cx <= maxCx && picked < maxCount; cx++)
+            {
+                for (int cz = minCz; cz <= maxCz && picked < maxCount; cz++)
+                {
+                    if (!_grid.TryGetValue(PackCell(cx, cz), out var bucket)) continue;
+                    for (int b = 0; b < bucket.Count && picked < maxCount; b++)
+                    {
+                        int idx = bucket[b];
+                        if (_units[idx].state != 0) continue;
+                        Vector3 d = _units[idx].pos - origin;
+                        if (Mathf.Abs(d.y) > 1.35f) continue;
+                        d.y = 0f;
+                        if (d.sqrMagnitude > rSq) continue;
+
+                        float dist01 = Mathf.Clamp01(Mathf.Sqrt(d.sqrMagnitude) / Mathf.Max(0.2f, radius));
+                        StartUnitSuckDelayed(
+                            idx, 2,
+                            Random.Range(0f, 0.05f + dist01 * 0.16f),
+                            Mathf.Lerp(0.30f, 0.52f, dist01),
+                            Mathf.Lerp(1.75f, 0.95f, dist01));
+                        picked++;
+                    }
+                }
+            }
+
+            if (picked > 0) _staticDirty = true;
+            return picked;
+        }
+
+        private void StartUnitSuckDelayed(int idx, byte newState, float delay, float suckDur, float arcHeight)
+        {
+            ActivateUnit(idx);
+            _units[idx].state = newState;
+            _units[idx].timer = -Mathf.Max(0f, delay);   // 음수 타이머 = 지연 후 출발
+            _units[idx].holdCharge = 0f;
+            _units[idx].startPos = _units[idx].pos;
+            _units[idx].isCritBonus = false;
+            _units[idx].suckDur = Mathf.Max(0.12f, suckDur);
+            _units[idx].arcHeight = arcHeight;
         }
 
         private void StartUnitSuck(int idx, byte newState, Vector3 destPos, bool critBonus)

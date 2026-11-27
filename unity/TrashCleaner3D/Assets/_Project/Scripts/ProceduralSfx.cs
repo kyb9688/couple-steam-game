@@ -17,6 +17,7 @@ namespace TrashCleaner3D
         private AudioClip _fanfareClip;
         private AudioClip _pourClip;
         private AudioClip _zoneClearClip;
+        private AudioClip _bigBurstClip;
 
         // 도레미파솔: 연속 수거 시 한 칸씩 올라가는 음계 (C 장조 한 옥타브)
         private static readonly int[] ScaleSemitones = { 0, 2, 4, 5, 7, 9, 11, 12 };
@@ -38,9 +39,17 @@ namespace TrashCleaner3D
             _fanfareClip = MakeChord(0.55f, new[] { 523.25f, 659.25f, 783.99f, 1046.5f }, 0.4f);
             _pourClip = MakePour(0.55f);
             _zoneClearClip = MakeChord(0.34f, new[] { 659.25f, 987.77f, 1318.51f }, 0.26f);
+            _bigBurstClip = MakeBigBurst(0.42f);
         }
 
-        public void PlayPop(float pitch = 1f) { Play(_popClip, pitch); }
+        // 연쇄 흡입·진공처럼 짧은 간격으로 수십 개가 들어올 때 소리가 겹쳐 찢어지지 않도록 최소 간격을 둔다.
+        private float _lastPopTime = -10f;
+        public void PlayPop(float pitch = 1f)
+        {
+            if (Time.time - _lastPopTime < 0.035f) return;
+            _lastPopTime = Time.time;
+            Play(_popClip, pitch);
+        }
 
         /// <summary>
         /// 연속 수거 '도레미파솔' — step 0(도)부터 7(한 옥타브 위 도)까지 올라간다.
@@ -66,6 +75,9 @@ namespace TrashCleaner3D
 
         /// <summary>무더기 구역을 하나 비웠을 때의 가벼운 3화음 (도-솔-높은 미).</summary>
         public void PlayZoneClear() { Play(_zoneClearClip, Random.Range(0.98f, 1.04f)); }
+
+        /// <summary>v1.6 큰 봉투가 터질 때의 경쾌한 "팡!" — 낮은 타격음 + 밝은 파열 잡음.</summary>
+        public void PlayBigBurst() { Play(_bigBurstClip, Random.Range(0.96f, 1.06f)); }
 
         private void Play(AudioClip clip, float pitch)
         {
@@ -130,6 +142,40 @@ namespace TrashCleaner3D
                 samples[i] = (smooth * 0.85f + rumble * 0.30f) * env * 0.55f;
             }
             var clip = AudioClip.Create("pour", len, 1, sr, false);
+            clip.SetData(samples, 0);
+            return clip;
+        }
+
+        private static AudioClip MakeBigBurst(float duration)
+        {
+            int sr = 22050;
+            int len = Mathf.Max(1, Mathf.RoundToInt(sr * duration));
+            float[] samples = new float[len];
+            float phase = 0f;
+            float noiseLP = 0f;
+            for (int i = 0; i < len; i++)
+            {
+                float t = i / (float)len;
+                float time = i / (float)sr;
+
+                // 1) 낮게 떨어지는 타격음 (150Hz → 52Hz), 0.16초 안에 빠르게 사라짐
+                float thumpEnv = Mathf.Exp(-time * 16f);
+                float thumpFreq = Mathf.Lerp(155f, 52f, Mathf.Clamp01(time / 0.16f));
+                phase += 2f * Mathf.PI * thumpFreq / sr;
+                float thump = Mathf.Sin(phase) * thumpEnv * 0.85f;
+
+                // 2) 밝은 파열 잡음 (아주 짧은 크랙)
+                float crackEnv = Mathf.Exp(-time * 42f);
+                noiseLP = Mathf.Lerp(noiseLP, Random.Range(-1f, 1f), 0.55f);
+                float crack = noiseLP * crackEnv * 0.55f;
+
+                // 3) 반짝이는 고음 (2,100Hz) — '터졌다'는 신호
+                float ding = Mathf.Sin(2f * Mathf.PI * 2100f * time) * Mathf.Exp(-time * 26f) * 0.18f;
+
+                float tail = Mathf.Sin(2f * Mathf.PI * 340f * time) * Mathf.Exp(-time * 10f) * 0.14f;
+                samples[i] = Mathf.Clamp((thump + crack + ding + tail) * (1f - t * 0.25f), -1f, 1f);
+            }
+            var clip = AudioClip.Create("bigburst", len, 1, sr, false);
             clip.SetData(samples, 0);
             return clip;
         }
