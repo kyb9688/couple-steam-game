@@ -44,7 +44,7 @@ namespace TrashCleaner3D
                 sizeLabel = "9.4m × 7.8m · 원룸",
                 trashLabel = "쓰레기 960개",
                 cctvLabel = "CCTV 없음",
-                clientMemo = "야근하다 방이 이렇게 됐네요... 침대 밑 엄마가 주신 금반지만 꼭 선반에 놔주세요!",
+                clientMemo = "침대 밑 금반지 → 선반",
                 thumbResourcePath = "StageThumbs/stage_01",
                 themeColor = new Color(0.84f, 0.64f, 0.24f)
             },
@@ -55,9 +55,9 @@ namespace TrashCleaner3D
                 shortName = "택배 오피스텔",
                 title = "택배 중독 오피스텔",
                 sizeLabel = "4.2m × 6.8m · 본실·화장실·복도",
-                trashLabel = "쓰레기 2,700개 (4웨이브)",
+                trashLabel = "쓰레기 2,700개 · 4웨이브",
                 cctvLabel = "펫캠 1대",
-                clientMemo = "택배 뜯을 힘도 없어요... 책상 근처 강아지 은색 인식표 꼭 챙겨주세요!",
+                clientMemo = "책상 근처 은색 인식표",
                 thumbResourcePath = "StageThumbs/stage_02",
                 themeColor = new Color(0.76f, 0.56f, 0.36f)
             },
@@ -70,7 +70,7 @@ namespace TrashCleaner3D
                 sizeLabel = "5.5m × 5.0m · 주방·홀",
                 trashLabel = "쓰레기 7,020개 (6웨이브)",
                 cctvLabel = "주방 CCTV 1대",
-                clientMemo = "장사 접기 전에 위생 점검 때문에요. 카운터 개업 첫날 받은 행운의 2달러만 남겨주세요!",
+                clientMemo = "카운터 2달러 지폐",
                 thumbResourcePath = "StageThumbs/stage_03",
                 themeColor = new Color(0.88f, 0.48f, 0.18f)
             },
@@ -83,7 +83,7 @@ namespace TrashCleaner3D
                 sizeLabel = "7.2m × 5.8m · 거실·안방·욕실",
                 trashLabel = "쓰레기 18,690개 (7웨이브)",
                 cctvLabel = "베이비캠 1대",
-                clientMemo = "둘 다 야근이라 집이 난장판이네요... 거실장 위 아기 첫 돌 금반지만 꼭 챙겨주세요!",
+                clientMemo = "거실장 위 첫 돌 금반지",
                 thumbResourcePath = "StageThumbs/stage_04",
                 themeColor = new Color(0.86f, 0.44f, 0.50f)
             },
@@ -96,7 +96,7 @@ namespace TrashCleaner3D
                 sizeLabel = "8.5m × 7.0m · 오피스·대표실·탕비실",
                 trashLabel = "쓰레기 24,000개 (6웨이브)",
                 cctvLabel = "교차 CCTV 2대",
-                clientMemo = "투자사 실사 오기 전에 치워야 합니다! 대표실 법인 인감 도장은 절대 버리지 마세요!!",
+                clientMemo = "대표실 법인 인감",
                 thumbResourcePath = "StageThumbs/stage_05",
                 themeColor = new Color(0.30f, 0.54f, 0.80f)
             },
@@ -109,7 +109,7 @@ namespace TrashCleaner3D
                 sizeLabel = "4.2m × 3.6m · 목조 농막",
                 trashLabel = "쓰레기 10,170개 · 악취 ×1.6",
                 cctvLabel = "처마 방범캠 1대",
-                clientMemo = "오랜만에 내려왔더니 썩은 내가 진동하네... 구석 할아버지 회중시계만 찾아주게.",
+                clientMemo = "구석 할아버지 회중시계",
                 thumbResourcePath = "StageThumbs/stage_06",
                 themeColor = new Color(0.42f, 0.62f, 0.30f)
             },
@@ -122,7 +122,7 @@ namespace TrashCleaner3D
                 sizeLabel = "10m × 8m × 3층 복층!",
                 trashLabel = "쓰레기 130,000개 (20웨이브 · 1F·2F·3F)",
                 cctvLabel = "고속 홈캠 2대",
-                clientMemo = "파티 후 방치했더니 엉망이네요. 3층 금고 옆 스포츠카 차 키만 보관해 주세요. 수당 넉넉히 드립니다.",
+                clientMemo = "3층 금고 옆 스포츠카 키",
                 thumbResourcePath = "StageThumbs/stage_07",
                 themeColor = new Color(0.92f, 0.72f, 0.16f)
             }
@@ -141,7 +141,7 @@ namespace TrashCleaner3D
         /// <summary>테스트/검수용 전체 스테이지 잠금 해제 토글 (기본 false = 순차 해금)</summary>
         public static bool DevUnlockAll = false;
 
-        // ===== 씬 전환 간 플레이어 현금 · 강화 상태 보존 (코어 28노드 + v1.7 마이크로 192노드) =====
+        // ===== 씬 전환 간 플레이어 현금 · 강화 상태 보존 (코어 28노드 + v1.8 마이크로 240노드) =====
         public static bool HasSavedPlayerState;
         public static int SavedMoney;
         public static int SavedTrustTokens;
@@ -153,8 +153,8 @@ namespace TrashCleaner3D
         public static int LvSpeed1, LvMask1, LvSpeed2, LvMask2, LvScrubPower;
         public static bool HasMopUnlocked;
         public static int LvFist1, LvRoombaCount, LvRoombaSpd1, LvFist2, LvRoombaSpd2;
-        /// <summary>v1.7 세분화 마이크로 노드 레벨("suction_0_1:2,bin_1_0:1" 형식) — 씬 전환 시 유지.</summary>
-        public static string SavedV17Nodes = "";
+        /// <summary>v1.8 세분화 마이크로 노드 레벨("suction_0_1:2,bin_1_0:1" 형식) — 씬 전환 시 유지.</summary>
+        public static string SavedV18Nodes = "";
 
         private static void EnsureLoaded()
         {
@@ -242,7 +242,7 @@ namespace TrashCleaner3D
             LvSpeed1 = LvMask1 = LvSpeed2 = LvMask2 = LvScrubPower = 0;
             HasMopUnlocked = false;
             LvFist1 = LvRoombaCount = LvRoombaSpd1 = LvFist2 = LvRoombaSpd2 = 0;
-            SavedV17Nodes = "";
+            SavedV18Nodes = "";
         }
 
         public static StageCampaignInfo GetInfo(int stageNum)

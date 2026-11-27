@@ -26,6 +26,8 @@ namespace TrashCleaner3D
         public GameObject vacuumVisual;
         public GameObject tissueVisual;
         public GameObject mopVisual;
+        public GameObject orbGunVisual;
+        public GameObject blackHoleGunVisual;
         public Light flashlight;
         public float baseMoveSpeed = 3.85f;
         public float mouseSensitivity = 0.14f;
@@ -63,6 +65,33 @@ namespace TrashCleaner3D
 
         private Vector3 _rightBasePos;
         private Quaternion _rightBaseRot;
+
+        // ===== [v1.8] 양손 줍기 · 3·4단계 장비 =====
+        private Transform _leftPivot;
+        private GameObject _fistLeftCopy;
+        private GameObject _orbGunBuilt;
+        private GameObject _bhGunBuilt;
+        private GarbageOrbProjectile _orbProjectile;
+        private BlackHoleRig _blackHoleRig;
+        private float _beatT = 9f;             // 4박자 모션 시작 후 경과
+        private float _beatDur = 0.36f;
+        private bool _beatRight = true;
+        private static readonly Vector3[] BeatPos =
+        {
+            new Vector3(0f, 0.02f, 0.26f),    // 뻗기
+            new Vector3(0f, -0.02f, 0.31f),   // 집기
+            new Vector3(-0.10f, -0.10f, 0.07f), // 당기기
+            new Vector3(0.05f, -0.16f, -0.13f)  // 넣기
+        };
+        private static readonly Vector3[] BeatEul =
+        {
+            new Vector3(8f, 0f, 0f), new Vector3(27f, -10f, 0f),
+            new Vector3(39f, -21f, 6f), new Vector3(-6f, 22f, -8f)
+        };
+
+        public bool OrbCharging => _orbProjectile != null;
+        public int OrbAbsorbedCount => _orbProjectile != null ? _orbProjectile.Absorbed : 0;
+        public bool BlackHoleDeployed => _blackHoleRig != null;
 
         // v1.3 (요청 #9): 쓰레기가 빨려 들어올 목적지 = 실제 1인칭 손/노즐 끝.
         //   우측 도구 피벗의 자식으로 두어 수납·흡입 애니메이션을 그대로 따라간다.
@@ -128,6 +157,7 @@ namespace TrashCleaner3D
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
             if (manager != null) mouseSensitivity = manager.MouseSensitivity;
             EnsureVacuumVortex();
+            EnsureGearVisuals();
 #if !UNITY_WEBGL || UNITY_EDITOR
             if (!GamePrototypeManager.UiCursorFree &&
                 (manager == null || manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping))
@@ -146,6 +176,105 @@ namespace TrashCleaner3D
                 vacuumVisual.transform,
                 new Vector3(0f, -0.17f, 0.60f),
                 Quaternion.Euler(14f, 0f, 0f));
+        }
+
+        /// <summary>
+        /// [v1.8] 양손 줍기용 왼손 피벗·손 복제, 원기옥·블랙홀 건 비주얼을 런타임에 한 번 만든다.
+        /// (씬을 다시 빌드하지 않아도 세이브를 그대로 열면 장비가 보인다)
+        /// </summary>
+        private void EnsureGearVisuals()
+        {
+            if (rightToolPivot == null) return;
+
+            if (_leftPivot == null)
+            {
+                GameObject lp = new GameObject("LeftHandPivot");
+                Transform parent = rightToolPivot.parent != null ? rightToolPivot.parent : cameraTransform;
+                if (parent != null) lp.transform.SetParent(parent, false);
+                lp.transform.localPosition = new Vector3(-_rightBasePos.x, _rightBasePos.y, _rightBasePos.z);
+                lp.transform.localRotation = new Quaternion(_rightBaseRot.x, -_rightBaseRot.y, -_rightBaseRot.z, _rightBaseRot.w);
+                _leftPivot = lp.transform;
+
+                if (fistHandVisual != null)
+                {
+                    _fistLeftCopy = Instantiate(fistHandVisual, _leftPivot, false);
+                    _fistLeftCopy.name = "Visual_FistHand_Left";
+                    Vector3 s = _fistLeftCopy.transform.localScale;
+                    _fistLeftCopy.transform.localScale = new Vector3(-Mathf.Abs(s.x), s.y, s.z);
+                    _fistLeftCopy.SetActive(false);
+                }
+            }
+
+            if (_orbGunBuilt == null)
+            {
+                _orbGunBuilt = orbGunVisual != null ? orbGunVisual
+                    : BuildGunVisual("Visual_OrbBeamGun", new Color(0.20f, 0.94f, 0.86f), 0.0f);
+            }
+            if (_bhGunBuilt == null)
+            {
+                _bhGunBuilt = blackHoleGunVisual != null ? blackHoleGunVisual
+                    : BuildGunVisual("Visual_BlackHoleGun", new Color(0.56f, 0.34f, 1.0f), 0.12f);
+            }
+        }
+
+        /// <summary>프리미티브만으로 만드는 장비 건 실루엣(손잡이 + 몸통 + 총구 + 발광 코어).</summary>
+        private GameObject BuildGunVisual(string name, Color glow, float tiltDeg)
+        {
+            Shader sh = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material body = new Material(sh);
+            if (body.HasProperty("_BaseColor")) body.SetColor("_BaseColor", new Color(0.16f, 0.17f, 0.20f));
+            body.color = new Color(0.16f, 0.17f, 0.20f);
+            if (body.HasProperty("_Smoothness")) body.SetFloat("_Smoothness", 0.7f);
+            Material emit = new Material(sh);
+            if (emit.HasProperty("_BaseColor")) emit.SetColor("_BaseColor", glow);
+            emit.color = glow;
+            if (emit.HasProperty("_EmissionColor"))
+            {
+                emit.SetColor("_EmissionColor", glow * 1.8f);
+                emit.EnableKeyword("_EMISSION");
+            }
+
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(rightToolPivot, false);
+            root.transform.localPosition = new Vector3(0f, 0f, 0.05f);
+            root.transform.localRotation = Quaternion.Euler(tiltDeg, 0f, 0f);
+
+            GameObject bodyObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(bodyObj.GetComponent<Collider>());
+            bodyObj.name = "GunBody";
+            bodyObj.transform.SetParent(root.transform, false);
+            bodyObj.transform.localPosition = new Vector3(0f, -0.03f, 0.20f);
+            bodyObj.transform.localScale = new Vector3(0.10f, 0.11f, 0.30f);
+            bodyObj.GetComponent<Renderer>().sharedMaterial = body;
+
+            GameObject grip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(grip.GetComponent<Collider>());
+            grip.name = "GunGrip";
+            grip.transform.SetParent(root.transform, false);
+            grip.transform.localPosition = new Vector3(0f, -0.13f, 0.10f);
+            grip.transform.localRotation = Quaternion.Euler(18f, 0f, 0f);
+            grip.transform.localScale = new Vector3(0.075f, 0.19f, 0.09f);
+            grip.GetComponent<Renderer>().sharedMaterial = body;
+
+            GameObject barrel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            Destroy(barrel.GetComponent<Collider>());
+            barrel.name = "GunBarrel";
+            barrel.transform.SetParent(root.transform, false);
+            barrel.transform.localPosition = new Vector3(0f, -0.02f, 0.42f);
+            barrel.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            barrel.transform.localScale = new Vector3(0.055f, 0.15f, 0.055f);
+            barrel.GetComponent<Renderer>().sharedMaterial = body;
+
+            GameObject core = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            Destroy(core.GetComponent<Collider>());
+            core.name = "GunGlow";
+            core.transform.SetParent(root.transform, false);
+            core.transform.localPosition = new Vector3(0f, -0.02f, 0.58f);
+            core.transform.localScale = Vector3.one * 0.085f;
+            core.GetComponent<Renderer>().sharedMaterial = emit;
+
+            root.SetActive(false);
+            return root;
         }
 
         /// <summary>
@@ -265,6 +394,9 @@ namespace TrashCleaner3D
 
             if (manager.Phase != GamePhase.Phase1_TrashRemoval && manager.Phase != GamePhase.Phase2_FloorMopping)
             {
+                // [v1.8] 장비 연출 정리(원기옥 발사·블랙홀 회수)
+                if (_orbProjectile != null) { _orbProjectile.Launch(); _orbProjectile = null; }
+                if (_blackHoleRig != null) { Destroy(_blackHoleRig.gameObject); _blackHoleRig = null; }
                 ClearHighlight();
                 return;
             }
@@ -300,6 +432,58 @@ namespace TrashCleaner3D
             HandleKiosk();
             HandleInteraction(mouseDelta);
             AnimateHands();
+        }
+
+        /// <summary>
+        /// [v1.8] 3단계 원기옥 / 4단계 블랙홀: 전방에 구슬을 뭉치거나 구멍을 전개한다.
+        /// (진공청소기의 전방 흡입 모션과는 별개의 장비 기믹)
+        /// </summary>
+        private void HandleGearMode(bool lmbHeld, float floorPlaneY)
+        {
+            if (manager.trashSwarm == null || cameraTransform == null) return;
+            ClearSwarmSelection();
+            Vector3 camPos = cameraTransform.position;
+            Vector3 fwd = cameraTransform.forward;
+
+            if (manager.Mode == GearMode.Orb)
+            {
+                Vector3 center = camPos + fwd * 2.4f;
+                center.y = Mathf.Max(floorPlaneY + 0.85f, center.y - 0.30f);
+                if (lmbHeld)
+                {
+                    if (_orbProjectile == null)
+                    {
+                        _orbProjectile = GarbageOrbProjectile.Spawn(manager, manager.trashSwarm, center);
+                        manager.sfx.PlayChime();
+                    }
+                    _orbProjectile.AbsorbTick(center, Time.deltaTime);
+                    if (_orbProjectile == null) AimProgress01 = -1f;
+                    else AimProgress01 = manager.OrbCapacity > 0
+                        ? Mathf.Clamp01(_orbProjectile.Absorbed / (float)manager.OrbCapacity) : 0f;
+                }
+                else if (_orbProjectile != null)
+                {
+                    _orbProjectile.Launch();
+                    _orbProjectile = null;
+                    AimProgress01 = -1f;
+                }
+                return;
+            }
+
+            // 4단계: 미니 블랙홀 전개
+            if (lmbHeld)
+            {
+                if (_blackHoleRig == null)
+                {
+                    _blackHoleRig = BlackHoleRig.Spawn(manager, manager.trashSwarm, fwd, transform.position);
+                    manager.sfx.PlaySteal();
+                }
+            }
+            else if (_blackHoleRig != null)
+            {
+                Destroy(_blackHoleRig.gameObject);
+                _blackHoleRig = null;
+            }
         }
 
         private void HandleTreasureDecisionHotkeys()
@@ -351,12 +535,12 @@ namespace TrashCleaner3D
             {
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
-                manager.ShowToast("커서 해제 · 하단 스테이지 버튼 클릭 가능 ([Tab] 1인칭 복귀)");
+                manager.ShowToast("[Tab] ⌖ · 버튼 클릭 ON");
             }
             else
             {
                 LockCursorStrict();
-                manager.ShowToast("1인칭 시점 복귀");
+                manager.ShowToast("[Tab] ⌖ OFF");
             }
             ClearHighlight();
         }
@@ -411,8 +595,8 @@ namespace TrashCleaner3D
 
             KioskActive = true;
             int avail = manager.CountAffordableCashUpgrades();
-            KioskTitle = avail > 0 ? $"[E] 통합 강화 트리 열기 ({avail}개 구매 가능!)" : "[E] 통합 강화 트리 열기";
-            KioskDetail = $"{manager.CurrentVehicleName} · 수거통 {manager.CollectingCount}/{manager.BinCapacity} · 보유 ${manager.Money:N0}";
+            KioskTitle = avail > 0 ? $"[E] 강화 · {avail}" : "[E] 강화";
+            KioskDetail = $"{manager.ToolBadge} · {manager.CollectingCount}/{manager.BinCapacity} · ${manager.Money:N0}";
             KioskColor = new Color(0.95f, 0.78f, 0.24f);
 
             if (WasKeyEPressed()) manager.OpenFieldUpgradeKiosk();
@@ -422,12 +606,24 @@ namespace TrashCleaner3D
         {
             bool isP2 = manager.Phase == GamePhase.Phase2_FloorMopping;
             int tier = manager.ToolTier;
+            GearMode mode = manager.Mode;
+            bool gearGun = mode == GearMode.Orb || mode == GearMode.BlackHole;
 
-            if (fistHandVisual != null) fistHandVisual.SetActive(!isP2 && tier == 0);
-            if (tongsBroomVisual != null) tongsBroomVisual.SetActive(!isP2 && tier == 1);
-            if (vacuumVisual != null) vacuumVisual.SetActive(!isP2 && tier >= 2);
+            if (fistHandVisual != null) fistHandVisual.SetActive(!isP2 && !gearGun && tier == 0);
+            if (tongsBroomVisual != null) tongsBroomVisual.SetActive(!isP2 && !gearGun && tier == 1);
+            if (vacuumVisual != null) vacuumVisual.SetActive(!isP2 && tier >= 2 && !gearGun);
             if (tissueVisual != null) tissueVisual.SetActive(isP2 && !manager.HasMopUnlocked);
             if (mopVisual != null) mopVisual.SetActive(isP2 && manager.HasMopUnlocked);
+
+            EnsureGearVisuals();
+            if (_orbGunBuilt != null) _orbGunBuilt.SetActive(!isP2 && mode == GearMode.Orb);
+            if (_bhGunBuilt != null) _bhGunBuilt.SetActive(!isP2 && mode == GearMode.BlackHole);
+
+            // [v1.8] 양손 줍기 노드가 있으면 왼손을 꺼내 양손 교차 모션을 보여준다.
+            bool showLeft = !isP2 && manager.HasTwoHand && (mode == GearMode.Hand || mode == GearMode.Broom);
+            if (_fistLeftCopy != null) _fistLeftCopy.SetActive(showLeft);
+            if (_leftPivot != null && !showLeft)
+                _leftPivot.localPosition = new Vector3(-_rightBasePos.x, _rightBasePos.y - 0.25f, _rightBasePos.z - 0.05f);
         }
 
         private void UpdateCameraEffects()
@@ -649,12 +845,10 @@ namespace TrashCleaner3D
                 {
                     _binHintCooldown = 1.6f;
                     manager.ShowToast(manager.VehicleHasRemoteSettle
-                        ? $"1톤 트럭 · 수거통 {manager.RemoteSettleFill01 * 100f:0}%만 차면 방 안에서 자동 정산! (담긴 {manager.CollectingCount}개)"
-                        : manager.VehicleHasPorchSettle
-                            ? $"현관 문 앞만 가도 자동 정산! (담긴 {manager.CollectingCount}개)"
-                            : manager.VehicleHasYardSuction
-                                ? $"현관 밖 마당에 나가면 자동 정산! (담긴 {manager.CollectingCount}개)"
-                                : $"수거 차량 앞에서 [RMB] 정산 · 담긴 {manager.CollectingCount}개");
+                        ? $"▣ {manager.RemoteSettleFill01 * 100f:0}% 자동"
+                        : manager.VehicleHasPorchSettle ? "▣ 문 앞 자동"
+                            : manager.VehicleHasYardSuction ? "▣ 마당 자동"
+                                : $"▣ [RMB] · {manager.CollectingCount}");
                 }
             }
 
@@ -674,9 +868,7 @@ namespace TrashCleaner3D
             if (binBlocked && lmbHeld && _binHintCooldown <= 0f)
             {
                 _binHintCooldown = 1.4f;
-                manager.ShowToast(manager.VehicleHasRemoteSettle
-                    ? $"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · 원격 자동수거"
-                    : $"수거통 가득 ({manager.CollectingCount}/{manager.BinCapacity}) · [RMB] 트럭 정산");
+                manager.ShowToast(manager.FillBinTag);
             }
 
             float workMult = Mathf.Max(0.35f, manager.StenchWorkSpeedMult);
@@ -707,6 +899,13 @@ namespace TrashCleaner3D
                         ClearSwarmSelection();
                         return;
                     }
+                }
+
+                // ===== [v1.8] 3·4단계 장비: 원기옥·블랙홀은 전용 기믹으로 갈아탄다 =====
+                if (manager.Mode == GearMode.Orb || manager.Mode == GearMode.BlackHole)
+                {
+                    HandleGearMode(lmbHeld, floorPlaneY);
+                    return;
                 }
 
                 // 요청 #1: [LMB 꾹(HOLD)] = 한번 락온된 쓰레기는 커서 원 반경 밖으로 나가기 전까지 절대 초기화 X!
@@ -748,7 +947,11 @@ namespace TrashCleaner3D
 
                     if (picked > 0 && manager.ToolTier < 2 && _punchTimer <= 0f)
                     {
-                        _grabSwingTimer = manager.ToolTier == 1 ? 0.14f : 0.18f;
+                        // [v1.8] 뽑힐 때마다 4박자(뻗기→집기→당기기→넣기)가 시작된다.
+                        _beatT = 0f;
+                        _beatDur = Mathf.Clamp(manager.EffectiveHoldDuration * 0.9f, 0.22f, 0.8f);
+                        _beatRight = manager.HasTwoHand ? !_beatRight : true;
+                        _grabSwingTimer = 0f;
                     }
                 }
                 else
@@ -789,11 +992,14 @@ namespace TrashCleaner3D
             if (rightToolPivot == null) return;
             Vector3 targetPos = _rightBasePos;
             Quaternion targetRot = _rightBaseRot;
+            bool leftShown = _leftPivot != null && _fistLeftCopy != null && _fistLeftCopy.activeSelf;
+            Vector3 leftPos = leftShown ? new Vector3(-_rightBasePos.x, _rightBasePos.y - 0.05f, _rightBasePos.z) : Vector3.zero;
+            Quaternion leftRot = _rightBaseRot;
 
             // v1.2: 진공 단계에서만 노즐 앞 소용돌이가 보이도록 (차징이 오를수록 조금 더 세짐)
             if (_vacuumVortex != null)
             {
-                bool sucking = _isVacuumingNow && manager.ToolTier >= 2;
+                bool sucking = _isVacuumingNow && manager.Mode == GearMode.Vacuum;
                 float charge = manager.trashSwarm != null ? Mathf.Clamp01(manager.trashSwarm.MaxSelectedCharge01) : 0f;
                 _vacuumVortex.SetIntensity(sucking ? 0.75f + charge * 0.25f : 0f);
             }
@@ -825,6 +1031,34 @@ namespace TrashCleaner3D
             {
                 targetPos += new Vector3(0f, 0.01f, 0.08f) + UnityEngine.Random.insideUnitSphere * 0.012f;
                 targetRot = Quaternion.Euler(-5f, 0f, 0f);
+            }
+            else if (_beatT < _beatDur && !_isVacuumingNow && (manager.Mode == GearMode.Hand || manager.Mode == GearMode.Broom))
+            {
+                // ===== [v1.8] 1단계 맨손: 뻗기 → 집기 → 당겨서 → 수거통에 넣기 4박자 =====
+                _beatT += Time.deltaTime;
+                float t = Mathf.Clamp01(_beatT / Mathf.Max(0.12f, _beatDur)) * 4f;
+                int idx = Mathf.Min(3, Mathf.FloorToInt(t));
+                int nxt = Mathf.Min(3, idx + 1);
+                float f = Mathf.Clamp01(t - idx);
+                f = f * f * (3f - 2f * f);
+                Vector3 off = Vector3.Lerp(BeatPos[idx], BeatPos[nxt], f);
+                Vector3 eul = Vector3.Lerp(BeatEul[idx], BeatEul[nxt], f);
+
+                bool rightHand = !leftShown || _beatRight;
+                if (rightHand)
+                {
+                    targetPos += off;
+                    targetRot = Quaternion.Euler(eul);
+                    if (leftShown) leftPos = new Vector3(-_rightBasePos.x + 0.03f, _rightBasePos.y - 0.09f, _rightBasePos.z - 0.04f);
+                }
+                else
+                {
+                    // [v1.8] 양손 줍기: 왼손·오른손이 번갈아 빠르게 주워 담는다.
+                    targetPos += new Vector3(0.03f, -0.07f, -0.03f);
+                    targetRot = Quaternion.Euler(-4f, 6f, -4f);
+                    leftPos = new Vector3(-_rightBasePos.x - off.x, _rightBasePos.y + off.y, _rightBasePos.z + off.z);
+                    leftRot = Quaternion.Euler(eul.x, -eul.y, -eul.z);
+                }
             }
             else if (_punchTimer > 0f)
             {
@@ -869,10 +1103,18 @@ namespace TrashCleaner3D
                     }
                 }
                 targetPos += new Vector3(0f, Mathf.Sin(Time.time * 2.4f) * 0.005f, 0f);
+                if (leftShown)
+                    leftPos += new Vector3(0f, Mathf.Sin(Time.time * 2.1f + 1.3f) * 0.006f, 0f);
             }
 
             rightToolPivot.localPosition = Vector3.Lerp(rightToolPivot.localPosition, targetPos, 22f * Time.deltaTime);
             rightToolPivot.localRotation = Quaternion.Slerp(rightToolPivot.localRotation, targetRot, 22f * Time.deltaTime);
+
+            if (leftShown && _leftPivot != null)
+            {
+                _leftPivot.localPosition = Vector3.Lerp(_leftPivot.localPosition, leftPos, 26f * Time.deltaTime);
+                _leftPivot.localRotation = Quaternion.Slerp(_leftPivot.localRotation, leftRot, 26f * Time.deltaTime);
+            }
         }
 
         private void ClearHighlight(bool clearSwarmLock = true)
