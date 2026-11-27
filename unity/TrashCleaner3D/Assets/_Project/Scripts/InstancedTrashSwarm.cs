@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -110,6 +111,12 @@ namespace TrashCleaner3D
         private readonly List<int> _lockedIndices = new List<int>(64);
         private readonly List<(int idx, float distSq)> _candidates = new List<(int, float)>(256);
 
+        /// <summary>스폰(쓰레기 채우기)이 아직 진행 중인지. 프레임 예산 안에서 나눠 채운다.</summary>
+        public bool SpawnInProgress { get; private set; }
+        /// <summary>한 프레임에 스폰에 쓸 수 있는 최대 시간(초). 60fps 예산 안에서 남는 몫만 사용.</summary>
+        private const float SpawnFrameBudgetSeconds = 0.005f;
+        private Coroutine _spawnRoutine;
+
         public int HoveredCount => _selectedIndices.Count;
         public float MaxSelectedCharge01 { get; private set; }
         public int TotalCount => _unitCount;
@@ -197,18 +204,24 @@ namespace TrashCleaner3D
 
         private void Awake()
         {
-            if (meshTypes.Count > 0 && (_units == null || _units.Length == 0))
-            {
-                SpawnForStage(1);
-            }
+            // [v1.5.1] 여기서 Stage 1 규격(1,650개)을 미리 스폰하지 않는다.
+            //  - Stage 2~7 씬에서는 매니저가 활성화하자마자 실제 스테이지 규격으로 다시 스폰하므로,
+            //    예전에는 같은 프레임에 1,650개를 만들었다 버리는 이중 작업이 있었다(진입 히치의 한 몫).
+            //  - 스폰은 Start(또는 매니저)에서 스테이지당 정확히 한 번만 한다.
         }
 
-        private void Start()
+        private System.Collections.IEnumerator Start()
         {
             if (meshTypes.Count == 0) BuildProceduralTypes();
             if (manager == null) manager = FindFirstObjectByType<GamePrototypeManager>();
-            if (_units == null || _units.Length == 0) SpawnForStage(manager != null ? manager.CurrentStage : 1);
-            else EnsureRenderBuffers();
+            EnsureRenderBuffers();
+
+            // [v1.5.1] 매니저가 자기 Start에서 스테이지 규격으로 스폰하므로, 그 결정을 기다리기 위해 1프레임 양보한다.
+            //  (예전에는 스웜 Awake에서 Stage 1 규격으로 먼저 채운 뒤 바로 버려서 진입 프레임이 두 배로 무거웠다)
+            yield return null;
+
+            if (!SpawnInProgress && (_units == null || _unitCount == 0))
+                SpawnForStage(manager != null ? manager.CurrentStage : 1);
         }
 
         public void InitializeCapacity(int capacity)
@@ -378,6 +391,12 @@ namespace TrashCleaner3D
             if (meshTypes.Count == 0) BuildProceduralTypes();
             if (meshTypes.Count == 0) return;
 
+            if (_spawnRoutine != null)
+            {
+                StopCoroutine(_spawnRoutine);
+                _spawnRoutine = null;
+            }
+
             _currentStageLayout = Mathf.Clamp(stage, 1, 7);
             _rooms = GetRoomsForStage(_currentStageLayout);
             _roomRemaining = new int[_rooms.Length];
@@ -388,11 +407,33 @@ namespace TrashCleaner3D
             int totalSpawn = 0;
             for (int r = 0; r < _rooms.Length; r++) totalSpawn += _rooms[r].countToSpawn;
             InitializeCapacity(totalSpawn + 900);
+            SpawnInProgress = true;
+
+            if (!isActiveAndEnabled)
+            {
+                // 비활성 상태에서는 코루틴을 돌릴 수 없으므로 즉시 채운다(결과는 기존과 동일).
+                IEnumerator it = CoSpawnStage(false);
+                while (it.MoveNext()) { }
+                return;
+            }
+
+            _spawnRoutine = StartCoroutine(CoSpawnStage(true));
+        }
+
+        /// <summary>
+        /// [v1.5.1] 스폰 히치 완화: 6,000개(Stage 7)를 한 프레임에 몰아 만들던 것을
+        /// 프레임 예산(SpawnFrameBudgetSeconds) 단위로 나눠 채운다. 유닛 좌표·개수·난수 순서는
+        /// v1.5와 동일한 계산식이라 게임 로직·배치는 그대로 유지된다.
+        /// </summary>
+        private IEnumerator CoSpawnStage(bool frameSpread)
+        {
+            float stageStart = Time.realtimeSinceStartup;
 
             for (int r = 0; r < _rooms.Length; r++)
             {
                 RoomZoneDef room = _rooms[r];
                 int n = room.countToSpawn;
+                byte roomIdx = (byte)r;
                 float baseY = room.floorY;
 
                 Vector3[] mounds =
@@ -406,45 +447,63 @@ namespace TrashCleaner3D
                 float spanMin = Mathf.Min(room.maxX - room.minX, room.maxZ - room.minZ);
                 float maxRad = Mathf.Clamp(spanMin * 0.36f, 0.9f, 2.0f);
 
-                for (int i = 0; i < n; i++)
+                int i = 0;
+                while (i < n)
                 {
-                    Vector3 pos;
-                    if (i < n * 0.72f)
+                    float frameStart = Time.realtimeSinceStartup;
+                    do
                     {
-                        Vector3 m = mounds[i % mounds.Length];
-                        Vector2 off = Random.insideUnitCircle * Random.Range(0.08f, maxRad);
-                        float dist01 = Mathf.Clamp01(off.magnitude / maxRad);
-                        float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.05f, _currentStageLayout >= 5 ? 0.78f : 0.62f);
-                        pos = new Vector3(
-                            Mathf.Clamp(m.x + off.x, room.minX, room.maxX),
-                            baseY + 0.055f + yStack,
-                            Mathf.Clamp(m.z + off.y, room.minZ, room.maxZ)
-                        );
+                        SpawnOneUnit(room, i, n, baseY, maxRad, mounds, roomIdx);
+                        i++;
                     }
-                    else
-                    {
-                        pos = new Vector3(
-                            Random.Range(room.minX, room.maxX),
-                            baseY + 0.055f + Random.Range(0f, 0.14f),
-                            Random.Range(room.minZ, room.maxZ)
-                        );
-                    }
+                    while (i < n && frameSpread && Time.realtimeSinceStartup - frameStart < SpawnFrameBudgetSeconds);
 
-                    // 1단계 원룸 가구 및 현관문 스윙 공간 회피
-                    if (_currentStageLayout == 1)
-                    {
-                        if (pos.x > 1.35f && pos.x < 2.95f && pos.z > 2.60f) pos.z -= 1.15f;
-                        if (pos.x < -1.95f && pos.z < -1.10f) pos.y += 0.56f; // 침대 위
-                        if (pos.x > -1.25f && pos.x < 1.35f && pos.z > 2.65f) pos.z = Random.Range(1.40f, 2.55f); // 냉장고·싱크대 앞
-                        if (pos.x > -0.45f && pos.x < 1.45f && pos.z < -2.65f) pos.z = Random.Range(-2.55f, -1.35f); // PC 책상 앞
-                    }
-
-                    int tIdx = (i < n * 0.45f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
-                    AddUnit(pos, pos, false, tIdx, (byte)r);
+                    _staticDirty = true;
+                    if (frameSpread) yield return null;
                 }
             }
 
             _staticDirty = true;
+            SpawnInProgress = false;
+            _spawnRoutine = null;
+            Debug.Log($"[TrashCleaner3D] Stage {_currentStageLayout} 스폰 완료: {_unitCount:N0}개 · {(Time.realtimeSinceStartup - stageStart) * 1000f:0}ms");
+        }
+
+        private void SpawnOneUnit(RoomZoneDef room, int i, int n, float baseY, float maxRad, Vector3[] mounds, byte roomIdx)
+        {
+            Vector3 pos;
+            if (i < n * 0.72f)
+            {
+                Vector3 m = mounds[i % mounds.Length];
+                Vector2 off = Random.insideUnitCircle * Random.Range(0.08f, maxRad);
+                float dist01 = Mathf.Clamp01(off.magnitude / maxRad);
+                float yStack = (1f - dist01) * (1f - dist01) * Random.Range(0.05f, _currentStageLayout >= 5 ? 0.78f : 0.62f);
+                pos = new Vector3(
+                    Mathf.Clamp(m.x + off.x, room.minX, room.maxX),
+                    baseY + 0.055f + yStack,
+                    Mathf.Clamp(m.z + off.y, room.minZ, room.maxZ)
+                );
+            }
+            else
+            {
+                pos = new Vector3(
+                    Random.Range(room.minX, room.maxX),
+                    baseY + 0.055f + Random.Range(0f, 0.14f),
+                    Random.Range(room.minZ, room.maxZ)
+                );
+            }
+
+            // 1단계 원룸 가구 및 현관문 스윙 공간 회피
+            if (_currentStageLayout == 1)
+            {
+                if (pos.x > 1.35f && pos.x < 2.95f && pos.z > 2.60f) pos.z -= 1.15f;
+                if (pos.x < -1.95f && pos.z < -1.10f) pos.y += 0.56f; // 침대 위
+                if (pos.x > -1.25f && pos.x < 1.35f && pos.z > 2.65f) pos.z = Random.Range(1.40f, 2.55f); // 냉장고·싱크대 앞
+                if (pos.x > -0.45f && pos.x < 1.45f && pos.z < -2.65f) pos.z = Random.Range(-2.55f, -1.35f); // PC 책상 앞
+            }
+
+            int tIdx = (i < n * 0.45f) ? ((i / 6) % meshTypes.Count) : Random.Range(0, meshTypes.Count);
+            AddUnit(pos, pos, false, tIdx, roomIdx);
         }
 
         public void ResetSwarm(int stageOrCount)

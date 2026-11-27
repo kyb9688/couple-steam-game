@@ -35,6 +35,7 @@ namespace TrashCleaner3D
         private GUIStyle _inkRight;
         private GUIStyle _inkSmall;
         private GUIStyle _inkWrap;
+        private GUIStyle _inkTinyRight;
 
         private GUIStyle _lightLeft;
         private GUIStyle _lightBold;
@@ -128,6 +129,7 @@ namespace TrashCleaner3D
             _inkRight = MakeLabelStyle(14, FontStyle.Bold, TextAnchor.MiddleRight, ink);
             _inkSmall = MakeLabelStyle(12, FontStyle.Normal, TextAnchor.MiddleLeft, ink);
             _inkWrap = MakeLabelStyle(12, FontStyle.Normal, TextAnchor.UpperLeft, ink, true);
+            _inkTinyRight = MakeLabelStyle(11, FontStyle.Bold, TextAnchor.MiddleRight, new Color(0.42f, 0.33f, 0.20f));
 
             _lightLeft = MakeLabelStyle(13, FontStyle.Normal, TextAnchor.MiddleLeft, white);
             _lightBold = MakeLabelStyle(14, FontStyle.Bold, TextAnchor.MiddleLeft, white);
@@ -378,7 +380,7 @@ namespace TrashCleaner3D
             bool hintMin = controller != null && controller.ShowHelp;
             Rect postItRect = hintMin
                 ? new Rect(w - sideX - 134, topY, 134, 28)
-                : new Rect(w - sideX - 242, topY, 242, 76);
+                : new Rect(w - sideX - 268, topY, 268, 76);
             DrawPostItBox(postItRect);
             if (hintMin)
             {
@@ -386,7 +388,10 @@ namespace TrashCleaner3D
             }
             else
             {
-                GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 6, postItRect.width - 20, 20), "■ 의뢰 메모 [H] · 맵 [M] · 설정 [ESC]", _inkBold);
+                // [버그 수정 v1.5.1] 14px 볼드 한 줄로 쓰면 "[ESC]"가 노란 메모 박스 오른쪽으로 삐져나왔다.
+                //  → 제목(좌) / 단축키(우) 두 조각으로 나누고, 단축키는 11px 전용 스타일로 줄여 박스 안에 맞췄다.
+                GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 6, 128, 20), "■ 의뢰 메모 [H]", _inkBold);
+                GUI.Label(new Rect(postItRect.x + 136, postItRect.y + 7, postItRect.width - 146, 18), "[M] 맵 · [ESC] 설정", _inkTinyRight);
                 GUI.Label(new Rect(postItRect.x + 10, postItRect.y + 28, postItRect.width - 20, 44), manager.CurrentClientHint, _inkWrap);
             }
 
@@ -473,6 +478,17 @@ namespace TrashCleaner3D
         {
             if (controller == null) return;
             float cx = Mathf.Round(w * 0.5f), cy = Mathf.Round(h * 0.5f);
+
+            // [버그 수정 v1.5.1] [Tab]으로 커서를 풀어 둔 'UI 커서 모드' 안내 (하단 스테이지 버튼 클릭용)
+            if (GamePrototypeManager.UiCursorFree)
+            {
+                Rect uiR = new Rect(cx - 210, cy - 22, 420, 44);
+                DrawPaperCard(uiR, new Color(0.24f, 0.52f, 0.80f), 2);
+                GUI.color = new Color(0.10f, 0.24f, 0.44f);
+                GUI.Label(uiR, "커서 모드 · 하단 스테이지 버튼 클릭 · [Tab] 1인칭 복귀", _lightCenter);
+                GUI.color = Color.white;
+                return;
+            }
 
             // WebGL 포인터 락 클릭 안내
             if (Application.platform == RuntimePlatform.WebGLPlayer && Cursor.lockState != CursorLockMode.Locked)

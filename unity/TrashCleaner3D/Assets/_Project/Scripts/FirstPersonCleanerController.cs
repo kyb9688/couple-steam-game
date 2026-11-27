@@ -129,7 +129,8 @@ namespace TrashCleaner3D
             if (manager != null) mouseSensitivity = manager.MouseSensitivity;
             EnsureVacuumVortex();
 #if !UNITY_WEBGL || UNITY_EDITOR
-            if (manager == null || (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping))
+            if (!GamePrototypeManager.UiCursorFree &&
+                (manager == null || manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping))
                 LockCursorStrict();
 #endif
         }
@@ -190,7 +191,7 @@ namespace TrashCleaner3D
         private void OnApplicationFocus(bool hasFocus)
         {
 #if !UNITY_WEBGL || UNITY_EDITOR
-            if (hasFocus && manager != null &&
+            if (hasFocus && !GamePrototypeManager.UiCursorFree && manager != null &&
                 (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping))
             {
                 LockCursorStrict();
@@ -250,11 +251,16 @@ namespace TrashCleaner3D
                 return;
             }
 
-            if (WasTabPressed())
+            if (WasTabPressed() || WasAltPressed())
             {
-                // v1.3 (요청 #5·#10): [Tab] 상시 강화 트리는 삭제. 강화는 트럭 옆 통합 강화소에서만.
-                manager.ShowToast("강화는 트럭 옆 통합 강화소 [E]에서만 가능");
-                return;
+                // v1.5.1: [Tab]은 '커서 모드' 토글 — 하단 스테이지 퀵 전환 바를 마우스로 누를 수 있게 커서를 풀고,
+                //        다시 누르면 1인칭 포인터 락으로 복귀한다. (기존에는 상시 강화 트리 삭제 안내 토스트만 띄워서
+                //        하단 F1~F7 버튼이 '[Tab]을 눌러도' 눌리지 않았다)
+                if (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping)
+                {
+                    ToggleUiCursor();
+                    return;
+                }
             }
 
             if (manager.Phase != GamePhase.Phase1_TrashRemoval && manager.Phase != GamePhase.Phase2_FloorMopping)
@@ -272,7 +278,7 @@ namespace TrashCleaner3D
 
 #if UNITY_WEBGL && !UNITY_EDITOR
             // 브라우저 보안 정책: WebGL 포인터 락은 사용자 클릭 제스처 안에서만 호출
-            if (Cursor.lockState != CursorLockMode.Locked)
+            if (!GamePrototypeManager.UiCursorFree && Cursor.lockState != CursorLockMode.Locked)
             {
                 bool clicked = false;
 #if ENABLE_INPUT_SYSTEM
@@ -283,7 +289,7 @@ namespace TrashCleaner3D
                 if (clicked) LockCursorStrict();
             }
 #else
-            if (Application.isFocused && Cursor.lockState != CursorLockMode.Locked) LockCursorStrict();
+            if (Application.isFocused && !GamePrototypeManager.UiCursorFree && Cursor.lockState != CursorLockMode.Locked) LockCursorStrict();
 #endif
 
             _isHoldingTrashNow = false;
@@ -318,6 +324,41 @@ namespace TrashCleaner3D
 #else
             return Input.GetKeyDown(KeyCode.Tab);
 #endif
+        }
+
+        private static bool WasAltPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            var kb = Keyboard.current;
+            return kb != null && (kb.leftAltKey.wasPressedThisFrame || kb.rightAltKey.wasPressedThisFrame);
+#else
+            return Input.GetKeyDown(KeyCode.LeftAlt) || Input.GetKeyDown(KeyCode.RightAlt);
+#endif
+        }
+
+        /// <summary>
+        /// [v1.5.1] 커서 모드 토글: 1인칭 포인터 락 상태에서는 마우스가 화면 중앙에 고정되어
+        /// 하단 스테이지 퀵 전환 버튼을 눌러도 시선만 움직이고 클릭이 먹혔다.
+        /// [Tab]/[Alt]로 커서를 풀어 버튼을 클릭할 수 있게 하고, 다시 누르면 1인칭으로 복귀한다.
+        /// </summary>
+        private void ToggleUiCursor()
+        {
+            if (manager == null) return;
+            bool free = !GamePrototypeManager.UiCursorFree;
+            GamePrototypeManager.UiCursorFree = free;
+
+            if (free)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                manager.ShowToast("커서 해제 · 하단 스테이지 버튼 클릭 가능 ([Tab] 1인칭 복귀)");
+            }
+            else
+            {
+                LockCursorStrict();
+                manager.ShowToast("1인칭 시점 복귀");
+            }
+            ClearHighlight();
         }
 
         private static bool WasEscPressed()
@@ -500,6 +541,7 @@ namespace TrashCleaner3D
             if (cameraTransform == null || Cursor.lockState != CursorLockMode.Locked)
             {
                 ClearSwarmSelection();
+                if (manager.trashSwarm != null) manager.trashSwarm.SetCursorRing(false, Vector3.zero, 0f);
                 return;
             }
 

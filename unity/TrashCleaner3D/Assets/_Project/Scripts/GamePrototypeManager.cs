@@ -295,8 +295,27 @@ namespace TrashCleaner3D
                 return done;
             }
         }
-        public float Phase2Percent => Phase2Total > 0 ? Mathf.Clamp01(Phase2Cleaned / (float)Phase2Total) * 100f : 100f;
-        public float OverallCleanPercent => Phase1Percent * 0.80f + Phase2Percent * 0.20f;
+        public float Phase2Percent => Phase2Total > 0 ? Mathf.Clamp01(Phase2Cleaned / (float)Phase2Total) * 100f : 0f;
+
+        /// <summary>
+        /// 전체 진행률 = 1단계(바닥 쓰레기) 80% + 2단계(얼룩) 20%.
+        /// [버그 수정 v1.5.1] 바닥 얼룩이 없는 스테이지(Stage 2~7)에서 2단계 몫 20%를 그대로 더해
+        /// 시작하자마자 20%로 보이던 문제를 고쳤다. 실제로 존재하는 단계에만 가중치를 나눠 준다.
+        /// </summary>
+        public float OverallCleanPercent
+        {
+            get
+            {
+                bool hasTrash = Phase1Total > 0;
+                bool hasStain = Phase2Total > 0;
+                if (!hasTrash && !hasStain) return 100f;
+
+                float w1 = hasTrash ? 0.80f : 0f;
+                float w2 = hasStain ? 0.20f : 0f;
+                float sum = w1 + w2;
+                return (Phase1Percent * w1 + Phase2Percent * w2) / sum;
+            }
+        }
         public bool CanEarlyCheckout => OverallCleanPercent >= 80f && (Phase == GamePhase.Phase1_TrashRemoval || Phase == GamePhase.Phase2_FloorMopping);
 
         // ===== 정산/배너 =====
@@ -341,6 +360,7 @@ namespace TrashCleaner3D
         private void Start()
         {
             // 현재 로드된 씬 이름(Room01 / Stage02~07)으로 스테이지 번호 자동 판별
+            UiCursorFree = false;
             CurrentStage = CampaignProgressStore.DetectStageFromActiveScene();
             RestoreStateFromCampaignStore();
 
@@ -1266,8 +1286,16 @@ namespace TrashCleaner3D
             _toastTimer = 2.8f;
         }
 
+        /// <summary>
+        /// [Tab]/[Alt]로 하단 스테이지 퀵 전환 바를 마우스로 누를 수 있게 커서를 풀어 둔 상태.
+        /// true인 동안 1인칭 컨트롤러는 커서를 자동으로 다시 잠그지 않는다(포인터 락 상태에서는
+        /// 마우스가 화면 중앙에 고정되어 하단 버튼이 눌리지 않던 문제 해결).
+        /// </summary>
+        public static bool UiCursorFree { get; set; }
+
         private static void UnlockCursor(bool unlock)
         {
+            if (!unlock) UiCursorFree = false;
             Cursor.lockState = unlock ? CursorLockMode.None : CursorLockMode.Locked;
             Cursor.visible = unlock;
         }

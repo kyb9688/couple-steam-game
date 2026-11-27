@@ -7,8 +7,13 @@ using UnityEngine.InputSystem;
 namespace TrashCleaner3D
 {
     /// <summary>
-    /// 테스트 기간 동안 Play 모드에서 [F1]~[F7] 키(또는 ESC로 커서 해제 시 버튼 클릭)로
-    /// Stage 1~7 방을 즉시 이동해 볼 수 있는 테스트 스위처입니다.
+    /// 테스트 기간 스테이지 즉시 이동 도우미 (v1.5.1 개편):
+    /// - 1인칭 포인터 락 중에는 하단에 '눌리지 않는 버튼'을 그리지 않고 안내 문구만 띄운다.
+    ///   (포인터 락 상태에서는 마우스가 화면 중앙에 고정되어 하단 버튼이 클릭으로 먹히지 않던 문제)
+    /// - [Tab] 또는 [Alt] = 커서 모드 토글 → 커서가 풀리면 하단 스테이지 버튼을 실제로 클릭할 수 있다.
+    /// - [F1]~[F7] = Stage 1~7 즉시 이동 (데스크톱/에디터. 브라우저는 F5 새로고침 등과 겹칠 수 있음)
+    /// - 커서 모드에서는 숫자 [1]~[7]도 Stage 1~7 즉시 이동으로 동작한다 (브라우저에서 F키가 막혀도 OK).
+    /// - [M] = 7종 스테이지 마인드맵 (1인칭 컨트롤러가 처리)
     /// </summary>
     public class StageQuickTestSwitcher : MonoBehaviour
     {
@@ -25,13 +30,13 @@ namespace TrashCleaner3D
 
         private static readonly string[] StageLabels =
         {
-            "F1 원룸",
-            "F2 오피스텔",
-            "F3 치킨집",
-            "F4 육아집",
-            "F5 사무실",
-            "F6 농막",
-            "F7 3층펜트"
+            "1 원룸",
+            "2 오피스텔",
+            "3 치킨집",
+            "4 육아집",
+            "5 사무실",
+            "6 농막",
+            "7 3층펜트"
         };
 
         private static StageQuickTestSwitcher _instance;
@@ -41,6 +46,7 @@ namespace TrashCleaner3D
         private GUIStyle _btnStyle;
         private GUIStyle _activeBtnStyle;
         private GUIStyle _noticeStyle;
+        private GUIStyle _hintStyle;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureInstance()
@@ -67,6 +73,7 @@ namespace TrashCleaner3D
         {
             if (_noticeTimer > 0f) _noticeTimer -= Time.deltaTime;
 
+            bool cursorFree = GamePrototypeManager.UiCursorFree;
             int targetIdx = -1;
 #if ENABLE_INPUT_SYSTEM
             var kb = Keyboard.current;
@@ -79,6 +86,17 @@ namespace TrashCleaner3D
                 else if (kb.f5Key.wasPressedThisFrame) targetIdx = 4;
                 else if (kb.f6Key.wasPressedThisFrame) targetIdx = 5;
                 else if (kb.f7Key.wasPressedThisFrame) targetIdx = 6;
+                else if (cursorFree)
+                {
+                    // 브라우저(WebGL)에서 F1/F5 등이 브라우저 기능과 겹칠 때를 위한 대체 키
+                    if (kb.digit1Key.wasPressedThisFrame) targetIdx = 0;
+                    else if (kb.digit2Key.wasPressedThisFrame) targetIdx = 1;
+                    else if (kb.digit3Key.wasPressedThisFrame) targetIdx = 2;
+                    else if (kb.digit4Key.wasPressedThisFrame) targetIdx = 3;
+                    else if (kb.digit5Key.wasPressedThisFrame) targetIdx = 4;
+                    else if (kb.digit6Key.wasPressedThisFrame) targetIdx = 5;
+                    else if (kb.digit7Key.wasPressedThisFrame) targetIdx = 6;
+                }
             }
 #else
             if (Input.GetKeyDown(KeyCode.F1)) targetIdx = 0;
@@ -88,6 +106,16 @@ namespace TrashCleaner3D
             else if (Input.GetKeyDown(KeyCode.F5)) targetIdx = 4;
             else if (Input.GetKeyDown(KeyCode.F6)) targetIdx = 5;
             else if (Input.GetKeyDown(KeyCode.F7)) targetIdx = 6;
+            else if (cursorFree)
+            {
+                if (Input.GetKeyDown(KeyCode.Alpha1)) targetIdx = 0;
+                else if (Input.GetKeyDown(KeyCode.Alpha2)) targetIdx = 1;
+                else if (Input.GetKeyDown(KeyCode.Alpha3)) targetIdx = 2;
+                else if (Input.GetKeyDown(KeyCode.Alpha4)) targetIdx = 3;
+                else if (Input.GetKeyDown(KeyCode.Alpha5)) targetIdx = 4;
+                else if (Input.GetKeyDown(KeyCode.Alpha6)) targetIdx = 5;
+                else if (Input.GetKeyDown(KeyCode.Alpha7)) targetIdx = 6;
+            }
 #endif
             if (targetIdx >= 0) LoadStage(targetIdx);
         }
@@ -104,6 +132,8 @@ namespace TrashCleaner3D
             var mgr = FindFirstObjectByType<GamePrototypeManager>();
             if (mgr != null) mgr.SaveStateToCampaignStore();
             CampaignProgressStore.OpenMindMapOnNextLoad = false;
+            // 씬을 옮긴 뒤에는 다시 1인칭 포인터 락으로 시작한다(WebGL은 첫 클릭에서 잠금).
+            GamePrototypeManager.UiCursorFree = false;
             SceneManager.LoadScene(sceneName);
         }
 
@@ -131,6 +161,15 @@ namespace TrashCleaner3D
                 alignment = TextAnchor.MiddleCenter
             };
             _noticeStyle.normal.textColor = new Color(1.0f, 0.90f, 0.45f);
+
+            _hintStyle = new GUIStyle(GUI.skin.box)
+            {
+                font = _krFont,
+                fontSize = 12,
+                alignment = TextAnchor.MiddleLeft,
+                padding = new RectOffset(10, 10, 2, 2)
+            };
+            _hintStyle.normal.textColor = new Color(0.90f, 0.93f, 0.97f);
         }
 
         private void OnGUI()
@@ -142,26 +181,41 @@ namespace TrashCleaner3D
 
             EnsureStyles();
             string current = SceneManager.GetActiveScene().name;
+            bool cursorFree = GamePrototypeManager.UiCursorFree;
 
-            float x = 12f;
             float y = Screen.height - 34f;
-            float btnW = 86f;
-            float gap = 4f;
 
-            // 좌측 첫 버튼: [M] 7종 스테이지 마인드맵 열기
-            if (GUI.Button(new Rect(x, y, 96f, 24f), "[M] 스테이지 맵", _activeBtnStyle))
+            if (!cursorFree)
             {
-                if (mgr != null) mgr.OpenStageMindMap();
+                // 1인칭 포인터 락 중: 눌리지 않는 버튼을 그리지 않고, 무엇을 눌러야 하는지 안내만 한다.
+                float hintW = Mathf.Round(Mathf.Min(620f, Screen.width - 24f));
+                GUI.Box(new Rect(12f, y, hintW, 24f),
+                    "[M] 스테이지 맵 · [Tab] 커서 해제하면 하단 버튼 클릭 · F1~F7(PC) 즉시 전환", _hintStyle);
             }
-            x += 100f;
-
-            for (int i = 0; i < StageLabels.Length; i++)
+            else
             {
-                bool isCur = current == StageSceneNames[i];
-                if (GUI.Button(new Rect(x + i * (btnW + gap), y, btnW, 24f), StageLabels[i], isCur ? _activeBtnStyle : _btnStyle))
+                float x = 12f;
+                float btnW = 80f;
+                float gap = 3f;
+
+                if (GUI.Button(new Rect(x, y, 92f, 24f), "[M] 스테이지 맵", _activeBtnStyle))
                 {
-                    LoadStage(i);
+                    if (mgr != null) mgr.OpenStageMindMap();
                 }
+                x += 96f;
+
+                for (int i = 0; i < StageLabels.Length; i++)
+                {
+                    bool isCur = current == StageSceneNames[i];
+                    if (GUI.Button(new Rect(x + i * (btnW + gap), y, btnW, 24f), StageLabels[i], isCur ? _activeBtnStyle : _btnStyle))
+                    {
+                        LoadStage(i);
+                    }
+                }
+
+                float hintX = x + StageLabels.Length * (btnW + gap) + 6f;
+                if (hintX < Screen.width - 120f)
+                    GUI.Box(new Rect(hintX, y, 150f, 24f), "[Tab] 1인칭 복귀", _hintStyle);
             }
 
             if (_noticeTimer > 0f && !string.IsNullOrEmpty(_notice))
