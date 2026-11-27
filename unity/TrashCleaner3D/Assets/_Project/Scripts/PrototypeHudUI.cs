@@ -587,9 +587,9 @@ namespace TrashCleaner3D
         }
 
         // ===== v1.7 통합 강화소([E]) · 220노드 8계열 강화 트리 (휠 줌 0.22~1.5x / 드래그 팬) =====
-        private const float TreeZoomMin = 0.22f;
+        private const float TreeZoomMin = 0.20f;
         private const float TreeZoomMax = 1.5f;
-        private const float TreeZoomDefault = 0.30f;   // 220노드 전체 흐름을 먼저 보여주는 개요 배율
+        private const float TreeZoomDefault = 0.24f;   // 220노드 전체 흐름을 먼저 보여주는 개요 배율
         private float _treeZoom = TreeZoomDefault;
         private Vector2 _treePan;
         private bool _treeDragging;
@@ -653,7 +653,7 @@ namespace TrashCleaner3D
                 $"통합 강화소 · {UpgradeTreeV17.TotalNodeCount}노드 8계열 강화 트리", _kioskHeaderStyle);
             GUI.color = Color.white;
             GUI.Label(new Rect(hdr.x + 14, hdr.y + 27, 560, 18),
-                "마우스 휠 = 확대/축소 (0.22x~1.5x) · 드래그 = 화면 이동 · [R] 초기 위치 · 좌클릭 즉시 강화", _inkSmall);
+                "마우스 휠 = 확대/축소 (0.20x~1.5x) · 드래그 = 화면 이동 · [R] 초기 위치 · 좌클릭 즉시 강화", _inkSmall);
 
             Rect cash = new Rect(hdr.xMax - 204, hdr.y + 8, 192, 36);
             DrawBorderedBox(cash, new Color(0.043f, 0.243f, 0.149f), new Color(0.98f, 0.845f, 0.35f), 2);

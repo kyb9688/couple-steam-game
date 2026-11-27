@@ -351,7 +351,7 @@ LANES = [
 TIER_COST_MULT = (0.22, 0.90, 3.00, 9.00, 26.00, 70.00)
 MAXLEVEL_COST_GROWTH = 1.30  # 한 노드 안에서 레벨업 가격 배수
 RADIUS_START = 620
-RADIUS_STEP = 72
+RADIUS_STEP = 104
 LANE_LATERAL = (-165, -55, 55, 165)
 
 # 계열별 각도(화면 좌표, y가 아래로 +) — 8방향으로 뻗는다
