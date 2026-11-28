@@ -36,25 +36,22 @@ namespace TrashCleaner3D
 
             Material cuffYellow = cuffMat != null ? cuffMat : grabBlue;
 
-            // ── 그랩팩 손목 커프 & 발사 소켓
-            AddCylinder(parent, padDark, "GrabPack_Socket",
-                new Vector3(0f, -0.01f, -0.14f),
-                new Vector3(0f, -0.01f, -0.06f),
-                0.048f);
-            AddCylinder(parent, cuffYellow, "GloveCuff",
-                new Vector3(0f, -0.01f, -0.065f),
-                new Vector3(0f, -0.005f, -0.015f),
-                0.064f);
-
+            // [v2.3] 발사통(노란 캐논)은 카메라 하단에 고정 분리! 여기서는 쉭! 발사되는 '그랩팩 손바닥 + 5손가락'만 조형한다.
             // ── 넓적한 그랩팩 기계 손바닥 (Poppy Playtime 특유의 크고 넓적한 실루엣)
             AddSphere(parent, grabBlue, "Palm_Back",
-                new Vector3(0f, 0.005f, 0.065f),
-                new Vector3(0.175f, 0.072f, 0.175f));
+                new Vector3(0f, 0.005f, 0.045f),
+                new Vector3(0.185f, 0.072f, 0.175f));
 
-            // ── 손바닥 안쪽 그립 패드
+            // ── 손바닥 안쪽 검정 그립 패드
             AddSphere(parent, padDark, "Palm_GripPad",
-                new Vector3(0f, -0.022f, 0.068f),
+                new Vector3(0f, -0.022f, 0.048f),
                 new Vector3(0.115f, 0.032f, 0.110f));
+
+            // ── 뒷면 와이어 연결 소켓(작은 검정 링)
+            AddCylinder(parent, padDark, "WireAnchor",
+                new Vector3(0f, 0f, -0.048f),
+                new Vector3(0f, 0f, -0.015f),
+                0.032f);
 
             // ── 집게형 4손가락: 앞으로 길게 뻗어 살짝 아래로 오므려 집는 실루엣!
             float[] fingerX = { -0.068f, -0.022f, 0.024f, 0.068f };

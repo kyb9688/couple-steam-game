@@ -1269,6 +1269,8 @@ namespace TrashCleaner3D
                     for (int k = 0; k < need; k++)
                     {
                         int idx = _candidates[k].idx;
+                        // [v2.3] 새로 락온되는 쓰레기는 항상 차징 0에서 정직하게 시작 → 양손 홀드 중 급가속 방지!
+                        if (!_lockedIndices.Contains(idx)) _units[idx].holdCharge = 0f;
                         _selectedIndices.Add(idx);
                         _selectedSet.Add(idx);
                         if (isHolding) _lockedIndices.Add(idx);

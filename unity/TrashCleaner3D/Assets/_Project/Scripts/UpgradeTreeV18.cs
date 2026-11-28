@@ -213,28 +213,33 @@ namespace TrashCleaner3D
         public const int TotalNodeCount = MicroNodeCount + CoreNodeCount;
         public const int BranchCount = 10;
 
+        // [v2.3] 중앙 기준 4방향 특색별 명확한 구역 배치!
+        // - 왼쪽(-X, 155~205°): 청소기·흡입·사이클론·드론·피버
+        // - 오른쪽(+X, -25~+25°): 걸레·얼룩·방독면·산소·기동
+        // - 아래쪽(+Y, 62~118°): 쓰레기통 용량·단가·차량·고가치 보물
+        // - 위쪽(-Y, -118~-62°): 로봇청소기·주먹 파괴·봉투 연쇄
         public static readonly BranchDef[] Branches =
         {
-            new BranchDef { id = "suction", label = "흡입·손",      color = new Color(0.320f, 0.840f, 0.940f), angle = -132 },
-            new BranchDef { id = "bag",     label = "봉투·파괴",    color = new Color(0.980f, 0.740f, 0.240f), angle = -90 },
-            new BranchDef { id = "bin",     label = "수거·정산",    color = new Color(0.360f, 0.900f, 0.540f), angle = -48 },
-            new BranchDef { id = "vehicle", label = "차량·운송",    color = new Color(0.680f, 0.760f, 0.880f), angle = -14 },
-            new BranchDef { id = "gear",    label = "사이클론·드론", color = new Color(0.220f, 0.960f, 0.860f), angle = 18 },
-            new BranchDef { id = "roomba",  label = "로봇청소기",   color = new Color(0.720f, 0.560f, 0.960f), angle = 54 },
-            new BranchDef { id = "fever",   label = "피버·콤보",    color = new Color(0.980f, 0.480f, 0.280f), angle = 90 },
-            new BranchDef { id = "oxygen",  label = "방독면·산소",  color = new Color(0.400f, 0.880f, 0.680f), angle = 126 },
-            new BranchDef { id = "stain",   label = "얼룩·걸레",    color = new Color(0.340f, 0.640f, 0.980f), angle = 158 },
-            new BranchDef { id = "trash",   label = "고가치·보물",  color = new Color(0.900f, 0.680f, 0.260f), angle = 188 },
+            new BranchDef { id = "suction", label = "흡입·손",       color = new Color(0.320f, 0.840f, 0.940f), angle = 180 }, // 왼쪽 중앙
+            new BranchDef { id = "bag",     label = "봉투·파괴",     color = new Color(0.980f, 0.740f, 0.240f), angle = -112 }, // 위쪽 좌
+            new BranchDef { id = "bin",     label = "수거·정산",     color = new Color(0.360f, 0.900f, 0.540f), angle = 90 },  // 아래쪽 중앙
+            new BranchDef { id = "vehicle", label = "차량·운송",     color = new Color(0.680f, 0.760f, 0.880f), angle = 64 },  // 아래쪽 우
+            new BranchDef { id = "gear",    label = "사이클론·드론", color = new Color(0.220f, 0.960f, 0.860f), angle = 154 }, // 왼쪽 위
+            new BranchDef { id = "roomba",  label = "로봇청소기",    color = new Color(0.720f, 0.560f, 0.960f), angle = -68 }, // 위쪽 우
+            new BranchDef { id = "fever",   label = "피버·콤보",     color = new Color(0.980f, 0.480f, 0.280f), angle = 206 }, // 왼쪽 아래
+            new BranchDef { id = "oxygen",  label = "방독면·산소",   color = new Color(0.400f, 0.880f, 0.680f), angle = -18 }, // 오른쪽 위
+            new BranchDef { id = "stain",   label = "얼룩·걸레",     color = new Color(0.340f, 0.640f, 0.980f), angle = 18 },  // 오른쪽 아래
+            new BranchDef { id = "trash",   label = "고가치·보물",   color = new Color(0.900f, 0.680f, 0.260f), angle = 116 }, // 아래쪽 좌
         };
 
         private static Vector2 RingPos(int branchIdx, int lane, int tier)
         {
-            // [v2.2] 레퍼런스 스타일 깔끔한 격자(Grid 76px) 직각 가지 배치!
+            // [v2.3] 4방향 특색 구역 격자(76px) 직각 가지 배치
             float baseDeg = Branches[branchIdx].angle;
-            bool wide = Mathf.Abs(Mathf.Cos(baseDeg * Mathf.Deg2Rad)) > 0.82f;
-            float r0 = wide ? 380f : 230f;
-            float rStep = 88f;
-            float spreadDeg = wide ? 8.0f : 9.2f;
+            bool horiz = Mathf.Abs(Mathf.Cos(baseDeg * Mathf.Deg2Rad)) > 0.72f;
+            float r0 = horiz ? 456f : 340f;
+            float rStep = 84f;
+            float spreadDeg = 7.6f;
             float deg = baseDeg + (lane == 0 ? -spreadDeg : +spreadDeg);
             float rad = deg * Mathf.Deg2Rad;
             float r = r0 + tier * rStep;

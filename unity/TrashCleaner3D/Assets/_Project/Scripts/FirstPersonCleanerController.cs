@@ -74,9 +74,15 @@ namespace TrashCleaner3D
         private Vector3 _rightBasePos;
         private Quaternion _rightBaseRot;
 
-        // ===== [v1.8] 양손 줍기 · 3·4단계 장비 =====
+        // ===== [v2.3] 그랩팩 고정 발사통 + 늘어나는 손바닥 & 검은 와이어 (오른손 파랑 / 왼손 빨강) =====
         private Transform _leftPivot;
         private GameObject _fistLeftCopy;
+        private Transform _rightLauncher;
+        private Transform _leftLauncher;
+        private Transform _rightWire;
+        private Transform _leftWire;
+        private bool _activeHandRight = true;
+        private bool _pullBothHands = false;
         private GameObject _orbGunBuilt;
         private GameObject _bhGunBuilt;
         private GarbageOrbProjectile _orbProjectile;
@@ -217,7 +223,28 @@ namespace TrashCleaner3D
                     _fistLeftCopy.name = "Visual_FistHand_Left";
                     Vector3 s = _fistLeftCopy.transform.localScale;
                     _fistLeftCopy.transform.localScale = new Vector3(-Mathf.Abs(s.x), s.y, s.z);
+                    // [v2.3] Poppy Playtime처럼 왼손 그랩팩은 선명한 빨간 손바닥으로!
+                    Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+                    Material redHand = new Material(lit);
+                    Color rc = new Color(0.86f, 0.22f, 0.28f);
+                    if (redHand.HasProperty("_BaseColor")) redHand.SetColor("_BaseColor", rc);
+                    redHand.color = rc;
+                    if (redHand.HasProperty("_Smoothness")) redHand.SetFloat("_Smoothness", 0.48f);
+                    foreach (var r in _fistLeftCopy.GetComponentsInChildren<Renderer>(true))
+                    {
+                        if (r != null && (r.name.Contains("Palm_Back") || r.name.Contains("Finger_") || r.name.Contains("Thumb_")))
+                            r.sharedMaterial = redHand;
+                    }
                     _fistLeftCopy.SetActive(false);
+                }
+
+                // 고정 노란 그랩팩 발사통(우측/좌측) + 신축 검은 케이블 와이어 생성!
+                if (parent != null)
+                {
+                    _rightLauncher = BuildGrabLauncher(parent, "GrabPack_Launcher_Right", new Vector3(_rightBasePos.x + 0.04f, _rightBasePos.y - 0.08f, _rightBasePos.z - 0.22f));
+                    _leftLauncher = BuildGrabLauncher(parent, "GrabPack_Launcher_Left", new Vector3(-_rightBasePos.x - 0.04f, _rightBasePos.y - 0.08f, _rightBasePos.z - 0.22f));
+                    _rightWire = BuildGrabWire(parent, "GrabPack_Wire_Right");
+                    _leftWire = BuildGrabWire(parent, "GrabPack_Wire_Left");
                 }
             }
 
@@ -231,6 +258,87 @@ namespace TrashCleaner3D
                 _bhGunBuilt = blackHoleGunVisual != null ? blackHoleGunVisual
                     : BuildGunVisual("Visual_BlackHoleGun", new Color(0.56f, 0.34f, 1.0f), 0.12f);
             }
+        }
+
+        /// <summary>[v2.3] 화면 하단에 고정되는 Poppy Playtime 스타일 노란 그랩팩 발사통.</summary>
+        private static Transform BuildGrabLauncher(Transform parent, string name, Vector3 localPos)
+        {
+            Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material yellow = new Material(lit);
+            Color yc = new Color(0.96f, 0.84f, 0.22f);
+            if (yellow.HasProperty("_BaseColor")) yellow.SetColor("_BaseColor", yc);
+            yellow.color = yc;
+            if (yellow.HasProperty("_Smoothness")) yellow.SetFloat("_Smoothness", 0.42f);
+
+            Material dark = new Material(lit);
+            Color dc = new Color(0.14f, 0.16f, 0.19f);
+            if (dark.HasProperty("_BaseColor")) dark.SetColor("_BaseColor", dc);
+            dark.color = dc;
+
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(parent, false);
+            root.transform.localPosition = localPos;
+            root.transform.localRotation = Quaternion.Euler(8f, 0f, 0f);
+
+            GameObject tube = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            Destroy(tube.GetComponent<Collider>());
+            tube.transform.SetParent(root.transform, false);
+            tube.transform.localPosition = new Vector3(0f, 0f, -0.02f);
+            tube.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            tube.transform.localScale = new Vector3(0.135f, 0.16f, 0.135f);
+            var tr = tube.GetComponent<Renderer>();
+            tr.sharedMaterial = yellow;
+            tr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+            GameObject muzzle = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            Destroy(muzzle.GetComponent<Collider>());
+            muzzle.transform.SetParent(root.transform, false);
+            muzzle.transform.localPosition = new Vector3(0f, 0f, 0.13f);
+            muzzle.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            muzzle.transform.localScale = new Vector3(0.105f, 0.022f, 0.105f);
+            var mr = muzzle.GetComponent<Renderer>();
+            mr.sharedMaterial = dark;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+            root.SetActive(false);
+            return root.transform;
+        }
+
+        private static Transform BuildGrabWire(Transform parent, string name)
+        {
+            Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material wireMat = new Material(lit);
+            Color wc = new Color(0.10f, 0.11f, 0.13f);
+            if (wireMat.HasProperty("_BaseColor")) wireMat.SetColor("_BaseColor", wc);
+            wireMat.color = wc;
+            if (wireMat.HasProperty("_Smoothness")) wireMat.SetFloat("_Smoothness", 0.35f);
+
+            GameObject wire = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            Destroy(wire.GetComponent<Collider>());
+            wire.name = name;
+            wire.transform.SetParent(parent, false);
+            wire.transform.localScale = new Vector3(0.024f, 0.1f, 0.024f);
+            var r = wire.GetComponent<Renderer>();
+            r.sharedMaterial = wireMat;
+            r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            wire.SetActive(false);
+            return wire.transform;
+        }
+
+        private static void UpdateWireBetween(Transform wire, Vector3 localStart, Vector3 localEnd, bool show)
+        {
+            if (wire == null) return;
+            Vector3 diff = localEnd - localStart;
+            float dist = diff.magnitude;
+            if (!show || dist < 0.06f)
+            {
+                if (wire.gameObject.activeSelf) wire.gameObject.SetActive(false);
+                return;
+            }
+            if (!wire.gameObject.activeSelf) wire.gameObject.SetActive(true);
+            wire.localPosition = (localStart + localEnd) * 0.5f;
+            wire.localRotation = Quaternion.FromToRotation(Vector3.up, diff / dist);
+            wire.localScale = new Vector3(0.024f, dist * 0.5f, 0.024f);
         }
 
         /// <summary>프리미티브만으로 만드는 장비 건 실루엣(손잡이 + 몸통 + 총구 + 발광 코어).</summary>
@@ -369,6 +477,12 @@ namespace TrashCleaner3D
             ApplyCameraShake();
             // 흡입 연출은 1단계 청소 중에만 — 보물 팝업·설정·정산 화면에서는 즉시 끈다
             if (_vacuumVortex != null && manager.Phase != GamePhase.Phase1_TrashRemoval) _vacuumVortex.SetIntensity(0f);
+
+            // [v2.3] 숨겨진 테스트 키 ']' : 10,000원 즉시 추가 (UI/토스트/로그 표시 없음)
+            if (WasRightBracketPressed())
+            {
+                manager.AddDebugMoneySilent(10000);
+            }
 
             if (WasTabPressed() &&
                 (manager.Phase == GamePhase.Phase1_TrashRemoval || manager.Phase == GamePhase.Phase2_FloorMopping || manager.KioskOpen))
@@ -549,6 +663,15 @@ namespace TrashCleaner3D
 #endif
         }
 
+        private static bool WasRightBracketPressed()
+        {
+#if ENABLE_INPUT_SYSTEM
+            return Keyboard.current != null && Keyboard.current.rightBracketKey.wasPressedThisFrame;
+#else
+            return Input.GetKeyDown(KeyCode.RightBracket);
+#endif
+        }
+
         private static bool WasAltPressed()
         {
 #if ENABLE_INPUT_SYSTEM
@@ -667,9 +790,17 @@ namespace TrashCleaner3D
             if (_orbGunBuilt != null) _orbGunBuilt.SetActive(!isP2 && mode == GearMode.Orb);
             if (_bhGunBuilt != null) _bhGunBuilt.SetActive(!isP2 && mode == GearMode.BlackHole);
 
-            // [v1.8] 양손 줍기 노드가 있으면 왼손을 꺼내 양손 교차 모션을 보여준다.
+            // [v2.3] 그랩팩 고정 발사통(1티어 맨손) 및 양손 빨간 손바닥 표시
+            bool showGrabRight = !isP2 && mode == GearMode.Hand;
             bool showLeft = !isP2 && manager.HasTwoHand && (mode == GearMode.Hand || mode == GearMode.Broom);
             if (_fistLeftCopy != null) _fistLeftCopy.SetActive(showLeft);
+            if (_rightLauncher != null) _rightLauncher.gameObject.SetActive(showGrabRight);
+            if (_leftLauncher != null) _leftLauncher.gameObject.SetActive(showGrabRight && showLeft);
+            if (!showGrabRight)
+            {
+                if (_rightWire != null) _rightWire.gameObject.SetActive(false);
+                if (_leftWire != null) _leftWire.gameObject.SetActive(false);
+            }
             if (_leftPivot != null && !showLeft)
                 _leftPivot.localPosition = new Vector3(-_rightBasePos.x, _rightBasePos.y - 0.25f, _rightBasePos.z - 0.05f);
         }
@@ -1093,12 +1224,15 @@ namespace TrashCleaner3D
 
                     if (picked > 0 && manager.ToolTier < 2 && _punchTimer <= 0f)
                     {
-                        // [v1.8.1 수정 #1] 쓰레기를 집는 순간 타겟 위치에서 내 쪽 수거통으로 쭉 당겨오는 회수 모션 발동!
-                        _pullBackDur = Mathf.Clamp(manager.EffectiveHoldDuration * 0.32f, 0.14f, 0.26f);
+                        // [v2.3] 방금 뻗었던 손(_activeHandRight)을 그대로 회수! (양손 동시 수거 시 양손 동시 회수)
+                        _pullBackDur = Mathf.Clamp(manager.EffectiveHoldDuration * 0.26f, 0.12f, 0.22f);
                         _pullBackTimer = _pullBackDur;
-                        _pullWithRight = manager.HasTwoHand ? !_pullWithRight : true;
+                        _pullWithRight = manager.HasTwoHand ? _activeHandRight : true;
+                        _pullBothHands = manager.HasTwoHand && picked >= 2;
                         _pullStartLocal = _hasReachTarget ? _reachTargetLocal
                             : (_pullWithRight ? rightToolPivot.localPosition : (_leftPivot != null ? _leftPivot.localPosition : rightToolPivot.localPosition));
+                        if (manager.HasTwoHand && !_pullBothHands)
+                            _activeHandRight = !_activeHandRight;
                         _grabSwingTimer = 0f;
                     }
                 }
@@ -1198,25 +1332,29 @@ namespace TrashCleaner3D
             }
             else if (_pullBackTimer > 0f && !_isVacuumingNow && (manager.Mode == GearMode.Hand || manager.Mode == GearMode.Broom))
             {
-                // [v1.8.1 수정 #1] 집은 쓰레기를 타겟 위치에서 내 몸(수거통) 쪽으로 쭉 당겨 넣기!
+                // [v2.3] 그랩팩 손바닥만 발사통으로 쉭! 회수 (발사통은 고정 + 검은 와이어 수축!)
                 _pullBackTimer = Mathf.Max(0f, _pullBackTimer - Time.deltaTime);
                 float u = 1f - (_pullBackTimer / Mathf.Max(0.05f, _pullBackDur));
                 float ease = u * u * (3f - 2f * u);
-                Vector3 tuckPos = new Vector3(_pullWithRight ? 0.10f : -0.10f, -0.44f, 0.28f);
-                Vector3 curPos = u < 0.72f
-                    ? Vector3.Lerp(_pullStartLocal, tuckPos, ease / 0.72f)
-                    : Vector3.Lerp(tuckPos, _pullWithRight ? _rightBasePos : new Vector3(-_rightBasePos.x, _rightBasePos.y - 0.05f, _rightBasePos.z), (u - 0.72f) / 0.28f);
-                Quaternion pinchRot = Quaternion.Slerp(Quaternion.Euler(46f, _pullWithRight ? -24f : 24f, _pullWithRight ? 18f : -18f), Quaternion.Euler(-12f, _pullWithRight ? 16f : -16f, 0f), ease);
+                Vector3 rHome = _rightBasePos;
+                Vector3 lHome = new Vector3(-_rightBasePos.x, _rightBasePos.y, _rightBasePos.z);
 
-                if (_pullWithRight || !leftShown)
+                if (_pullBothHands && leftShown)
                 {
-                    targetPos = curPos;
-                    targetRot = pinchRot;
+                    targetPos = Vector3.Lerp(_pullStartLocal + new Vector3(0.06f, 0f, 0f), rHome, ease);
+                    leftPos = Vector3.Lerp(_pullStartLocal + new Vector3(-0.06f, 0f, 0f), lHome, ease);
+                    targetRot = Quaternion.Slerp(Quaternion.Euler(34f, -14f, 8f), _rightBaseRot, ease);
+                    leftRot = Quaternion.Slerp(Quaternion.Euler(34f, 14f, -8f), _rightBaseRot, ease);
+                }
+                else if (_pullWithRight || !leftShown)
+                {
+                    targetPos = Vector3.Lerp(_pullStartLocal, rHome, ease);
+                    targetRot = Quaternion.Slerp(Quaternion.Euler(36f, -16f, 10f), _rightBaseRot, ease);
                 }
                 else
                 {
-                    leftPos = curPos;
-                    leftRot = pinchRot;
+                    leftPos = Vector3.Lerp(_pullStartLocal, lHome, ease);
+                    leftRot = Quaternion.Slerp(Quaternion.Euler(36f, 16f, -10f), _rightBaseRot, ease);
                 }
             }
             else if (_punchTimer > 0f)
@@ -1236,33 +1374,34 @@ namespace TrashCleaner3D
             }
             else if (_isHoldingTrashNow && (manager.Mode == GearMode.Hand || manager.Mode == GearMode.Broom))
             {
-                // [v1.8.1 수정 #1] 손이 실제 타겟팅한 쓰레기 좌표까지 쭉 뻗어가(0→0.55) 손으로 꼭 집는 모션(0.55→1.0)! (진동 없음)
+                // [v2.3] 그랩팩 발사통은 고정, 손바닥만 검은 줄을 늘이며 목표 쓰레기까지 직선 발사(0→0.55) → 꼭 집기(0.55→1.0)!
                 float ch = manager.trashSwarm != null ? Mathf.Clamp01(manager.trashSwarm.MaxSelectedCharge01) : 0f;
-                Vector3 goal = _hasReachTarget ? _reachTargetLocal : (_rightBasePos + new Vector3(-0.18f, -0.12f, 0.42f));
-                bool useRight = !leftShown || _pullWithRight;
-                Vector3 startP = useRight ? _rightBasePos : new Vector3(-_rightBasePos.x, _rightBasePos.y - 0.05f, _rightBasePos.z);
-
-                float reachT = Mathf.Clamp01(ch / 0.52f);
+                Vector3 goal = _hasReachTarget ? _reachTargetLocal : (_rightBasePos + new Vector3(-0.16f, -0.10f, 0.65f));
+                float reachT = Mathf.Clamp01(ch / 0.50f);
                 reachT = reachT * reachT * (3f - 2f * reachT);
-                float pinchT = Mathf.Clamp01((ch - 0.52f) / 0.48f);
+                float pinchT = Mathf.Clamp01((ch - 0.50f) / 0.50f);
 
-                // 타겟까지 아치형으로 뻗어가서(reachT) 살짝 아래로 눌러 꼭 쥐는(pinchT) 리듬!
-                Vector3 p = Vector3.Lerp(startP, goal, reachT);
-                p.y += Mathf.Sin(reachT * Mathf.PI) * 0.06f - pinchT * 0.035f;
-                Quaternion rot = Quaternion.Euler(
-                    Mathf.Lerp(10f, 38f, reachT) + pinchT * 14f,
-                    (useRight ? -1f : 1f) * (Mathf.Lerp(6f, 22f, reachT) + pinchT * 8f),
-                    (useRight ? 1f : -1f) * (pinchT * 16f));
-
-                if (useRight)
+                if (leftShown && manager.AutoGrabPerTick >= 2)
                 {
-                    targetPos = p;
-                    targetRot = rot;
+                    // 양손 동시: 오른손(파랑) + 왼손(빨강)이 좌우로 나란히 발사되어 깔끔하게 동시 수거!
+                    Vector3 rGoal = goal + new Vector3(0.08f, 0f, 0f);
+                    Vector3 lGoal = goal + new Vector3(-0.08f, 0f, 0f);
+                    targetPos = Vector3.Lerp(_rightBasePos, rGoal, reachT);
+                    leftPos = Vector3.Lerp(new Vector3(-_rightBasePos.x, _rightBasePos.y, _rightBasePos.z), lGoal, reachT);
+                    targetRot = Quaternion.Euler(Mathf.Lerp(8f, 34f, reachT) + pinchT * 12f, -14f * reachT, pinchT * 10f);
+                    leftRot = Quaternion.Euler(Mathf.Lerp(8f, 34f, reachT) + pinchT * 12f, 14f * reachT, -pinchT * 10f);
                 }
                 else
                 {
-                    leftPos = p;
-                    leftRot = rot;
+                    bool useRight = !leftShown || _activeHandRight;
+                    Vector3 startP = useRight ? _rightBasePos : new Vector3(-_rightBasePos.x, _rightBasePos.y, _rightBasePos.z);
+                    Vector3 p = Vector3.Lerp(startP, goal, reachT);
+                    Quaternion rot = Quaternion.Euler(
+                        Mathf.Lerp(8f, 36f, reachT) + pinchT * 12f,
+                        (useRight ? -1f : 1f) * (Mathf.Lerp(4f, 18f, reachT) + pinchT * 6f),
+                        (useRight ? 1f : -1f) * (pinchT * 12f));
+                    if (useRight) { targetPos = p; targetRot = rot; }
+                    else { leftPos = p; leftRot = rot; }
                 }
             }
             else
@@ -1296,6 +1435,19 @@ namespace TrashCleaner3D
             {
                 _leftPivot.localPosition = Vector3.Lerp(_leftPivot.localPosition, leftPos, 26f * Time.deltaTime);
                 _leftPivot.localRotation = Quaternion.Slerp(_leftPivot.localRotation, leftRot, 26f * Time.deltaTime);
+            }
+
+            // [v2.3] 고정 발사통 입구 ↔ 늘어나는 그랩팩 손바닥 사이를 검은 케이블로 실시간 연결!
+            bool grabActive = manager.Phase == GamePhase.Phase1_TrashRemoval && manager.Mode == GearMode.Hand;
+            if (_rightLauncher != null && _rightWire != null)
+            {
+                Vector3 rMuzzle = _rightLauncher.localPosition + new Vector3(0f, 0f, 0.12f);
+                UpdateWireBetween(_rightWire, rMuzzle, rightToolPivot.localPosition, grabActive);
+            }
+            if (_leftLauncher != null && _leftWire != null)
+            {
+                Vector3 lMuzzle = _leftLauncher.localPosition + new Vector3(0f, 0f, 0.12f);
+                UpdateWireBetween(_leftWire, lMuzzle, _leftPivot != null ? _leftPivot.localPosition : lMuzzle, grabActive && leftShown);
             }
         }
 

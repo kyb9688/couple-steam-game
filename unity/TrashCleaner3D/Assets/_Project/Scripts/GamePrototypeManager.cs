@@ -102,6 +102,13 @@ namespace TrashCleaner3D
         public int TrustTokens { get; private set; } = 0;
         public int BlackMarketPts { get; private set; } = 0;
 
+        /// <summary>[v2.3] 숨겨진 테스트용 ']' 키 재화 추가 (UI/토스트/로그 일체 표시 없음).</summary>
+        public void AddDebugMoneySilent(int amount)
+        {
+            if (amount <= 0) return;
+            Money += amount;
+        }
+
         // ===== 사용자 설정 ([ESC]) =====
         public float MouseSensitivity { get; private set; } = 0.14f;
         public float MasterVolume { get; private set; } = 0.85f;
@@ -581,6 +588,9 @@ namespace TrashCleaner3D
         private float _autoSuctionCooldown;
         private float _porchSettleCooldown;
         private float _remoteSettleCooldown;
+        private float _lidOpenTimer;
+        private float _lidOpen01;
+        private readonly Transform[] _vehicleLidPivots = new Transform[4];
 
         // ===== v1.8 세분화 강화 트리 (코어 28 + 마이크로 240 = 268노드) =====
         private readonly Dictionary<string, int> _v17Levels = new Dictionary<string, int>();
@@ -1014,6 +1024,17 @@ namespace TrashCleaner3D
             if (_remoteSettleCooldown > 0f) _remoteSettleCooldown -= dt;
             if (TrustBuffTimer > 0f) TrustBuffTimer = Mathf.Max(0f, TrustBuffTimer - dt);
 
+            // [v2.3] 쓰레기통/차량 투입 시 뚜껑 경첩 열림 → 스르륵 닫힘 애니메이션!
+            if (_lidOpenTimer > 0f) _lidOpenTimer = Mathf.Max(0f, _lidOpenTimer - dt);
+            float lidTarget = _lidOpenTimer > 0f ? 1f : 0f;
+            _lidOpen01 = Mathf.MoveTowards(_lidOpen01, lidTarget, (_lidOpenTimer > 0f ? 7.5f : 3.2f) * dt);
+            float lidAngle = -78f * (_lidOpen01 * _lidOpen01 * (3f - 2f * _lidOpen01));
+            for (int i = 0; i < _vehicleLidPivots.Length; i++)
+            {
+                if (_vehicleLidPivots[i] != null)
+                    _vehicleLidPivots[i].localRotation = Quaternion.Euler(lidAngle, 0f, 0f);
+            }
+
             for (int i = FloatingTexts.Count - 1; i >= 0; i--)
             {
                 FloatingTexts[i].age += dt;
@@ -1230,6 +1251,7 @@ namespace TrashCleaner3D
             int totalPay = Mathf.Max(1, Mathf.RoundToInt(rawBase * finalSettleMult));
 
             Money += totalPay;
+            _lidOpenTimer = 1.15f;
             sfx.PlayChime();
             if (player != null) player.AddCameraShake(remote ? 0.016f : 0.028f, 0.11f);
 
@@ -1913,10 +1935,16 @@ namespace TrashCleaner3D
             }
         }
 
-        /// <summary>[v2.2] 모든 쓰레기통/리어카/다마스/1톤 트럭 안이 보이지 않도록 닫힌 뚜껑/방수포 덮개 부착!</summary>
-        private static void EnsureClosedVehicleLid(GameObject veh, int stageIdx)
+        /// <summary>[v2.3] 모든 쓰레기통/리어카/다마스/1톤 트럭에 뒷면 경첩 피벗이 달린 닫힌 뚜껑 부착 (투입 시 홱! 열림).</summary>
+        private void EnsureClosedVehicleLid(GameObject veh, int stageIdx)
         {
-            if (veh == null || veh.transform.Find("_ClosedLidCover") != null) return;
+            if (veh == null) return;
+            Transform existingPivot = veh.transform.Find("_ClosedLidPivot");
+            if (existingPivot != null)
+            {
+                if (stageIdx >= 0 && stageIdx < _vehicleLidPivots.Length) _vehicleLidPivots[stageIdx] = existingPivot;
+                return;
+            }
             var renderers = veh.GetComponentsInChildren<Renderer>(true);
             if (renderers == null || renderers.Length == 0) return;
             Bounds b = renderers[0].bounds;
@@ -1931,16 +1959,26 @@ namespace TrashCleaner3D
             lidMat.color = c;
             if (lidMat.HasProperty("_Smoothness")) lidMat.SetFloat("_Smoothness", 0.22f);
 
+            float lw = Mathf.Max(0.45f, b.size.x * 0.96f);
+            float ld = Mathf.Max(0.45f, b.size.z * 0.96f);
+
+            GameObject pivot = new GameObject("_ClosedLidPivot");
+            pivot.transform.SetParent(veh.transform, true);
+            pivot.transform.position = new Vector3(b.center.x, b.max.y + 0.03f, b.center.z + ld * 0.5f);
+            pivot.transform.rotation = veh.transform.rotation;
+
             GameObject lid = GameObject.CreatePrimitive(PrimitiveType.Cube);
             Destroy(lid.GetComponent<Collider>());
             lid.name = "_ClosedLidCover";
-            lid.transform.SetParent(veh.transform, true);
-            lid.transform.position = new Vector3(b.center.x, b.max.y + 0.03f, b.center.z);
-            lid.transform.rotation = veh.transform.rotation;
-            lid.transform.localScale = new Vector3(Mathf.Max(0.45f, b.size.x * 0.96f), 0.08f, Mathf.Max(0.45f, b.size.z * 0.96f));
+            lid.transform.SetParent(pivot.transform, false);
+            lid.transform.localPosition = new Vector3(0f, 0f, -ld * 0.5f);
+            lid.transform.localScale = new Vector3(lw, 0.08f, ld);
             var mr = lid.GetComponent<Renderer>();
             mr.sharedMaterial = lidMat;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+            if (stageIdx >= 0 && stageIdx < _vehicleLidPivots.Length)
+                _vehicleLidPivots[stageIdx] = pivot.transform;
         }
 
         private void FinishRoomComplete()

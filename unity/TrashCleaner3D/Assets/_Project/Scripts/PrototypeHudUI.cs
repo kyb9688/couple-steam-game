@@ -704,23 +704,50 @@ namespace TrashCleaner3D
 
         private static Dictionary<string, Texture2D> _pixelIcons;
 
-        private static Texture2D MakePixelIcon(string[] rows)
+        // [v2.3] 64x64 고해상도 부드러운 안티앨리어싱 벡터 아이콘 생성기 (도트 0%!)
+        private static Texture2D MakeSmoothIcon(System.Func<float, float, float> sdf)
         {
-            int h = rows.Length;
-            int w = rows[0].Length;
-            Texture2D tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
-            Color clear = new Color(0, 0, 0, 0);
-            for (int y = 0; y < h; y++)
+            const int S = 64;
+            Texture2D tex = new Texture2D(S, S, TextureFormat.RGBA32, false)
             {
-                string row = rows[h - 1 - y];
-                for (int x = 0; x < w; x++)
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            Color[] px = new Color[S * S];
+            for (int y = 0; y < S; y++)
+            {
+                float ny = (y + 0.5f) / S * 2f - 1f;
+                for (int x = 0; x < S; x++)
                 {
-                    char c = x < row.Length ? row[x] : '.';
-                    tex.SetPixel(x, y, c == '#' ? Color.white : c == 'o' ? new Color(1f, 1f, 1f, 0.55f) : clear);
+                    float nx = (x + 0.5f) / S * 2f - 1f;
+                    float d = sdf(nx, ny);
+                    float a = Mathf.Clamp01(0.5f - d * 24f);
+                    px[y * S + x] = new Color(1f, 1f, 1f, a);
                 }
             }
+            tex.SetPixels(px);
             tex.Apply();
             return tex;
+        }
+
+        private static float SdCircle(float x, float y, float cx, float cy, float r)
+            => Mathf.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) - r;
+
+        private static float SdBox(float x, float y, float cx, float cy, float hx, float hy, float rad = 0.06f)
+        {
+            float dx = Mathf.Abs(x - cx) - hx + rad;
+            float dy = Mathf.Abs(y - cy) - hy + rad;
+            float ox = Mathf.Max(dx, 0f), oy = Mathf.Max(dy, 0f);
+            return Mathf.Sqrt(ox * ox + oy * oy) + Mathf.Min(Mathf.Max(dx, dy), 0f) - rad;
+        }
+
+        private static float SdSeg(float x, float y, float ax, float ay, float bx, float by, float r)
+        {
+            float pax = x - ax, pay = y - ay;
+            float bax = bx - ax, bay = by - ay;
+            float h = Mathf.Clamp01((pax * bax + pay * bay) / Mathf.Max(0.0001f, bax * bax + bay * bay));
+            float dx = pax - bax * h, dy = pay - bay * h;
+            return Mathf.Sqrt(dx * dx + dy * dy) - r;
         }
 
         private static Texture2D GetNodeIcon(string id, int branch)
@@ -729,201 +756,102 @@ namespace TrashCleaner3D
             {
                 _pixelIcons = new Dictionary<string, Texture2D>
                 {
-                    ["hand"] = MakePixelIcon(new[] {
-                        "....##..##......",
-                        "...##.##.##.....",
-                        "...##.##.##.#...",
-                        "...##.##.####...",
-                        "...##########...",
-                        "..###########...",
-                        "..##########....",
-                        "...########.....",
-                        "....######......",
-                        "....######......",
-                        "....######......",
-                        ".....####......."
+                    ["hand"] = MakeSmoothIcon((x, y) => {
+                        float palm = SdBox(x, y, 0f, -0.18f, 0.36f, 0.32f, 0.14f);
+                        float f1 = SdSeg(x, y, -0.26f, 0.08f, -0.30f, 0.60f, 0.09f);
+                        float f2 = SdSeg(x, y, -0.09f, 0.10f, -0.09f, 0.72f, 0.09f);
+                        float f3 = SdSeg(x, y,  0.09f, 0.10f,  0.09f, 0.68f, 0.09f);
+                        float f4 = SdSeg(x, y,  0.26f, 0.06f,  0.30f, 0.52f, 0.085f);
+                        float th = SdSeg(x, y, -0.30f, -0.24f, -0.58f, 0.02f, 0.095f);
+                        return Mathf.Min(palm, Mathf.Min(Mathf.Min(f1, f2), Mathf.Min(Mathf.Min(f3, f4), th)));
                     }),
-                    ["speed"] = MakePixelIcon(new[] {
-                        "........###.....",
-                        ".......###......",
-                        "......###.......",
-                        ".....###........",
-                        "....########....",
-                        "........###.....",
-                        ".......###......",
-                        "......###.......",
-                        ".....###........",
-                        "....###.........",
-                        "...##...........",
-                        "................"
+                    ["speed"] = MakeSmoothIcon((x, y) => {
+                        float s1 = SdSeg(x, y, 0.18f, 0.72f, -0.24f, 0.04f, 0.13f);
+                        float s2 = SdSeg(x, y, -0.24f, 0.04f, 0.24f, 0.04f, 0.12f);
+                        float s3 = SdSeg(x, y, 0.24f, 0.04f, -0.18f, -0.72f, 0.13f);
+                        return Mathf.Min(s1, Mathf.Min(s2, s3));
                     }),
-                    ["radius"] = MakePixelIcon(new[] {
-                        "....########....",
-                        "..##........##..",
-                        ".#....####....#.",
-                        ".#..##....##..#.",
-                        "#..#...##...#..#",
-                        "#..#..####..#..#",
-                        "#..#..####..#..#",
-                        "#..#...##...#..#",
-                        ".#..##....##..#.",
-                        ".#....####....#.",
-                        "..##........##..",
-                        "....########...."
+                    ["radius"] = MakeSmoothIcon((x, y) => {
+                        float r = Mathf.Sqrt(x * x + y * y);
+                        float outer = Mathf.Abs(r - 0.68f) - 0.075f;
+                        float mid = Mathf.Abs(r - 0.38f) - 0.065f;
+                        float dot = r - 0.14f;
+                        return Mathf.Min(outer, Mathf.Min(mid, dot));
                     }),
-                    ["fist"] = MakePixelIcon(new[] {
-                        "...##.##.##.....",
-                        "..###########...",
-                        "..###########...",
-                        "..###########...",
-                        "..###########...",
-                        "...#########....",
-                        "....#######.....",
-                        "....#######.....",
-                        ".....#####......",
-                        ".....#####......",
-                        "................",
-                        "................"
+                    ["fist"] = MakeSmoothIcon((x, y) => {
+                        float core = SdBox(x, y, 0f, -0.05f, 0.44f, 0.38f, 0.16f);
+                        float wrist = SdBox(x, y, 0f, -0.55f, 0.24f, 0.20f, 0.08f);
+                        float k1 = SdCircle(x, y, -0.28f, 0.32f, 0.13f);
+                        float k2 = SdCircle(x, y, -0.09f, 0.36f, 0.13f);
+                        float k3 = SdCircle(x, y,  0.10f, 0.36f, 0.13f);
+                        float k4 = SdCircle(x, y,  0.29f, 0.31f, 0.12f);
+                        return Mathf.Min(Mathf.Min(core, wrist), Mathf.Min(Mathf.Min(k1, k2), Mathf.Min(k3, k4)));
                     }),
-                    ["bag"] = MakePixelIcon(new[] {
-                        ".....######.....",
-                        "....##....##....",
-                        "...##########...",
-                        "..############..",
-                        "..##..####..##..",
-                        "..############..",
-                        "..############..",
-                        "..############..",
-                        "..############..",
-                        "...##########...",
-                        "....########....",
-                        "................"
+                    ["bag"] = MakeSmoothIcon((x, y) => {
+                        float body = SdBox(x, y, 0f, -0.15f, 0.50f, 0.48f, 0.18f);
+                        float handle = Mathf.Abs(SdCircle(x, y, 0f, 0.34f, 0.24f)) - 0.065f;
+                        if (y < 0.25f) handle = 1f;
+                        return Mathf.Min(body, handle);
                     }),
-                    ["dollar"] = MakePixelIcon(new[] {
-                        ".......##.......",
-                        "....########....",
-                        "...##..##..##...",
-                        "...##..##.......",
-                        "....########....",
-                        ".......##..##...",
-                        ".......##..##...",
-                        "...##..##..##...",
-                        "....########....",
-                        ".......##.......",
-                        "................",
-                        "................"
+                    ["dollar"] = MakeSmoothIcon((x, y) => {
+                        float bar = SdSeg(x, y, 0f, -0.74f, 0f, 0.74f, 0.07f);
+                        float top = Mathf.Abs(SdCircle(x, y, 0f, 0.26f, 0.26f)) - 0.08f;
+                        if (x > 0.08f && y < 0.26f) top = 1f;
+                        float bot = Mathf.Abs(SdCircle(x, y, 0f, -0.26f, 0.26f)) - 0.08f;
+                        if (x < -0.08f && y > -0.26f) bot = 1f;
+                        return Mathf.Min(bar, Mathf.Min(top, bot));
                     }),
-                    ["truck"] = MakePixelIcon(new[] {
-                        "................",
-                        "..########......",
-                        "..########.###..",
-                        "..########.#..#.",
-                        "..#############.",
-                        "..#############.",
-                        "..#############.",
-                        "...##.......##..",
-                        "..####.....####.",
-                        "...##.......##..",
-                        "................",
-                        "................"
+                    ["truck"] = MakeSmoothIcon((x, y) => {
+                        float cargo = SdBox(x, y, -0.18f, 0.12f, 0.44f, 0.34f, 0.08f);
+                        float cab = SdBox(x, y, 0.44f, 0.02f, 0.22f, 0.24f, 0.07f);
+                        float w1 = SdCircle(x, y, -0.32f, -0.36f, 0.17f);
+                        float w2 = SdCircle(x, y, 0.36f, -0.36f, 0.17f);
+                        return Mathf.Min(Mathf.Min(cargo, cab), Mathf.Min(w1, w2));
                     }),
-                    ["cyclone"] = MakePixelIcon(new[] {
-                        "..############..",
-                        ".##############.",
-                        "....########....",
-                        "...##########...",
-                        ".....######.....",
-                        "....########....",
-                        "......####......",
-                        ".....######.....",
-                        ".......##.......",
-                        "......###.......",
-                        ".......#........",
-                        "................"
+                    ["cyclone"] = MakeSmoothIcon((x, y) => {
+                        float s1 = SdSeg(x, y, -0.58f, 0.54f, 0.58f, 0.54f, 0.10f);
+                        float s2 = SdSeg(x, y, -0.44f, 0.20f, 0.44f, 0.20f, 0.095f);
+                        float s3 = SdSeg(x, y, -0.28f, -0.14f, 0.28f, -0.14f, 0.09f);
+                        float s4 = SdSeg(x, y, -0.12f, -0.48f, 0.14f, -0.48f, 0.085f);
+                        return Mathf.Min(Mathf.Min(s1, s2), Mathf.Min(s3, s4));
                     }),
-                    ["robot"] = MakePixelIcon(new[] {
-                        ".......##.......",
-                        "....########....",
-                        "...##########...",
-                        "..###..##..###..",
-                        "..############..",
-                        "..###.####.###..",
-                        "...##########...",
-                        "....########....",
-                        "...##......##...",
-                        "................",
-                        "................",
-                        "................"
+                    ["robot"] = MakeSmoothIcon((x, y) => {
+                        float disc = SdCircle(x, y, 0f, -0.04f, 0.62f);
+                        float eyeL = SdCircle(x, y, -0.22f, 0.10f, 0.11f);
+                        float eyeR = SdCircle(x, y,  0.22f, 0.10f, 0.11f);
+                        float ant = SdSeg(x, y, 0f, 0.52f, 0f, 0.78f, 0.06f);
+                        float body = Mathf.Max(disc, -Mathf.Min(eyeL, eyeR));
+                        return Mathf.Min(body, ant);
                     }),
-                    ["flame"] = MakePixelIcon(new[] {
-                        ".......##.......",
-                        "......####......",
-                        ".....#####......",
-                        "....###.###.....",
-                        "...###...###....",
-                        "...###.##.###...",
-                        "..####.##.####..",
-                        "..############..",
-                        "...##########...",
-                        "....########....",
-                        ".....######.....",
-                        "................"
+                    ["flame"] = MakeSmoothIcon((x, y) => {
+                        float baseC = SdCircle(x, y, 0f, -0.20f, 0.44f);
+                        float tip = SdSeg(x, y, 0f, -0.10f, 0f, 0.68f, 0.24f * Mathf.Clamp01(1f - (y + 0.1f) * 0.85f));
+                        float inner = SdCircle(x, y, 0f, -0.28f, 0.16f);
+                        return Mathf.Max(Mathf.Min(baseC, tip), -inner);
                     }),
-                    ["mask"] = MakePixelIcon(new[] {
-                        "....########....",
-                        "..############..",
-                        ".###..####..###.",
-                        ".###..####..###.",
-                        ".##############.",
-                        "..############..",
-                        "...###.##.###...",
-                        "..###..##..###..",
-                        "..##...##...##..",
-                        "......####......",
-                        "................",
-                        "................"
+                    ["mask"] = MakeSmoothIcon((x, y) => {
+                        float face = SdCircle(x, y, 0f, 0.06f, 0.52f);
+                        float fL = SdCircle(x, y, -0.44f, -0.34f, 0.22f);
+                        float fR = SdCircle(x, y,  0.44f, -0.34f, 0.22f);
+                        float gL = SdCircle(x, y, -0.20f, 0.16f, 0.13f);
+                        float gR = SdCircle(x, y,  0.20f, 0.16f, 0.13f);
+                        return Mathf.Max(Mathf.Min(face, Mathf.Min(fL, fR)), -Mathf.Min(gL, gR));
                     }),
-                    ["mop"] = MakePixelIcon(new[] {
-                        ".......##.......",
-                        ".......##.......",
-                        ".......##.......",
-                        ".......##.......",
-                        ".......##.......",
-                        ".....######.....",
-                        "...##########...",
-                        "..##.##.##.##...",
-                        "..##.##.##.##...",
-                        "..##.##.##.##...",
-                        "................",
-                        "................"
+                    ["mop"] = MakeSmoothIcon((x, y) => {
+                        float stick = SdSeg(x, y, 0f, -0.10f, 0f, 0.74f, 0.075f);
+                        float head = SdBox(x, y, 0f, -0.26f, 0.54f, 0.14f, 0.06f);
+                        float pad = SdBox(x, y, 0f, -0.50f, 0.62f, 0.12f, 0.06f);
+                        return Mathf.Min(stick, Mathf.Min(head, pad));
                     }),
-                    ["gem"] = MakePixelIcon(new[] {
-                        "....########....",
-                        "...##########...",
-                        "..###.####.###..",
-                        ".##############.",
-                        "..############..",
-                        "...##########...",
-                        "....########....",
-                        ".....######.....",
-                        "......####......",
-                        ".......##.......",
-                        "................",
-                        "................"
+                    ["gem"] = MakeSmoothIcon((x, y) => {
+                        float d = Mathf.Abs(x) * 0.95f + Mathf.Abs(y) * 0.85f - 0.62f;
+                        float cutTop = y - 0.46f;
+                        return Mathf.Max(d, cutTop);
                     }),
-                    ["boot"] = MakePixelIcon(new[] {
-                        "....#####.......",
-                        "....#####.......",
-                        "....#####.......",
-                        "....#####.......",
-                        "....########....",
-                        "....##########..",
-                        "....###########.",
-                        "....###########.",
-                        "...############.",
-                        "................",
-                        "................",
-                        "................"
+                    ["boot"] = MakeSmoothIcon((x, y) => {
+                        float leg = SdBox(x, y, -0.18f, 0.20f, 0.22f, 0.44f, 0.08f);
+                        float foot = SdBox(x, y, 0.08f, -0.32f, 0.48f, 0.20f, 0.10f);
+                        return Mathf.Min(leg, foot);
                     })
                 };
             }
@@ -1278,38 +1206,42 @@ namespace TrashCleaner3D
                 });
             }
 
-            // ===== [v2.2] 코어 28노드 (76px 깔끔한 직각 격자 배치!) =====
-            Core("hold1",  "흡입속도 I",  "흡입 속도 I",     "시작 노드", "", new Vector2(-76, -76), 3, false, cTool);
-            Core("rad1",   "흡입반경 I",  "흡입 반경 I",     "선행: 흡입속도 I", "hold1", new Vector2(-152, -76), 3, false, cTool);
-            Core("broom",  "빗자루",      "2티어: 빗자루",   "선행: 속도 I & 반경 I", "rad1", new Vector2(-228, -76), 1, true, cTool);
-            Core("hold2",  "흡입속도 II", "흡입 속도 II",    "선행: 빗자루", "broom", new Vector2(-304, -76), 4, false, cTool);
-            Core("rad2",   "흡입반경 II", "흡입 반경 II",    "선행: 빗자루", "broom", new Vector2(-228, -152), 4, false, cTool);
-            Core("fever",  "피버 엔진",   "피버 엔진",       "선행: 흡입속도 II", "hold2", new Vector2(-304, -152), 3, false, cTool);
-            Core("vacuum", "진공기",      "3티어: 진공청소기","선행: 속도 II & 반경 II", "hold2", new Vector2(-380, -76), 1, true, cTool);
-            Core("hold3",  "흡입속도 III","흡입 속도 III",   "선행: 진공청소기", "vacuum", new Vector2(-380, -152), 3, false, cTool);
+            // ===== [v2.3] 코어 28노드 — 중앙 기준 4방향 특색별 완벽 그룹핑! =====
+            // 1) 왼쪽(-X): 청소기·흡입·피버
+            Core("hold1",  "흡입속도 I",  "흡입 속도 I",      "시작 노드", "", new Vector2(-76, 0), 3, false, cTool);
+            Core("rad1",   "흡입반경 I",  "흡입 반경 I",      "선행: 흡입속도 I", "hold1", new Vector2(-152, 0), 3, false, cTool);
+            Core("broom",  "빗자루",      "2티어: 빗자루",    "선행: 속도 I & 반경 I", "rad1", new Vector2(-228, 0), 1, true, cTool);
+            Core("hold2",  "흡입속도 II", "흡입 속도 II",     "선행: 빗자루", "broom", new Vector2(-304, 0), 4, false, cTool);
+            Core("rad2",   "흡입반경 II", "흡입 반경 II",     "선행: 빗자루", "broom", new Vector2(-228, -76), 4, false, cTool);
+            Core("fever",  "피버 엔진",   "피버 엔진",        "선행: 흡입속도 II", "hold2", new Vector2(-304, 76), 3, false, cTool);
+            Core("vacuum", "진공기",      "3티어: 진공청소기","선행: 속도 II & 반경 II", "hold2", new Vector2(-380, 0), 1, true, cTool);
+            Core("hold3",  "흡입속도 III","흡입 속도 III",    "선행: 진공청소기", "vacuum", new Vector2(-380, -76), 3, false, cTool);
 
-            Core("bin1",    "수거통 I",   "수거통 용량 I",   "시작 노드", "", new Vector2(76, -76), 3, false, cVeh);
-            Core("price1",  "정산단가 I", "분리수거 단가 I", "선행: 수거통 I", "bin1", new Vector2(76, -152), 3, false, cVeh);
-            Core("combo",   "정산콤보",   "연속 정산 콤보",  "선행: 정산단가 I", "price1", new Vector2(152, -152), 3, false, cVeh);
-            Core("cart",    "리어카",     "차량 1단계: 리어카","선행: 수거통 I", "bin1", new Vector2(152, -76), 1, true, cVeh);
-            Core("bin2",    "수거통 II",  "수거통 용량 II",  "선행: 리어카", "cart", new Vector2(228, -76), 4, false, cVeh);
-            Core("price2",  "정산단가 II","분리수거 단가 II","선행: 리어카 & 단가 I", "cart", new Vector2(228, -152), 4, false, cVeh);
-            Core("damas",   "다마스",     "차량 2단계: 다마스","선행: 수거통 II & 단가 II", "bin2", new Vector2(304, -76), 1, true, cVeh);
-            Core("bin3",    "수거통 III", "수거통 용량 III", "선행: 다마스", "damas", new Vector2(304, -152), 4, false, cVeh);
-            Core("truck1t", "1톤트럭",    "차량 3단계: 1톤 트럭","선행: 다마스 & 수거통 III", "damas", new Vector2(380, -76), 1, true, cVeh);
+            // 2) 오른쪽(+X): 걸레질·얼룩·방독면·기동
+            Core("speed1", "이동속도 I",  "운동화 I",         "시작 노드", "", new Vector2(76, 0), 3, false, cSurv);
+            Core("speed2", "이동속도 II", "운동화 II",        "선행: 이동속도 I", "speed1", new Vector2(76, -76), 3, false, cSurv);
+            Core("mask1",  "방독면 I",    "방독면 필터 I",    "선행: 이동속도 I", "speed1", new Vector2(152, 0), 3, false, cSurv);
+            Core("mask2",  "방독면 II",   "방독면 필터 II",   "선행: 방독면 I", "mask1", new Vector2(152, -76), 4, false, cSurv);
+            Core("mop",    "대걸레",      "T자 대걸레",       "선행: 방독면 I", "mask1", new Vector2(228, 0), 1, true, cSurv);
+            Core("scrub",  "강력 세제",   "강력 바닥 세제",   "선행: T자 대걸레", "mop", new Vector2(304, 0), 4, false, cSurv);
 
-            Core("speed1", "이동속도 I", "운동화 I",         "시작 노드", "", new Vector2(-76, 76), 3, false, cSurv);
-            Core("speed2", "이동속도 II","운동화 II",        "선행: 이동속도 I", "speed1", new Vector2(-152, 76), 3, false, cSurv);
-            Core("mask1",  "방독면 I",   "방독면 필터 I",    "선행: 이동속도 I", "speed1", new Vector2(-76, 152), 3, false, cSurv);
-            Core("mask2",  "방독면 II",  "방독면 필터 II",   "선행: 방독면 I", "mask1", new Vector2(-152, 152), 4, false, cSurv);
-            Core("mop",    "대걸레",     "T자 대걸레",       "선행: 방독면 I", "mask1", new Vector2(-228, 152), 1, true, cSurv);
-            Core("scrub",  "강력 세제",  "강력 바닥 세제",   "선행: T자 대걸레", "mop", new Vector2(-304, 152), 4, false, cSurv);
+            // 3) 아래쪽(+Y): 쓰레기통 용량·정산 단가·차량
+            Core("bin1",    "수거통 I",   "수거통 용량 I",    "시작 노드", "", new Vector2(0, 76), 3, false, cVeh);
+            Core("price1",  "정산단가 I", "분리수거 단가 I",  "선행: 수거통 I", "bin1", new Vector2(-76, 76), 3, false, cVeh);
+            Core("combo",   "정산콤보",   "연속 정산 콤보",   "선행: 정산단가 I", "price1", new Vector2(-76, 152), 3, false, cVeh);
+            Core("cart",    "리어카",     "차량 1단계: 리어카","선행: 수거통 I", "bin1", new Vector2(0, 152), 1, true, cVeh);
+            Core("bin2",    "수거통 II",  "수거통 용량 II",   "선행: 리어카", "cart", new Vector2(0, 228), 4, false, cVeh);
+            Core("price2",  "정산단가 II","분리수거 단가 II", "선행: 리어카 & 단가 I", "cart", new Vector2(76, 152), 4, false, cVeh);
+            Core("damas",   "다마스",     "차량 2단계: 다마스","선행: 수거통 II & 단가 II", "bin2", new Vector2(0, 304), 1, true, cVeh);
+            Core("bin3",    "수거통 III", "수거통 용량 III",  "선행: 다마스", "damas", new Vector2(76, 304), 4, false, cVeh);
+            Core("truck1t", "1톤트럭",    "차량 3단계: 1톤 트럭","선행: 다마스 & 수거통 III", "damas", new Vector2(0, 380), 1, true, cVeh);
 
-            Core("fist1",  "주먹 힘 I",  "봉투 파괴력 I",    "시작 노드", "", new Vector2(76, 76), 3, false, cAuto);
-            Core("fist2",  "주먹 힘 II", "봉투 파괴력 II",   "선행: 주먹 힘 I", "fist1", new Vector2(152, 76), 3, false, cAuto);
-            Core("roomba", "로봇청소",   "로봇청소기 (최대 3대)","선행: 주먹 힘 I", "fist1", new Vector2(76, 152), 3, true, cAuto);
-            Core("rspd1",  "로봇속도 I", "로봇 가속 I",      "선행: 로봇청소기", "roomba", new Vector2(152, 152), 3, false, cAuto);
-            Core("rspd2",  "로봇속도 II","로봇 가속 II",     "선행: 로봇 2대 & 속도 I", "rspd1", new Vector2(228, 152), 3, false, cAuto);
+            // 4) 위쪽(-Y): 로봇청소기·주먹 파괴
+            Core("fist1",  "주먹 힘 I",   "봉투 파괴력 I",    "시작 노드", "", new Vector2(0, -76), 3, false, cAuto);
+            Core("fist2",  "주먹 힘 II",  "봉투 파괴력 II",   "선행: 주먹 힘 I", "fist1", new Vector2(-76, -76), 3, false, cAuto);
+            Core("roomba", "로봇청소",    "로봇청소기 (최대 3대)","선행: 주먹 힘 I", "fist1", new Vector2(0, -152), 3, true, cAuto);
+            Core("rspd1",  "로봇속도 I",  "로봇 가속 I",      "선행: 로봇청소기", "roomba", new Vector2(0, -228), 3, false, cAuto);
+            Core("rspd2",  "로봇속도 II", "로봇 가속 II",     "선행: 로봇 2대 & 속도 I", "rspd1", new Vector2(0, -304), 3, false, cAuto);
 
             // ===== v1.9 정예 마이크로 노드 80개 =====
             foreach (var v in UpgradeTreeV18.Nodes)
