@@ -453,8 +453,30 @@ namespace TrashCleaner3D
             {
                 if (meshTypes[t].material != null)
                 {
-                    meshTypes[t].material.enableInstancing = true;
-                    _renderParams[t] = new RenderParams(meshTypes[t].material)
+                    // [v2.1] 쓰레기 더미 눈부심 방지: 과한 정반사(Smoothness) 억제 + 밝은 흰색 알베도 살짝 톤다운 (중복 적용 방지)
+                    Material mat = meshTypes[t].material;
+                    if (!mat.name.EndsWith("_Matte"))
+                    {
+                        mat = new Material(mat);
+                        mat.name = meshTypes[t].material.name + "_Matte";
+                        mat.enableInstancing = true;
+                        if (mat.HasProperty("_Smoothness"))
+                            mat.SetFloat("_Smoothness", Mathf.Min(mat.GetFloat("_Smoothness"), 0.14f));
+                        if (mat.HasProperty("_Metallic"))
+                            mat.SetFloat("_Metallic", Mathf.Min(mat.GetFloat("_Metallic"), 0.18f));
+                        if (mat.HasProperty("_BaseColor"))
+                        {
+                            Color bc = mat.GetColor("_BaseColor");
+                            mat.SetColor("_BaseColor", new Color(bc.r * 0.78f, bc.g * 0.78f, bc.b * 0.76f, bc.a));
+                        }
+                        else
+                        {
+                            Color c = mat.color;
+                            mat.color = new Color(c.r * 0.78f, c.g * 0.78f, c.b * 0.76f, c.a);
+                        }
+                        meshTypes[t].material = mat;
+                    }
+                    _renderParams[t] = new RenderParams(mat)
                     {
                         worldBounds = new Bounds(Vector3.zero, Vector3.one * 80f),
                         shadowCastingMode = ShadowCastingMode.Off,

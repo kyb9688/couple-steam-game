@@ -517,8 +517,9 @@ namespace TrashCleaner3D.Editor
             go.transform.localPosition = pos;
             Light l = go.AddComponent<Light>();
             l.type = LightType.Point;
-            l.color = new Color(1.0f, 0.94f, 0.84f);
-            l.intensity = intensity;
+            l.color = new Color(1.0f, 0.95f, 0.88f);
+            // [v2.1] 쓰레기 더미 위 과노출·눈부심 방지를 위해 실내 조도를 편안한 톤으로 조절!
+            l.intensity = intensity * 0.44f;
             l.range = range;
             l.shadows = LightShadows.None;
         }

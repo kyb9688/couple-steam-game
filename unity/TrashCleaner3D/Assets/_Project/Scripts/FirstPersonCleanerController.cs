@@ -996,14 +996,18 @@ namespace TrashCleaner3D
 
             if (blockedByDoor) { ClearSwarmSelection(); return; }
 
-            // 1.5) [v1.9] 보물 / 의뢰인 분실물 실시간 선택 ([F] 보관·반환 / [R] 몰래 슈킹!)
+            // 1.5) [v2.1] 보물 / 의뢰인 분실물 발견 → [F]/[R] 또는 클릭 시 화려한 대형 득템 팝업 오픈!
             if (hitTreasure != null)
             {
                 _lastTreasure = hitTreasure;
                 hitTreasure.SetHighlighted(true);
                 AimTreasure = hitTreasure;
-                if (fDown) { ClearSwarmSelection(); manager.ReturnTreasure(hitTreasure); return; }
-                if (rDown) { ClearSwarmSelection(); manager.StealTreasure(hitTreasure); return; }
+                if (fDown || rDown || lmbDown)
+                {
+                    ClearSwarmSelection();
+                    manager.OpenTreasureDecision(hitTreasure);
+                    return;
+                }
             }
 
             bool binBlocked = manager.IsBinFull;

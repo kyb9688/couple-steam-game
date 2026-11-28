@@ -113,14 +113,15 @@ namespace TrashCleaner3D
         public float FreshAirFlash01 { get; private set; }
         private float _coughTimer = 3.0f;
 
-        public int StenchStage => StenchPercent >= 99.5f ? 4 : StenchPercent >= 75f ? 3 : StenchPercent >= 50f ? 2 : StenchPercent >= 25f ? 1 : 0;
+        // [v2.1] 악취 4단계: 0(쾌적 0~75%) / 1(답답함 75~90%) / 2(위험 90~100%) / 3(한계 100%)
+        public int StenchStage => StenchPercent >= 99.5f ? 3 : StenchPercent >= 90f ? 2 : StenchPercent >= 75f ? 1 : 0;
         // [v1.7] 악취 둔화 저항은 강화 노드로만 얻는다(기본 0 = 기존 감속 그대로).
         public float StenchSlowResist01 => Mathf.Clamp(V18Sum(V18Effect.StenchSlowResist), 0f, 0.60f);
         private float ResistSlow(float baseMult) => 1f - (1f - baseMult) * (1f - StenchSlowResist01);
-        public float StenchMoveSpeedMult => ResistSlow(StenchStage == 4 ? 0.45f : StenchStage == 3 ? 0.58f : StenchStage == 2 ? 0.72f : StenchStage == 1 ? 0.85f : 1.0f);
-        public float StenchWorkSpeedMult => ResistSlow(StenchStage == 4 ? 0.42f : StenchStage == 3 ? 0.52f : StenchStage == 2 ? 0.68f : StenchStage == 1 ? 0.84f : 1.0f);
+        public float StenchMoveSpeedMult => ResistSlow(StenchStage == 3 ? 0.50f : StenchStage == 2 ? 0.70f : StenchStage == 1 ? 0.86f : 1.0f);
+        public float StenchWorkSpeedMult => ResistSlow(StenchStage == 3 ? 0.48f : StenchStage == 2 ? 0.68f : StenchStage == 1 ? 0.85f : 1.0f);
         public float StenchBlur01 => IsOutsideVentilating ? 0f
-            : Mathf.Clamp01((StenchPercent - 22f) / 78f) * (1f - Mathf.Clamp(V18Sum(V18Effect.BlurReduce), 0f, 0.60f));
+            : Mathf.Clamp01((StenchPercent - 75f) / 25f) * (1f - Mathf.Clamp(V18Sum(V18Effect.BlurReduce), 0f, 0.60f));
         public float StenchGainPerSec => CoreLoopConfig.EnableStenchGimmick
             ? (CurrentStage == 6 ? 5.1f : 3.2f) * Mathf.Max(0.18f, 1f - TotalMaskLv * 0.08f) * (1f - Mathf.Clamp(V18Sum(V18Effect.MaskFilter), 0f, 0.55f))
             : 0f;
@@ -535,6 +536,8 @@ namespace TrashCleaner3D
 
         // ===== 정산/배너 =====
         public DiscoveredTreasure ActiveTreasure { get; private set; }
+        public TreasureTarget ActiveTreasureTarget { get; private set; }
+        public bool ActiveTreasureWatchedByCctv { get; private set; }
         public float TreasureDecisionLockTimer { get; private set; }
         public float TreasurePopupOpenAge { get; private set; }
         public float TreasureFlash01 { get; private set; }
@@ -1012,6 +1015,13 @@ namespace TrashCleaner3D
                 if (FloatingTexts[i].age >= FloatingTexts[i].duration) FloatingTexts.RemoveAt(i);
             }
 
+            if (Phase == GamePhase.TreasureDecision)
+            {
+                TreasurePopupOpenAge += Time.unscaledDeltaTime;
+                if (TreasureDecisionLockTimer > 0f) TreasureDecisionLockTimer = Mathf.Max(0f, TreasureDecisionLockTimer - Time.unscaledDeltaTime);
+                return;
+            }
+
             if (Phase != GamePhase.Phase1_TrashRemoval && Phase != GamePhase.Phase2_FloorMopping) return;
 
             if (ThrowComboTimer > 0f) { ThrowComboTimer -= dt; if (ThrowComboTimer <= 0f) ThrowComboCount = 0; }
@@ -1284,12 +1294,11 @@ namespace TrashCleaner3D
             // 파편(작은 쓰레기) 일부 추가 배출 — 연쇄 흡입과 함께 '와르르' 손맛
             if (trashSwarm != null) trashSwarm.SpawnBurstFountain(pos, 10);
 
-            // [v1.9] 택배박스/큰봉투 언박싱 시 확률적으로 숨겨진 귀중품 툭 튀어나옴!
+            // [v2.1] 택배박스/큰봉투 언박싱 시 숨겨진 귀중품이 나오면 화려한 대형 득템 팝업 오픈!
             TreasureTarget dropped = StagePropLayout.TrySpawnBoxTreasure(pos, CurrentStage);
             if (dropped != null)
             {
-                SpawnFloatingText(pos + Vector3.up * 1.35f, $"★ {dropped.itemName} 발견!", new Color(1f, 0.92f, 0.35f), 2.3f);
-                sfx.PlayChime();
+                OpenTreasureDecision(dropped);
             }
 
             CheckPhase1Complete();
@@ -1517,7 +1526,50 @@ namespace TrashCleaner3D
             UnlockCursor(true);
         }
 
-        public void ResolveActiveTreasure(bool steal) { ActiveTreasure = null; Phase = _phaseBeforeOverlay; UnlockCursor(false); }
+        /// <summary>[v2.1] 슈킹템/분실물 발견 시 화려한 대형 득템 팝업 오픈!</summary>
+        public void OpenTreasureDecision(TreasureTarget target)
+        {
+            if (target == null || target.State != TreasureState.HiddenInRoom) return;
+            ActiveTreasureTarget = target;
+            ActiveTreasureWatchedByCctv = IsPlayerWatchedByCctv(target.transform.position) ||
+                                          (player != null && IsPlayerWatchedByCctv(player.transform.position));
+            TreasureRarity rar = target.isDesignatedLostItem ? TreasureRarity.Legendary
+                : target.value >= 800 ? TreasureRarity.Rare : TreasureRarity.Common;
+            ActiveTreasure = new DiscoveredTreasure
+            {
+                itemName = target.itemName,
+                value = target.value,
+                rarity = rar,
+                isMentionedByClient = target.isDesignatedLostItem,
+                baseSuspicionGain = target.suspicionGain
+            };
+            TreasureDecisionLockTimer = 0.25f;
+            TreasurePopupOpenAge = 0f;
+            TreasureFlash01 = 1f;
+            SparkleBurst.Spawn(target.transform.position + Vector3.up * 0.28f, 30, 1.35f,
+                target.isDesignatedLostItem ? new Color(0.35f, 0.92f, 1f) : new Color(1f, 0.90f, 0.32f));
+            if (sfx != null) sfx.PlayFanfare();
+            _phaseBeforeOverlay = (Phase == GamePhase.Phase1_TrashRemoval || Phase == GamePhase.Phase2_FloorMopping)
+                ? Phase : GamePhase.Phase1_TrashRemoval;
+            Phase = GamePhase.TreasureDecision;
+            UnlockCursor(true);
+        }
+
+        public void ResolveActiveTreasure(bool steal)
+        {
+            TreasureTarget t = ActiveTreasureTarget;
+            ActiveTreasure = null;
+            ActiveTreasureTarget = null;
+            ActiveTreasureWatchedByCctv = false;
+            Phase = _phaseBeforeOverlay;
+            UnlockCursor(false);
+
+            if (t != null && t.State == TreasureState.HiddenInRoom)
+            {
+                if (steal) StealTreasure(t);
+                else ReturnTreasure(t);
+            }
+        }
 
         // ===== v1.9 정예 108노드 강화 트리 가격 & 해금 =====
         public int GetNodeCost(string id)

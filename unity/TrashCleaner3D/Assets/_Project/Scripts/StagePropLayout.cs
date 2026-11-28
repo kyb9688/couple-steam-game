@@ -206,6 +206,14 @@ namespace TrashCleaner3D
 
         private static void BuildReturnShelf(GamePrototypeManager mgr, int stage, InstancedTrashSwarm.RoomZoneDef[] rooms)
         {
+            // [v2.1] 정체불명 문 옆 박스 제거 — 슈킹템은 발견 시 대형 팝업에서 즉시 반환/슈킹 선택!
+            if (_shelfObj != null) Object.Destroy(_shelfObj);
+            _shelfObj = null;
+            ReturnShelfSlot = null;
+        }
+
+        private static void BuildReturnShelf_Unused(GamePrototypeManager mgr, int stage, InstancedTrashSwarm.RoomZoneDef[] rooms)
+        {
             if (_shelfObj != null) Object.Destroy(_shelfObj);
 
             float sx = 2.85f, sz = 3.25f;

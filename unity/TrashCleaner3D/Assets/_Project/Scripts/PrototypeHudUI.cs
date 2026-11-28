@@ -204,6 +204,11 @@ namespace TrashCleaner3D
                 DrawHud(w, h);
                 DrawCrosshairAndPrompt(w, h);
             }
+            else if (manager.Phase == GamePhase.TreasureDecision)
+            {
+                DrawHud(w, h);
+                DrawTreasureDecisionModal(w, h);
+            }
             else if (manager.Phase == GamePhase.MindMapUpgrade) DrawUpgradeKioskTree(w, h, false);
             else if (manager.Phase == GamePhase.SettingsMenu) DrawSettingsMenu(w, h);
             else if (manager.Phase == GamePhase.RoomCompleted) DrawPostRoundHub(w, h);
@@ -215,23 +220,28 @@ namespace TrashCleaner3D
             if (blur > 0.01f && _vignetteTex != null)
             {
                 float pulse = 0.90f + 0.10f * Mathf.Sin(Time.time * 1.8f);
-                Color veil = manager.StenchStage >= 4
-                    ? new Color(0.56f, 0.44f, 0.24f, 0.56f * blur * pulse)
-                    : new Color(0.58f, 0.50f, 0.30f, 0.36f * blur * pulse);
+                Color veil = manager.StenchStage >= 3
+                    ? new Color(0.56f, 0.44f, 0.24f, 0.52f * blur * pulse)
+                    : new Color(0.58f, 0.50f, 0.30f, 0.32f * blur * pulse);
                 GUI.color = veil;
                 GUI.DrawTexture(new Rect(0, 0, w, h), _vignetteTex);
                 GUI.color = Color.white;
             }
 
-            if (!manager.IsOutsideVentilating && manager.StenchPercent >= 25f && _vignetteTex != null)
+            if (!manager.IsOutsideVentilating && manager.StenchPercent >= 75f && _vignetteTex != null)
             {
-                float t = Mathf.Clamp01((manager.StenchPercent - 25f) / 75f);
-                Color edge = manager.StenchStage >= 4
-                    ? new Color(0.50f, 0.14f, 0.44f, Mathf.Lerp(0.14f, 0.52f, t))
-                    : new Color(0.38f, 0.46f, 0.12f, Mathf.Lerp(0.10f, 0.40f, t));
+                float t = Mathf.Clamp01((manager.StenchPercent - 75f) / 25f);
+                Color edge = manager.StenchStage >= 3
+                    ? new Color(0.50f, 0.14f, 0.44f, Mathf.Lerp(0.18f, 0.50f, t))
+                    : new Color(0.38f, 0.46f, 0.12f, Mathf.Lerp(0.12f, 0.38f, t));
                 GUI.color = edge;
                 GUI.DrawTexture(new Rect(0, 0, w, h), _vignetteTex);
                 GUI.color = Color.white;
+            }
+
+            if (manager.TreasureFlash01 > 0.01f)
+            {
+                DrawRect(new Rect(0, 0, w, h), new Color(1.0f, 0.92f, 0.45f, manager.TreasureFlash01 * 0.26f));
             }
 
             if (manager.StealAlertFlash01 > 0.01f && _vignetteTex != null)
@@ -400,12 +410,12 @@ namespace TrashCleaner3D
             Rect tc = new Rect(barX, topY, barW, 44f);
             DrawPaperCard(tc, new Color(0.715f, 0.650f, 0.535f), 1);
 
+            // [v2.1] 악취 4단계: 1단계(0~75% 쾌적) / 2단계(75~90% 답답함) / 3단계(90~100% 위험) / 4단계(100% 한계)
             int st = manager.StenchStage;
             Color stCol = manager.IsOutsideVentilating ? new Color(0.38f, 0.84f, 1f) :
-                st == 0 ? new Color(0.40f, 0.88f, 0.48f) :
-                st == 1 ? new Color(0.95f, 0.85f, 0.25f) :
-                st == 2 ? new Color(0.98f, 0.56f, 0.18f) :
-                st == 3 ? new Color(0.95f, 0.24f, 0.22f) : new Color(0.82f, 0.28f, 0.96f);
+                st == 0 ? new Color(0.36f, 0.86f, 0.46f) :
+                st == 1 ? new Color(0.96f, 0.84f, 0.22f) :
+                st == 2 ? new Color(0.98f, 0.46f, 0.16f) : new Color(0.84f, 0.22f, 0.88f);
 
             Color stInk = Color.Lerp(stCol, new Color(0.26f, 0.19f, 0.12f), 0.58f);
             GUI.color = stInk;
@@ -414,16 +424,21 @@ namespace TrashCleaner3D
 
             float cellStartX = tc.x + 62f;
             float trackW = barW - 150f;
-            float cellW = (trackW - 9f) / 4f;
+            float[] segStarts = { 0f, 75f, 90f, 99.5f };
+            float[] segEnds   = { 75f, 90f, 99.5f, 100f };
+            float[] segRatios = { 0.54f, 0.20f, 0.16f, 0.10f };
+            float curX = cellStartX;
             for (int i = 0; i < 4; i++)
             {
-                Rect cell = new Rect(cellStartX + i * (cellW + 3f), tc.y + 15, cellW, 13);
+                float cw = Mathf.Floor((trackW - 9f) * segRatios[i]);
+                Rect cell = new Rect(curX, tc.y + 15, cw, 13);
                 DrawRect(cell, new Color(0.855f, 0.820f, 0.745f));
-                float seg = Mathf.Clamp01((manager.StenchPercent - i * 25f) / 25f);
+                float seg = Mathf.Clamp01((manager.StenchPercent - segStarts[i]) / Mathf.Max(0.5f, segEnds[i] - segStarts[i]));
                 if (seg > 0.001f) DrawRect(new Rect(cell.x, cell.y, cell.width * seg, cell.height), stCol);
+                curX += cw + 3f;
             }
             string stTag = manager.IsOutsideVentilating ? "환기 중" :
-                st == 4 ? "시야 흐림!" : st == 3 ? "속도↓↓" : st == 2 ? "속도↓" : st == 1 ? "답답함" : "쾌적";
+                st == 3 ? "한계 100%" : st == 2 ? "위험!" : st == 1 ? "답답함" : "쾌적";
             GUI.color = stInk;
             GUI.Label(new Rect(cellStartX + trackW + 8, tc.y + 10, 76, 22), stTag, _lightSmall);
             GUI.color = Color.white;
@@ -642,10 +657,10 @@ namespace TrashCleaner3D
             {
                 var tr = controller.AimTreasure;
                 promptW = 470f;
-                int stealCash = Mathf.Max(50, Mathf.RoundToInt(tr.value * 1.35f));
+                promptW = 360f;
                 prompt = tr.isDesignatedLostItem
-                    ? $"[F] {tr.itemName} 선반 보관 (+팁)   |   [R] 슈킹 (100% 발각 위험!)"
-                    : $"[F] {tr.itemName} 반환 (안전 팁)   |   [R] 몰래 슈킹 (+${stealCash:N0})";
+                    ? $"★ [F / 클릭] 의뢰인 분실물 '{tr.itemName}' 확인!"
+                    : $"★ [F / 클릭] 숨겨진 보물 '{tr.itemName}' 확인!";
             }
             else if (controller.AimCctv != null && manager.Phase == GamePhase.Phase2_FloorMopping)
             {
@@ -946,9 +961,40 @@ namespace TrashCleaner3D
             GUI.BeginGroup(view);
 
             for (float gx = Mathf.Repeat(_treePan.x, 80f); gx < view.width; gx += 80f)
-                DrawRect(new Rect(gx, 0f, 1f, view.height), new Color(0.24f, 0.30f, 0.40f, 0.25f));
+                DrawRect(new Rect(gx, 0f, 1f, view.height), new Color(0.24f, 0.30f, 0.40f, 0.20f));
             for (float gy = Mathf.Repeat(_treePan.y, 80f); gy < view.height; gy += 80f)
-                DrawRect(new Rect(0f, gy, view.width, 1f), new Color(0.24f, 0.30f, 0.40f, 0.25f));
+                DrawRect(new Rect(0f, gy, view.width, 1f), new Color(0.24f, 0.30f, 0.40f, 0.20f));
+
+            // 0) [v2.1] 계열별 배경 색상 구역(Zone Backdrop) — 글자 라벨 없이 배경색으로 직관적 계열 구분!
+            {
+                var branches = UpgradeTreeV18.Branches;
+                float padX = 28f * scale;
+                float padY = 22f * scale;
+                for (int b = 0; b < branches.Length; b++)
+                {
+                    float minX = float.MaxValue, minY = float.MaxValue;
+                    float maxX = float.MinValue, maxY = float.MinValue;
+                    int cnt = 0;
+                    for (int i = 0; i < nodes.Count; i++)
+                    {
+                        if (!visible[i] || nodes[i].isCore || nodes[i].branch != b) continue;
+                        Rect nr = NodeRectOf(nodes[i], localCenter, scale, nW, nH);
+                        if (nr.xMin < minX) minX = nr.xMin;
+                        if (nr.yMin < minY) minY = nr.yMin;
+                        if (nr.xMax > maxX) maxX = nr.xMax;
+                        if (nr.yMax > maxY) maxY = nr.yMax;
+                        cnt++;
+                    }
+                    if (cnt == 0) continue;
+                    Rect zone = new Rect(minX - padX, minY - padY, (maxX - minX) + padX * 2f, (maxY - minY) + padY * 2f);
+                    if (!viewLocalBounds.Overlaps(zone)) continue;
+                    bool focused = _selectedBranch < 0 || _selectedBranch == b;
+                    Color bc = branches[b].color;
+                    Color zoneFill = new Color(bc.r, bc.g, bc.b, focused ? 0.115f : 0.035f);
+                    Color zoneLine = new Color(bc.r, bc.g, bc.b, focused ? 0.34f : 0.10f);
+                    DrawBorderedBox(zone, zoneFill, zoneLine, focused ? 2 : 1);
+                }
+            }
 
             // 1) 연결선 (부모 -> 자식)
             for (int i = 0; i < nodes.Count; i++)
@@ -997,24 +1043,9 @@ namespace TrashCleaner3D
                 }
             }
 
-            // 2) 계열 이름표 (축소 시)
-            if (scale < 0.65f)
-            {
-                var branches = UpgradeTreeV18.Branches;
-                for (int b = 0; b < branches.Length; b++)
-                {
-                    float rad = branches[b].angle * Mathf.Deg2Rad;
-                    Vector2 p = localCenter + new Vector2(Mathf.Cos(rad), Mathf.Sin(rad)) * (480f * scale);
-                    if (!viewLocalBounds.Contains(p)) continue;
-                    Rect tag = new Rect(p.x - 52f, p.y - 11f, 104f, 22f);
-                    DrawBorderedBox(tag, new Color(0.10f, 0.12f, 0.16f, 0.92f), branches[b].color, 1);
-                    _nodeSubStyle.fontSize = 10;
-                    _nodeSubStyle.normal.textColor = branches[b].color;
-                    GUI.Label(tag, branches[b].label, _nodeSubStyle);
-                }
-            }
+            // 2) [v2.1] 난잡한 계열 텍스트 라벨 박스 제거됨 (위 0단계 계열별 컬러 배경 구역으로 직관 대체!)
 
-            // 3) 고대비 노드 카드 렌더
+            // 3) 고대비 노드 카드 렌더 (계열 색상을 카드 배경에 은은하게 통합)
             TreeNodeDef? hovered = null;
             for (int i = 0; i < nodes.Count; i++)
             {
@@ -1028,11 +1059,13 @@ namespace TrashCleaner3D
                 float dimA = (inFocusBranch || isLineage) ? 1f : 0.22f;
 
                 bool isMax = n.level >= n.maxLevel;
-                Color bg = !n.unlocked ? new Color(0.125f, 0.153f, 0.212f, 0.96f * dimA)
-                         : isMax ? new Color(0.08f, 0.26f, 0.18f, 0.98f * dimA)
-                         : n.affordable ? Color.Lerp(new Color(0.24f, 0.19f, 0.08f), new Color(0.36f, 0.28f, 0.10f), affordPulse)
-                         : new Color(0.16f, 0.19f, 0.25f, 0.98f * dimA);
-                bg.a *= dimA;
+                Color tintedLocked = Color.Lerp(new Color(0.12f, 0.15f, 0.20f), n.accent, 0.14f);
+                Color tintedIdle = Color.Lerp(new Color(0.15f, 0.18f, 0.24f), n.accent, 0.24f);
+                Color bg = !n.unlocked ? tintedLocked
+                         : isMax ? new Color(0.08f, 0.27f, 0.19f)
+                         : n.affordable ? Color.Lerp(Color.Lerp(new Color(0.24f, 0.19f, 0.08f), n.accent, 0.22f), new Color(0.42f, 0.32f, 0.10f), affordPulse)
+                         : tintedIdle;
+                bg.a = 0.96f * dimA;
 
                 Color bd = isLineage ? new Color(1.0f, 0.90f, 0.28f, 1f)
                          : !n.unlocked ? new Color(0.30f, 0.36f, 0.46f, dimA)
@@ -1642,6 +1675,132 @@ namespace TrashCleaner3D
             GUI.color = sCol;
             GUI.Label(stamp, manager.WasCaughtStealing ? $"슈킹 발각 배상금 -${manager.LastConfiscatedValue:N0} 차감!" : "수익 · 모든 장비 · 강화 100% 유지", _lightCenter);
             GUI.color = Color.white;
+        }
+
+        private void DrawTreasureDecisionModal(float w, float h)
+        {
+            var tr = manager.ActiveTreasure;
+            if (tr == null) return;
+
+            GUI.DrawTexture(new Rect(0, 0, w, h), _dimTex);
+
+            float t = manager.TreasurePopupOpenAge;
+            float bounce = t < 0.22f
+                ? Mathf.Lerp(0.65f, 1.05f, t / 0.22f)
+                : t < 0.34f ? Mathf.Lerp(1.05f, 1.0f, (t - 0.22f) / 0.12f) : 1f;
+
+            bool isLost = tr.isMentionedByClient;
+            Color theme = isLost ? new Color(0.24f, 0.88f, 1.0f)
+                        : tr.rarity == TreasureRarity.Rare ? new Color(1.0f, 0.78f, 0.18f)
+                        : new Color(0.98f, 0.84f, 0.34f);
+
+            Vector2 center = new Vector2(w * 0.5f, h * 0.5f);
+
+            // 1) 뒤쪽 회전 방사형 빛줄기(Sunburst Rays)
+            int rayCount = 12;
+            float rayLen = Mathf.Min(w, h) * 0.44f * bounce;
+            for (int i = 0; i < rayCount; i++)
+            {
+                float ang = (i / (float)rayCount) * Mathf.PI * 2f + Time.unscaledTime * 0.55f;
+                Vector2 end = center + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * rayLen;
+                float a = 0.16f + 0.08f * Mathf.Sin(Time.unscaledTime * 3.5f + i);
+                DrawLine(center, end, new Color(theme.r, theme.g, theme.b, a), 14f);
+            }
+
+            // 2) 주변 반짝이는 별빛 파티클 16개
+            for (int i = 0; i < 16; i++)
+            {
+                float ang = i * 2.39996f + Time.unscaledTime * (0.35f + (i % 3) * 0.12f);
+                float rad = (190f + (i % 4) * 42f) * bounce;
+                float sx = center.x + Mathf.Cos(ang) * rad;
+                float sy = center.y + Mathf.Sin(ang) * rad * 0.72f;
+                float sz = 5f + 5f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 4.2f + i * 1.3f));
+                Color sc = (i % 2 == 0) ? new Color(1f, 0.96f, 0.65f, 0.85f) : new Color(theme.r, theme.g, theme.b, 0.80f);
+                DrawRect(new Rect(sx - sz * 0.5f, sy - sz * 0.5f, sz, sz), sc);
+            }
+
+            // 3) 대형 득템 팝업 카드
+            float cw = Mathf.Round(560f * bounce);
+            float ch = Mathf.Round(390f * bounce);
+            Rect card = new Rect(Mathf.Round(center.x - cw * 0.5f), Mathf.Round(center.y - ch * 0.5f), cw, ch);
+
+            // 외곽 글로우 2중 프레임
+            DrawBorderedBox(new Rect(card.x - 6, card.y - 6, card.width + 12, card.height + 12),
+                new Color(theme.r, theme.g, theme.b, 0.22f), new Color(theme.r, theme.g, theme.b, 0.65f), 2);
+            DrawBorderedBox(card, new Color(0.10f, 0.12f, 0.17f, 0.985f), theme, 4);
+
+            // 상단 등급 배지 리본
+            Rect ribbon = new Rect(card.x + 28, card.y - 18, card.width - 56, 36);
+            DrawBorderedBox(ribbon, theme, new Color(0.12f, 0.10f, 0.06f), 2);
+            GUI.color = ReadableOn(theme);
+            string badgeTxt = isLost ? "★ 의뢰인 지정 분실물 발견! ★"
+                            : tr.rarity == TreasureRarity.Rare ? "★ S급 희귀 보물 득템! ★"
+                            : "★ 숨겨진 귀중품 발견! ★";
+            GUI.Label(ribbon, badgeTxt, _lightBigCenter);
+            GUI.color = Color.white;
+
+            // 중앙 아이템 쇼케이스 영역
+            Rect showcase = new Rect(card.x + 26, card.y + 34, card.width - 52, 168);
+            DrawBorderedBox(showcase, new Color(0.14f, 0.17f, 0.24f, 0.96f), new Color(theme.r, theme.g, theme.b, 0.55f), 2);
+
+            // 아이템 이름
+            GUI.color = Color.white;
+            GUI.Label(new Rect(showcase.x + 14, showcase.y + 16, showcase.width - 28, 34), tr.itemName,
+                new GUIStyle(_lightBigCenter) { fontSize = 24 });
+
+            // 예상 감정 시세
+            int returnTip = isLost ? Mathf.Max(45, Mathf.RoundToInt(tr.value * 0.55f)) : Mathf.Max(20, Mathf.RoundToInt(tr.value * 0.25f));
+            int stealCash = Mathf.Max(50, Mathf.RoundToInt(tr.value * 1.35f));
+            GUI.color = new Color(1.0f, 0.90f, 0.42f);
+            GUI.Label(new Rect(showcase.x + 14, showcase.y + 58, showcase.width - 28, 30),
+                $"감정 시세  {FormatCash(tr.value)}", _lightBigCenter);
+
+            // 설명 / CCTV 경고
+            GUI.color = isLost ? new Color(0.45f, 0.94f, 1.0f)
+                      : manager.ActiveTreasureWatchedByCctv ? new Color(1.0f, 0.42f, 0.36f)
+                      : new Color(0.84f, 0.88f, 0.94f);
+            string note = isLost
+                ? "의뢰인이 애타게 찾는 분실물! 반환 시 5성 평점 확정 · 슈킹 시 발각 100%!"
+                : manager.ActiveTreasureWatchedByCctv
+                    ? "! 주의: 현재 CCTV 감시 구역! 슈킹 시 발각 위험 대폭 상승!"
+                    : "쓰레기 아래 숨겨져 있던 귀중품입니다. 정직하게 돌려줄까요, 몰래 챙길까요?";
+            GUI.Label(new Rect(showcase.x + 18, showcase.y + 100, showcase.width - 36, 48), note, _lightCenter);
+            GUI.color = Color.white;
+
+            // 하단 대형 2버튼 ([Q] 반환 vs [E] 슈킹)
+            bool locked = manager.TreasureDecisionLockTimer > 0f;
+            float btnY = showcase.yMax + 20f;
+            float btnW = (card.width - 66f) * 0.5f;
+            float btnH = 112f;
+
+            // 왼쪽: [Q] 의뢰인에게 반환
+            Rect qBtn = new Rect(card.x + 26, btnY, btnW, btnH);
+            Color qBg = new Color(0.10f, 0.36f, 0.26f, 0.98f);
+            Color qBd = new Color(0.32f, 0.94f, 0.64f);
+            DrawBorderedBox(qBtn, qBg, qBd, 3);
+            GUI.color = new Color(0.68f, 1.0f, 0.82f);
+            GUI.Label(new Rect(qBtn.x + 8, qBtn.y + 14, qBtn.width - 16, 28), "[Q] 의뢰인에게 반환", _lightBigCenter);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(qBtn.x + 8, qBtn.y + 48, qBtn.width - 16, 24), $"안전 팁 +{FormatCash(returnTip)}", _lightCenter);
+            GUI.color = new Color(0.76f, 0.96f, 0.86f);
+            GUI.Label(new Rect(qBtn.x + 8, qBtn.y + 74, qBtn.width - 16, 22), isLost ? "5성 평점 확보!" : "발각 위험 -5%", _nodeSubStyle);
+            GUI.color = Color.white;
+            if (!locked && GUI.Button(qBtn, GUIContent.none, GUIStyle.none)) manager.ResolveActiveTreasure(false);
+
+            // 오른쪽: [E] 몰래 슈킹
+            Rect eBtn = new Rect(qBtn.xMax + 14, btnY, btnW, btnH);
+            Color eBg = isLost ? new Color(0.46f, 0.12f, 0.12f, 0.98f) : new Color(0.42f, 0.28f, 0.08f, 0.98f);
+            Color eBd = isLost ? new Color(1.0f, 0.34f, 0.30f) : new Color(1.0f, 0.78f, 0.22f);
+            DrawBorderedBox(eBtn, eBg, eBd, 3);
+            GUI.color = isLost ? new Color(1.0f, 0.68f, 0.64f) : new Color(1.0f, 0.92f, 0.56f);
+            GUI.Label(new Rect(eBtn.x + 8, eBtn.y + 14, eBtn.width - 16, 28), "[E] 몰래 슈킹하기", _lightBigCenter);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(eBtn.x + 8, eBtn.y + 48, eBtn.width - 16, 24), $"즉시 현금 +{FormatCash(stealCash)}", _lightCenter);
+            GUI.color = new Color(1.0f, 0.78f, 0.72f);
+            float addSusp = isLost ? 100f : tr.baseSuspicionGain * (manager.ActiveTreasureWatchedByCctv ? 1.85f : 1f);
+            GUI.Label(new Rect(eBtn.x + 8, eBtn.y + 74, eBtn.width - 16, 22), isLost ? "주의! 발각 위험 100%" : $"발각 위험 +{addSusp:0}%", _nodeSubStyle);
+            GUI.color = Color.white;
+            if (!locked && GUI.Button(eBtn, GUIContent.none, GUIStyle.none)) manager.ResolveActiveTreasure(true);
         }
 
         private void DrawSettingsMenu(float w, float h)
