@@ -13,75 +13,82 @@ namespace TrashCleaner3D
     /// </summary>
     public static class GloveHandBuilder
     {
-        /// <summary>장갑 낀 오른손을 parent 아래에 조형한다. (로컬 +Z = 손끝 방향)</summary>
+        /// <summary>
+        /// [v2.2] Poppy Playtime 그랩팩(GrabPack) 스타일 기계식 집게손 조형 (로컬 +Z = 손끝 방향).
+        /// 파란 대형 그랩 손바닥 + 노란 손목 커프 + 벌려진 집게형 5손가락 + 중앙 검정 그립 패드!
+        /// </summary>
         public static void BuildFist(Transform parent, Material gloveMat, Material cuffMat, Material skinMat)
         {
             if (parent == null) return;
 
-            // ── 소매(팔뚝) : 손목에서 화면 밖(-Z, 아래)으로 빠진다
-            AddCapsule(parent, skinMat, "Forearm",
-                new Vector3(0.020f, -0.070f, -0.235f),
-                new Vector3(0.010f, -0.010f, -0.055f),
-                0.052f);
+            Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material grabBlue = new Material(lit);
+            Color blueCol = new Color(0.14f, 0.44f, 0.92f);
+            if (grabBlue.HasProperty("_BaseColor")) grabBlue.SetColor("_BaseColor", blueCol);
+            grabBlue.color = blueCol;
+            if (grabBlue.HasProperty("_Smoothness")) grabBlue.SetFloat("_Smoothness", 0.48f);
 
-            // ── 주황 커프 밴드 : 손목 경계를 확실히 그어 '장갑'임을 각인
-            GameObject cuff = AddCylinder(parent, cuffMat, "GloveCuff",
-                new Vector3(0.012f, -0.012f, -0.030f),
-                new Vector3(0.012f, 0.014f, -0.062f),
-                0.062f);
-            if (cuff != null) cuff.transform.localScale = new Vector3(0.120f, 0.038f, 0.120f);
+            Material padDark = new Material(lit);
+            Color darkCol = new Color(0.14f, 0.16f, 0.20f);
+            if (padDark.HasProperty("_BaseColor")) padDark.SetColor("_BaseColor", darkCol);
+            padDark.color = darkCol;
+            if (padDark.HasProperty("_Smoothness")) padDark.SetFloat("_Smoothness", 0.25f);
 
-            // ── 손바닥 배면(손등) : 살짝 넓적한 타원체
-            AddSphere(parent, gloveMat, "Palm_Back",
-                new Vector3(0.000f, 0.010f, 0.055f),
-                new Vector3(0.150f, 0.108f, 0.185f));
+            Material cuffYellow = cuffMat != null ? cuffMat : grabBlue;
 
-            // ── 손바닥 아래쪽(손날/엄지 볼록) : 손등 타원 아래를 받쳐 입체감을 준다
-            AddSphere(parent, gloveMat, "Palm_Heel",
-                new Vector3(-0.010f, -0.028f, 0.030f),
-                new Vector3(0.132f, 0.080f, 0.140f));
+            // ── 그랩팩 손목 커프 & 발사 소켓
+            AddCylinder(parent, padDark, "GrabPack_Socket",
+                new Vector3(0f, -0.01f, -0.14f),
+                new Vector3(0f, -0.01f, -0.06f),
+                0.048f);
+            AddCylinder(parent, cuffYellow, "GloveCuff",
+                new Vector3(0f, -0.01f, -0.065f),
+                new Vector3(0f, -0.005f, -0.015f),
+                0.064f);
 
-            // ── 손가락 4개 : 너클 → 첫마디(앞으로) → 접힌 둘째마디(아래로 말림) → 손끝
-            float[] fingerX = { -0.062f, -0.021f, 0.020f, 0.060f };
-            float[] fingerLen = { 0.92f, 1.00f, 0.96f, 0.84f };   // 검지~새끼 길이 차이
+            // ── 넓적한 그랩팩 기계 손바닥 (Poppy Playtime 특유의 크고 넓적한 실루엣)
+            AddSphere(parent, grabBlue, "Palm_Back",
+                new Vector3(0f, 0.005f, 0.065f),
+                new Vector3(0.175f, 0.072f, 0.175f));
+
+            // ── 손바닥 안쪽 그립 패드
+            AddSphere(parent, padDark, "Palm_GripPad",
+                new Vector3(0f, -0.022f, 0.068f),
+                new Vector3(0.115f, 0.032f, 0.110f));
+
+            // ── 집게형 4손가락: 앞으로 길게 뻗어 살짝 아래로 오므려 집는 실루엣!
+            float[] fingerX = { -0.068f, -0.022f, 0.024f, 0.068f };
+            float[] fingerLen = { 0.94f, 1.04f, 0.98f, 0.84f };
             for (int i = 0; i < fingerX.Length; i++)
             {
                 float x = fingerX[i];
                 float len = fingerLen[i];
 
-                // 너클(관절 봉우리)
-                AddSphere(parent, gloveMat, $"Knuckle_{i + 1}",
-                    new Vector3(x, 0.042f, 0.138f),
-                    new Vector3(0.044f, 0.040f, 0.048f));
+                // 관절 링
+                AddSphere(parent, padDark, $"Knuckle_{i + 1}",
+                    new Vector3(x, 0.015f, 0.140f),
+                    new Vector3(0.038f, 0.038f, 0.038f));
 
-                // 첫마디 : 너클에서 손끝 방향(+Z)으로 뻗고 살짝 내려간다
-                Vector3 p0 = new Vector3(x, 0.040f, 0.150f);
-                Vector3 p1 = new Vector3(x, 0.014f, 0.150f + 0.070f * len);
-                AddCapsule(parent, gloveMat, $"Finger_A_{i + 1}", p0, p1, 0.0195f);
+                // 첫마디 (앞으로 시원하게 뻗음)
+                Vector3 p0 = new Vector3(x, 0.014f, 0.146f);
+                Vector3 p1 = new Vector3(x * 1.05f, 0.012f, 0.146f + 0.095f * len);
+                AddCapsule(parent, grabBlue, $"Finger_A_{i + 1}", p0, p1, 0.019f);
 
-                // 접힌 둘째마디 : 손끝이 손바닥 안쪽(아래·뒤)으로 말려 들어간다 = 주먹 실루엣
-                Vector3 p2 = new Vector3(x, -0.044f, 0.176f + 0.048f * len);
-                AddCapsule(parent, gloveMat, $"Finger_B_{i + 1}", p1, p2, 0.0185f);
+                // 끝마디 (집게처럼 아래·안쪽으로 탁 꺾임)
+                Vector3 p2 = new Vector3(x * 0.92f, -0.042f, 0.146f + 0.155f * len);
+                AddCapsule(parent, grabBlue, $"Finger_B_{i + 1}", p1, p2, 0.017f);
 
-                // 손끝 마디
-                AddSphere(parent, gloveMat, $"FingerTip_{i + 1}",
-                    p2,
-                    new Vector3(0.038f, 0.034f, 0.040f));
+                // 끝 흡착 패드
+                AddSphere(parent, padDark, $"FingerTip_{i + 1}", p2, new Vector3(0.034f, 0.028f, 0.034f));
             }
 
-            // ── 엄지 : 손날 쪽에서 비스듬히 올라와 손가락 앞을 가로지른다 (두 마디)
-            Vector3 t0 = new Vector3(-0.086f, -0.026f, 0.020f);
-            Vector3 t1 = new Vector3(-0.062f, 0.006f, 0.090f);
-            Vector3 t2 = new Vector3(-0.012f, 0.030f, 0.140f);
-            AddCapsule(parent, gloveMat, "Thumb_A", t0, t1, 0.026f);
-            AddCapsule(parent, gloveMat, "Thumb_B", t1, t2, 0.023f);
-            AddSphere(parent, gloveMat, "ThumbTip", t2, new Vector3(0.044f, 0.040f, 0.044f));
-
-            // ── 손목 장갑 마감(커프 위 얇은 테) : 팔뚝 피부와 장갑 경계를 정리
-            AddCylinder(parent, gloveMat, "GloveWrist",
-                new Vector3(0.014f, -0.014f, -0.048f),
-                new Vector3(0.014f, 0.010f, -0.072f),
-                0.056f);
+            // ── 마주보는 집게 엄지 (아래·옆에서 앞으로 뻗어 물건을 집는 구조)
+            Vector3 t0 = new Vector3(-0.088f, -0.018f, 0.045f);
+            Vector3 t1 = new Vector3(-0.118f, -0.022f, 0.120f);
+            Vector3 t2 = new Vector3(-0.072f, -0.042f, 0.175f);
+            AddCapsule(parent, grabBlue, "Thumb_A", t0, t1, 0.022f);
+            AddCapsule(parent, grabBlue, "Thumb_B", t1, t2, 0.019f);
+            AddSphere(parent, padDark, "ThumbTip", t2, new Vector3(0.038f, 0.032f, 0.038f));
         }
 
         // ===== 프리미티브 헬퍼 =====

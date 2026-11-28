@@ -229,15 +229,18 @@ namespace TrashCleaner3D
 
         private static Vector2 RingPos(int branchIdx, int lane, int tier)
         {
+            // [v2.2] 레퍼런스 스타일 깔끔한 격자(Grid 76px) 직각 가지 배치!
             float baseDeg = Branches[branchIdx].angle;
             bool wide = Mathf.Abs(Mathf.Cos(baseDeg * Mathf.Deg2Rad)) > 0.82f;
-            float r0 = wide ? 660f : 385f;
-            float rStep = wide ? 132f : 128f;
-            float spreadDeg = wide ? 7.4f : 8.4f;
+            float r0 = wide ? 380f : 230f;
+            float rStep = 88f;
+            float spreadDeg = wide ? 8.0f : 9.2f;
             float deg = baseDeg + (lane == 0 ? -spreadDeg : +spreadDeg);
             float rad = deg * Mathf.Deg2Rad;
             float r = r0 + tier * rStep;
-            return new Vector2(Mathf.Round(Mathf.Cos(rad) * r), Mathf.Round(Mathf.Sin(rad) * r));
+            float gx = Mathf.Round((Mathf.Cos(rad) * r) / 76f) * 76f;
+            float gy = Mathf.Round((Mathf.Sin(rad) * r) / 76f) * 76f;
+            return new Vector2(gx, gy);
         }
 
         private static V18Node N(string id, string name, string title, string desc,

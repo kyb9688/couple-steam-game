@@ -149,7 +149,7 @@ namespace TrashCleaner3D
 
             // [v1.9] 분실물 보관 선반 + 의뢰인 분실물 1종 + 숨겨진 귀중품 + CCTV 활성화!
             BuildReturnShelf(mgr, stage, rooms);
-            SpawnStageTreasures(stage, rooms);
+            // [v2.2] 보물은 바닥에 눈에 띄게 배치하지 않고, 쓰레기를 줍다가 우연히 발견되어 팝업으로 등장!
             SecurityCameraController.AutoAttachToStageCameras();
         }
 

@@ -1168,16 +1168,23 @@ namespace TrashCleaner3D
 
         public void UpdateHoverSelection(bool active, bool isHolding, Vector3 aimPoint, float cursorRadius, int maxSelectCount, Vector3 camPos, Vector3 camFwd)
         {
+            if (!active || !isHolding)
+            {
+                // [v2.2] 홀드를 떼면 이전 차징을 0으로 초기화 → 스쳐간 쓰레기가 갑자기 빨리 주워지는 버그 방지!
+                for (int k = 0; k < _selectedIndices.Count; k++)
+                {
+                    int idx = _selectedIndices[k];
+                    if (idx >= 0 && idx < _unitCount && _units[idx].state == 0)
+                        _units[idx].holdCharge = 0f;
+                }
+                _isHoldingNow = false;
+                _lockedIndices.Clear();
+            }
             _selectedIndices.Clear();
             _selectedSet.Clear();
             _auraVisible = active;
             _auraCenter = aimPoint;
             _auraRadius = cursorRadius;
-            if (!active || !isHolding)
-            {
-                _isHoldingNow = false;
-                _lockedIndices.Clear();
-            }
 
             if (!active || maxSelectCount <= 0 || _unitCount == 0 || cursorRadius <= 0.01f)
             {
@@ -1301,6 +1308,22 @@ namespace TrashCleaner3D
 
             if (!_isHoldingNow || _unitCount == 0) return 0;
 
+            // [v2.2] 공중 비행 중인 쓰레기(state==2)까지 합산해 수거통 용량을 단 1개도 넘지 않게 예약 제한!
+            int flyingToPlayer = 0;
+            for (int a = 0; a < _activeIndices.Count; a++)
+            {
+                int ai = _activeIndices[a];
+                if (ai >= 0 && ai < _unitCount && _units[ai].state == 2) flyingToPlayer++;
+            }
+            int remainingBinSpace = manager != null
+                ? Mathf.Max(0, manager.BinCapacity - manager.CollectingCount - flyingToPlayer)
+                : 9999;
+            if (remainingBinSpace <= 0)
+            {
+                MaxSelectedCharge01 = 0f;
+                return 0;
+            }
+
             _suckDestination = suckDest;
             Vector3 destPos = suckDest != null ? suckDest.position : Vector3.zero;
             float rate = 1f / Mathf.Max(0.04f, holdDurationSeconds);
@@ -1312,6 +1335,7 @@ namespace TrashCleaner3D
 
             for (int k = 0; k < _selectedIndices.Count; k++)
             {
+                if (picked >= remainingBinSpace) break;
                 int idx = _selectedIndices[k];
                 if (idx < 0 || idx >= _unitCount || _units[idx].state != 0) continue;
 
@@ -1341,9 +1365,10 @@ namespace TrashCleaner3D
                 }
             }
 
-            if (picked > 0 && chainChance > 0f && chainExtraCount > 0 && Random.value < chainChance)
+            int chainAllowed = Mathf.Min(chainExtraCount, Mathf.Max(0, remainingBinSpace - picked));
+            if (picked > 0 && chainChance > 0f && chainAllowed > 0 && Random.value < chainChance)
             {
-                int chained = ChainSuckAround(fxOrigin, 1.45f, suckDest, chainExtraCount);
+                int chained = ChainSuckAround(fxOrigin, 1.45f, suckDest, chainAllowed);
                 if (chained > 0) didChain = true;
             }
 

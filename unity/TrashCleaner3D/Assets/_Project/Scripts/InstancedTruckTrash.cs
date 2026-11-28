@@ -198,28 +198,7 @@ namespace TrashCleaner3D
 
                 if (u >= 1f)
                 {
-                    if (_stacked.Count < MaxStackedVisuals)
-                    {
-                        _stacked.Add(new StackedPiece
-                        {
-                            typeIdx = fp.typeIdx,
-                            localPos = fp.landLocal,
-                            localRot = fp.rot,
-                            scale = fp.scale
-                        });
-                    }
-                    else
-                    {
-                        // 최대 시각적 적재 수 초과 시 가장 오래된 바닥 층 하나를 위층으로 교체해 산이 계속 커 보이게!
-                        int replace = Random.Range(0, MaxStackedVisuals / 3);
-                        _stacked[replace] = new StackedPiece
-                        {
-                            typeIdx = fp.typeIdx,
-                            localPos = fp.landLocal,
-                            localRot = fp.rot,
-                            scale = fp.scale
-                        };
-                    }
+                    // [v2.2] 쓰레기통 안으로 들어가는 모션만 남기고 쌓임 제거 (밖으로 삐져나옴 원천 차단!)
                     _flying.RemoveAt(i);
                 }
                 else

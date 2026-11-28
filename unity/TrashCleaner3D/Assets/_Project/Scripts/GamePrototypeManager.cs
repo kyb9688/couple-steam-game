@@ -344,8 +344,8 @@ namespace TrashCleaner3D
         public bool HasFeverEngine => LvFever > 0;
         public bool IsFeverHot => ContinuousFever01 >= 0.75f;
         public float FeverMaxMult => 1f + V18Sum(V18Effect.FeverMax);
-        public float FeverRadiusBonus => ContinuousFever01 * (0.04f + LvFever * 0.06f) * FeverMaxMult;
-        public float FeverSpeedBonus => ContinuousFever01 * (0.08f + LvFever * 0.10f) * FeverMaxMult;
+        public float FeverRadiusBonus => HasFeverEngine ? ContinuousFever01 * (0.04f + LvFever * 0.06f) * FeverMaxMult : 0f;
+        public float FeverSpeedBonus => HasFeverEngine ? ContinuousFever01 * (0.08f + LvFever * 0.08f) * FeverMaxMult : 0f;
         public float FeverPriceMult => (LvFever > 0 && IsFeverHot)
             ? 1f + (0.15f + LvFever * 0.08f) * FeverMaxMult + V18Sum(V18Effect.FeverPrice)
             : 1.0f;
@@ -359,18 +359,18 @@ namespace TrashCleaner3D
         public bool IsBinFull => CollectingCount >= BinCapacity;
         public bool CanSettle => CollectingCount > 0;
 
-        // ===== [v1.9] 초반 경쾌한 손맛 + 체감 스탯 커브 =====
-        private static readonly float[] HoldDurCurve = { 0.42f, 0.37f, 0.33f, 0.29f, 0.25f, 0.22f, 0.19f, 0.16f, 0.13f, 0.11f, 0.09f };
+        // ===== [v2.2] 초기 초당 1개(1.00s) → 최종 강화 시 초고속(0.06~0.07s) 정직한 커브 =====
+        private static readonly float[] HoldDurCurve = { 1.00f, 0.84f, 0.70f, 0.58f, 0.47f, 0.37f, 0.28f, 0.20f, 0.14f, 0.10f, 0.07f };
         public float EffectiveHoldDuration
         {
             get
             {
                 float baseDur = HoldDurCurve[Mathf.Clamp(TotalHoldLv, 0, HoldDurCurve.Length - 1)];
-                if (HasBroom) baseDur *= 0.88f;
-                if (HasVacuum) baseDur *= 0.80f;
+                if (HasBroom) baseDur *= 0.86f;
+                if (HasVacuum) baseDur *= 0.78f;
                 float workMult = Mathf.Max(0.45f, StenchWorkSpeedMult);
-                float totalSpd = workMult * (1f + FeverSpeedBonus) * AdrenalineSpeedMult * OxygenSuctionMult * (1f + V18Sum(V18Effect.HoldSpeed));
-                return Mathf.Clamp(baseDur / totalSpd, 0.06f, 1.2f);
+                float totalSpd = workMult * (1f + FeverSpeedBonus + TrustBuffSpeedBonus) * OxygenSuctionMult * (1f + V18Sum(V18Effect.HoldSpeed));
+                return Mathf.Clamp(baseDur / totalSpd, 0.06f, 1.5f);
             }
         }
 
@@ -538,6 +538,11 @@ namespace TrashCleaner3D
         public DiscoveredTreasure ActiveTreasure { get; private set; }
         public TreasureTarget ActiveTreasureTarget { get; private set; }
         public bool ActiveTreasureWatchedByCctv { get; private set; }
+        public float TrustBuffTimer { get; private set; }
+        public float TrustBuffSpeedBonus => TrustBuffTimer > 0f ? 0.22f : 0f;
+        private int _pickupTreasureRollCount;
+        private int _pickupTreasuresFoundThisStage;
+        private bool _designatedDroppedThisStage;
         public float TreasureDecisionLockTimer { get; private set; }
         public float TreasurePopupOpenAge { get; private set; }
         public float TreasureFlash01 { get; private set; }
@@ -1007,6 +1012,7 @@ namespace TrashCleaner3D
             if (_autoSuctionCooldown > 0f) _autoSuctionCooldown -= dt;
             if (_porchSettleCooldown > 0f) _porchSettleCooldown -= dt;
             if (_remoteSettleCooldown > 0f) _remoteSettleCooldown -= dt;
+            if (TrustBuffTimer > 0f) TrustBuffTimer = Mathf.Max(0f, TrustBuffTimer - dt);
 
             for (int i = FloatingTexts.Count - 1; i >= 0; i--)
             {
@@ -1040,7 +1046,7 @@ namespace TrashCleaner3D
                 IsOutsideVentilating = player.transform.position.z > doorThresholdZ;
                 if (IsOutsideVentilating)
                 {
-                    if (!wasOutside && StenchPercent >= 20f) { FreshAirFlash01 = 1f; sfx.PlayChime(); }
+                    if (!wasOutside && StenchPercent >= 20f) FreshAirFlash01 = 1f;
                     if (StenchPercent > 0.1f) StenchPercent = Mathf.Max(0f, StenchPercent - 48f * dt);
 
                     // v1.6 차량 2단계(리어카)부터: 마당에 발만 내디뎌도 자동 흡입 정산!
@@ -1083,9 +1089,8 @@ namespace TrashCleaner3D
                 _coughTimer -= dt;
                 if (_coughTimer <= 0f)
                 {
-                    _coughTimer = StenchStage == 4 ? 1.8f : StenchStage == 3 ? 2.6f : 4.2f;
-                    if (StenchStage >= 3) CoughKick01 = StenchStage == 4 ? 0.9f : 0.55f;
-                    sfx.PlayScrub();
+                    _coughTimer = StenchStage >= 3 ? 2.0f : 3.2f;
+                    if (StenchStage >= 2) CoughKick01 = StenchStage >= 3 ? 0.85f : 0.45f;
                 }
             }
 
@@ -1138,22 +1143,23 @@ namespace TrashCleaner3D
 
         public void OnInstancedTrashCollected(int itemValue, int typeIdx, string typeLabel)
         {
+            // [v2.2] 수거통 용량 엄수 — 절대 최대 개수를 넘지 않는다!
+            if (CollectingCount >= BinCapacity) return;
+
             int gainedVal = Mathf.Max(1, Mathf.RoundToInt(itemValue * EffectiveTrashPriceMult));
             CollectingCount++;
             CollectingPendingValue += gainedVal;
 
             _feverDecayDelay = 1.75f;
-            ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + (HasFeverEngine ? 0.045f : 0.020f) * (1f + V18Sum(V18Effect.FeverGain)));
+            if (HasFeverEngine)
+                ContinuousFever01 = Mathf.Clamp01(ContinuousFever01 + 0.045f * (1f + V18Sum(V18Effect.FeverGain)));
 
             _pitchResetTimer = 0.48f;
             _pitchCombo = Mathf.Min(1.65f, _pitchCombo + 0.06f);
             sfx.PlayPop(0.88f + _pitchCombo * 0.36f);
 
-            if (CollectingCount == BinCapacity)
-            {
-                sfx.PlayChime();
-                ShowToast(FillBinTag);
-            }
+            // [v2.2] 쓰레기를 줍다가 우연히 숨겨진 보물 / 의뢰인 분실물 발견!
+            TryRollPickupTreasure();
 
             CheckPhase1Complete();
         }
@@ -1526,6 +1532,76 @@ namespace TrashCleaner3D
             UnlockCursor(true);
         }
 
+        /// <summary>[v2.2] 쓰레기를 줍다가 우연히 숨겨진 보물 / 의뢰인 분실물 발견!</summary>
+        private void TryRollPickupTreasure()
+        {
+            if (!CoreLoopConfig.EnableTreasureBranch) return;
+            if (Phase != GamePhase.Phase1_TrashRemoval) return;
+            if (_pickupTreasuresFoundThisStage >= 4) return;
+
+            _pickupTreasureRollCount++;
+            int stageTotal = trashSwarm != null ? Mathf.Max(100, trashSwarm.StageTotalItems) : 1400;
+            int interval = Mathf.Clamp(stageTotal / 8, 22, 420);
+            if (_pickupTreasureRollCount < interval) return;
+
+            // 간격 도달 시 12% 확률로 발견(너무 오래 안 나오면 1.6배 간격에서 확정 발견)
+            if (_pickupTreasureRollCount < Mathf.RoundToInt(interval * 1.6f) && Random.value > 0.12f) return;
+
+            _pickupTreasureRollCount = 0;
+            _pickupTreasuresFoundThisStage++;
+
+            bool spawnDesignated = !_designatedDroppedThisStage && (_pickupTreasuresFoundThisStage == 2 || OverallCleanPercent >= 42f);
+            if (spawnDesignated) _designatedDroppedThisStage = true;
+
+            int baseVal = CurrentStage switch { 1 => 140, 2 => 450, 3 => 1400, 4 => 4200, 5 => 14000, 6 => 38000, 7 => 95000, _ => 140 };
+            string itemName;
+            if (spawnDesignated)
+            {
+                itemName = CurrentStage switch
+                {
+                    1 => "의뢰인의 금반지",
+                    2 => "군번줄 은색 인식표",
+                    3 => "행운의 2달러 지폐",
+                    4 => "아이 돌반지",
+                    5 => "회사 법인인감 도장",
+                    6 => "할아버지 회중시계",
+                    7 => "슈퍼카 스마트키",
+                    _ => "의뢰인 분실물"
+                };
+            }
+            else
+            {
+                string[] pool = { "숨겨진 비상금 봉투", "명품 손목시계", "순금 목걸이", "미개봉 무선이어폰", "백화점 상품권 다발", "고급 만년필", "미니 골드바" };
+                itemName = pool[Random.Range(0, pool.Length)];
+            }
+
+            var dt = new DiscoveredTreasure
+            {
+                itemName = itemName,
+                value = Mathf.RoundToInt(baseVal * (spawnDesignated ? 1.5f : Random.Range(0.95f, 1.45f))),
+                rarity = spawnDesignated ? TreasureRarity.Legendary : (Random.value < 0.35f ? TreasureRarity.Rare : TreasureRarity.Common),
+                isMentionedByClient = spawnDesignated,
+                baseSuspicionGain = spawnDesignated ? 100f : Random.Range(18f, 30f)
+            };
+            OpenPickupTreasureDecision(dt);
+        }
+
+        public void OpenPickupTreasureDecision(DiscoveredTreasure tr)
+        {
+            if (tr == null) return;
+            ActiveTreasureTarget = null;
+            ActiveTreasure = tr;
+            ActiveTreasureWatchedByCctv = player != null && IsPlayerWatchedByCctv(player.transform.position);
+            TreasureDecisionLockTimer = 0.25f;
+            TreasurePopupOpenAge = 0f;
+            TreasureFlash01 = 1f;
+            if (sfx != null) sfx.PlayFanfare();
+            _phaseBeforeOverlay = (Phase == GamePhase.Phase1_TrashRemoval || Phase == GamePhase.Phase2_FloorMopping)
+                ? Phase : GamePhase.Phase1_TrashRemoval;
+            Phase = GamePhase.TreasureDecision;
+            UnlockCursor(true);
+        }
+
         /// <summary>[v2.1] 슈킹템/분실물 발견 시 화려한 대형 득템 팝업 오픈!</summary>
         public void OpenTreasureDecision(TreasureTarget target)
         {
@@ -1557,17 +1633,66 @@ namespace TrashCleaner3D
 
         public void ResolveActiveTreasure(bool steal)
         {
+            DiscoveredTreasure tr = ActiveTreasure;
             TreasureTarget t = ActiveTreasureTarget;
+            bool watched = ActiveTreasureWatchedByCctv;
             ActiveTreasure = null;
             ActiveTreasureTarget = null;
             ActiveTreasureWatchedByCctv = false;
             Phase = _phaseBeforeOverlay;
             UnlockCursor(false);
 
+            if (tr == null) return;
             if (t != null && t.State == TreasureState.HiddenInRoom)
             {
-                if (steal) StealTreasure(t);
-                else ReturnTreasure(t);
+                if (steal) t.MarkStolen();
+                else t.MarkReturned(null, 0);
+            }
+
+            if (!steal)
+            {
+                // [v2.2] 반환 시 돈 대신 비금전 메리트: 신뢰도 + 발각 위험 대폭 감소 + 흡입 속도 감사 버프 + 5성 확보!
+                if (tr.isMentionedByClient)
+                {
+                    FoundClientLostItem = true;
+                    TrustTokens += 2;
+                    SuspicionPercent = Mathf.Max(0f, SuspicionPercent - 25f);
+                    TrustBuffTimer = Mathf.Max(TrustBuffTimer, 35f);
+                    ShowToast("★ 분실물 반환! 신뢰도 +2 · 35초 흡입 +22% · 5성 확보");
+                }
+                else
+                {
+                    ReturnedCount++;
+                    TrustTokens += 1;
+                    SuspicionPercent = Mathf.Max(0f, SuspicionPercent - 15f);
+                    TrustBuffTimer = Mathf.Max(TrustBuffTimer, 20f);
+                    ShowToast("정직 반환! 신뢰도 +1 · 위험 -15% · 20초 흡입 +22%");
+                }
+            }
+            else
+            {
+                // [v2.2] 슈킹 시 고액 즉시 현금 + 발각 위험 상승!
+                int cash = Mathf.Max(80, Mathf.RoundToInt(tr.value * 1.35f));
+                Money += cash;
+                StolenCount++;
+                LastStolenValueTotal += cash;
+                LastStolenItemName = tr.itemName;
+                if (sfx != null) sfx.PlaySteal();
+
+                if (tr.isMentionedByClient)
+                {
+                    StoleDesignatedItem = true;
+                    SuspicionPercent = 100f;
+                    StealAlertFlash01 = 1f;
+                    ShowToast($"! 지정 분실물 슈킹 +${cash:N0} (발각 위험 100%)");
+                }
+                else
+                {
+                    float addSusp = tr.baseSuspicionGain * (watched ? 1.85f : 1f);
+                    SuspicionPercent = Mathf.Clamp(SuspicionPercent + addSusp, 0f, 98f);
+                    StealAlertFlash01 = watched ? 0.95f : 0.65f;
+                    ShowToast(watched ? $"! CCTV 목격 슈킹 +${cash:N0} (위험 +{addSusp:0}%)" : $"슈킹 +${cash:N0} (발각 위험 {SuspicionPercent:0}%)");
+                }
             }
         }
 
@@ -1779,7 +1904,43 @@ namespace TrashCleaner3D
             if (vehicleStageObjects == null || vehicleStageObjects.Length == 0) return;
             int idx = Mathf.Clamp(VehicleVisualStage, 0, vehicleStageObjects.Length - 1);
             for (int i = 0; i < vehicleStageObjects.Length; i++)
-                if (vehicleStageObjects[i] != null) vehicleStageObjects[i].SetActive(i == idx);
+            {
+                if (vehicleStageObjects[i] != null)
+                {
+                    vehicleStageObjects[i].SetActive(i == idx);
+                    EnsureClosedVehicleLid(vehicleStageObjects[i], i);
+                }
+            }
+        }
+
+        /// <summary>[v2.2] 모든 쓰레기통/리어카/다마스/1톤 트럭 안이 보이지 않도록 닫힌 뚜껑/방수포 덮개 부착!</summary>
+        private static void EnsureClosedVehicleLid(GameObject veh, int stageIdx)
+        {
+            if (veh == null || veh.transform.Find("_ClosedLidCover") != null) return;
+            var renderers = veh.GetComponentsInChildren<Renderer>(true);
+            if (renderers == null || renderers.Length == 0) return;
+            Bounds b = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++) b.Encapsulate(renderers[i].bounds);
+
+            Shader lit = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material lidMat = new Material(lit);
+            Color c = stageIdx == 0 ? new Color(0.18f, 0.20f, 0.22f)
+                    : stageIdx == 1 ? new Color(0.24f, 0.28f, 0.32f)
+                    : new Color(0.20f, 0.24f, 0.28f);
+            if (lidMat.HasProperty("_BaseColor")) lidMat.SetColor("_BaseColor", c);
+            lidMat.color = c;
+            if (lidMat.HasProperty("_Smoothness")) lidMat.SetFloat("_Smoothness", 0.22f);
+
+            GameObject lid = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            Destroy(lid.GetComponent<Collider>());
+            lid.name = "_ClosedLidCover";
+            lid.transform.SetParent(veh.transform, true);
+            lid.transform.position = new Vector3(b.center.x, b.max.y + 0.03f, b.center.z);
+            lid.transform.rotation = veh.transform.rotation;
+            lid.transform.localScale = new Vector3(Mathf.Max(0.45f, b.size.x * 0.96f), 0.08f, Mathf.Max(0.45f, b.size.z * 0.96f));
+            var mr = lid.GetComponent<Renderer>();
+            mr.sharedMaterial = lidMat;
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
 
         private void FinishRoomComplete()

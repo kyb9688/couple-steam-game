@@ -1011,11 +1011,6 @@ namespace TrashCleaner3D
             }
 
             bool binBlocked = manager.IsBinFull;
-            if (binBlocked && lmbHeld && _binHintCooldown <= 0f)
-            {
-                _binHintCooldown = 1.4f;
-                manager.ShowToast(manager.FillBinTag);
-            }
 
             float workMult = Mathf.Max(0.35f, manager.StenchWorkSpeedMult);
 
@@ -1057,11 +1052,6 @@ namespace TrashCleaner3D
                     int grabLimit = manager.AutoGrabPerTick;
                     manager.trashSwarm.UpdateHoverSelection(true, lmbHeld, aimPoint, r, grabLimit, cameraTransform.position, cameraTransform.forward);
                     AimIsSwarmNear = manager.trashSwarm.HoveredCount > 0;
-
-                    if (lmbDown && AimIsSwarmNear)
-                    {
-                        manager.trashSwarm.QuickChargeSelectedOnClick(0.65f);
-                    }
 
                     if (AimIsSwarmNear && manager.trashSwarm.TryGetPrimaryTargetPos(out Vector3 targetWorld))
                     {
