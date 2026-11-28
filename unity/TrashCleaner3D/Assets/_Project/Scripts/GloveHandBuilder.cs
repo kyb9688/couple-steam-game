@@ -53,7 +53,12 @@ namespace TrashCleaner3D
                 new Vector3(0f, 0f, -0.015f),
                 0.032f);
 
-            // ── 집게형 4손가락: 앞으로 길게 뻗어 살짝 아래로 오므려 집는 실루엣!
+            // ── [v2.4] 관절형 5손가락(주먹 ↔ 보자기 실시간 전환용 2단 피벗 리깅!)
+            GrabPackHandPose pose = parent.GetComponent<GrabPackHandPose>();
+            if (pose == null) pose = parent.gameObject.AddComponent<GrabPackHandPose>();
+            pose.fingerBases = new Transform[4];
+            pose.fingerMids = new Transform[4];
+
             float[] fingerX = { -0.068f, -0.022f, 0.024f, 0.068f };
             float[] fingerLen = { 0.94f, 1.04f, 0.98f, 0.84f };
             for (int i = 0; i < fingerX.Length; i++)
@@ -61,31 +66,69 @@ namespace TrashCleaner3D
                 float x = fingerX[i];
                 float len = fingerLen[i];
 
-                // 관절 링
+                // 너클 관절 링 (손바닥 고정)
                 AddSphere(parent, padDark, $"Knuckle_{i + 1}",
-                    new Vector3(x, 0.015f, 0.140f),
+                    new Vector3(x, 0.015f, 0.136f),
                     new Vector3(0.038f, 0.038f, 0.038f));
 
-                // 첫마디 (앞으로 시원하게 뻗음)
-                Vector3 p0 = new Vector3(x, 0.014f, 0.146f);
-                Vector3 p1 = new Vector3(x * 1.05f, 0.012f, 0.146f + 0.095f * len);
-                AddCapsule(parent, grabBlue, $"Finger_A_{i + 1}", p0, p1, 0.019f);
+                // 첫마디 피벗 (회전 0° = 앞으로 곧게 뻗은 보자기 상태)
+                GameObject basePivot = new GameObject($"FingerPivot_{i + 1}");
+                basePivot.transform.SetParent(parent, false);
+                basePivot.transform.localPosition = new Vector3(x, 0.014f, 0.140f);
+                basePivot.transform.localRotation = Quaternion.identity;
+                pose.fingerBases[i] = basePivot.transform;
 
-                // 끝마디 (집게처럼 아래·안쪽으로 탁 꺾임)
-                Vector3 p2 = new Vector3(x * 0.92f, -0.042f, 0.146f + 0.155f * len);
-                AddCapsule(parent, grabBlue, $"Finger_B_{i + 1}", p1, p2, 0.017f);
+                float seg1 = 0.090f * len;
+                AddCapsule(basePivot.transform, grabBlue, $"Finger_A_{i + 1}",
+                    Vector3.zero, new Vector3(0f, 0f, seg1), 0.019f);
+
+                // 둘째마디 관절 + 피벗
+                AddSphere(basePivot.transform, padDark, $"JointMid_{i + 1}",
+                    new Vector3(0f, 0f, seg1), new Vector3(0.032f, 0.032f, 0.032f));
+
+                GameObject midPivot = new GameObject($"FingerMidPivot_{i + 1}");
+                midPivot.transform.SetParent(basePivot.transform, false);
+                midPivot.transform.localPosition = new Vector3(0f, 0f, seg1);
+                midPivot.transform.localRotation = Quaternion.identity;
+                pose.fingerMids[i] = midPivot.transform;
+
+                float seg2 = 0.074f * len;
+                AddCapsule(midPivot.transform, grabBlue, $"Finger_B_{i + 1}",
+                    Vector3.zero, new Vector3(0f, 0f, seg2), 0.017f);
 
                 // 끝 흡착 패드
-                AddSphere(parent, padDark, $"FingerTip_{i + 1}", p2, new Vector3(0.034f, 0.028f, 0.034f));
+                AddSphere(midPivot.transform, padDark, $"FingerTip_{i + 1}",
+                    new Vector3(0f, 0f, seg2), new Vector3(0.034f, 0.028f, 0.034f));
             }
 
-            // ── 마주보는 집게 엄지 (아래·옆에서 앞으로 뻗어 물건을 집는 구조)
-            Vector3 t0 = new Vector3(-0.088f, -0.018f, 0.045f);
-            Vector3 t1 = new Vector3(-0.118f, -0.022f, 0.120f);
-            Vector3 t2 = new Vector3(-0.072f, -0.042f, 0.175f);
-            AddCapsule(parent, grabBlue, "Thumb_A", t0, t1, 0.022f);
-            AddCapsule(parent, grabBlue, "Thumb_B", t1, t2, 0.019f);
-            AddSphere(parent, padDark, "ThumbTip", t2, new Vector3(0.038f, 0.032f, 0.038f));
+            // ── 관절형 엄지 (2단 피벗)
+            GameObject thumbBase = new GameObject("ThumbPivot");
+            thumbBase.transform.SetParent(parent, false);
+            thumbBase.transform.localPosition = new Vector3(-0.088f, -0.010f, 0.055f);
+            thumbBase.transform.localRotation = Quaternion.identity;
+            pose.thumbBase = thumbBase.transform;
+
+            AddSphere(parent, padDark, "ThumbKnuckle",
+                new Vector3(-0.088f, -0.010f, 0.055f), new Vector3(0.042f, 0.042f, 0.042f));
+
+            float tSeg1 = 0.078f;
+            AddCapsule(thumbBase.transform, grabBlue, "Thumb_A",
+                Vector3.zero, new Vector3(0f, 0f, tSeg1), 0.022f);
+
+            GameObject thumbMid = new GameObject("ThumbMidPivot");
+            thumbMid.transform.SetParent(thumbBase.transform, false);
+            thumbMid.transform.localPosition = new Vector3(0f, 0f, tSeg1);
+            thumbMid.transform.localRotation = Quaternion.identity;
+            pose.thumbMid = thumbMid.transform;
+
+            float tSeg2 = 0.068f;
+            AddCapsule(thumbMid.transform, grabBlue, "Thumb_B",
+                Vector3.zero, new Vector3(0f, 0f, tSeg2), 0.019f);
+            AddSphere(thumbMid.transform, padDark, "ThumbTip",
+                new Vector3(0f, 0f, tSeg2), new Vector3(0.038f, 0.032f, 0.038f));
+
+            // 기본 자세는 주먹 쥔 상태!
+            pose.SetOpen01(0f);
         }
 
         // ===== 프리미티브 헬퍼 =====

@@ -74,9 +74,11 @@ namespace TrashCleaner3D
         private Vector3 _rightBasePos;
         private Quaternion _rightBaseRot;
 
-        // ===== [v2.3] 그랩팩 고정 발사통 + 늘어나는 손바닥 & 검은 와이어 (오른손 파랑 / 왼손 빨강) =====
+        // ===== [v2.4] 그랩팩 고정 발사통 + 관절형 손바닥(주먹↔보자기) & 검은 와이어 (오른손 파랑 / 왼손 빨강) =====
         private Transform _leftPivot;
         private GameObject _fistLeftCopy;
+        private GrabPackHandPose _rightHandPose;
+        private GrabPackHandPose _leftHandPose;
         private Transform _rightLauncher;
         private Transform _leftLauncher;
         private Transform _rightWire;
@@ -236,6 +238,14 @@ namespace TrashCleaner3D
                             r.sharedMaterial = redHand;
                     }
                     _fistLeftCopy.SetActive(false);
+                    _leftHandPose = _fistLeftCopy.GetComponent<GrabPackHandPose>();
+                    if (_leftHandPose != null) _leftHandPose.SetOpen01(0f);
+                }
+
+                if (fistHandVisual != null && _rightHandPose == null)
+                {
+                    _rightHandPose = fistHandVisual.GetComponent<GrabPackHandPose>();
+                    if (_rightHandPose != null) _rightHandPose.SetOpen01(0f);
                 }
 
                 // 고정 노란 그랩팩 발사통(우측/좌측) + 신축 검은 케이블 와이어 생성!
@@ -1224,16 +1234,27 @@ namespace TrashCleaner3D
 
                     if (picked > 0 && manager.ToolTier < 2 && _punchTimer <= 0f)
                     {
-                        // [v2.3] 방금 뻗었던 손(_activeHandRight)을 그대로 회수! (양손 동시 수거 시 양손 동시 회수)
-                        _pullBackDur = Mathf.Clamp(manager.EffectiveHoldDuration * 0.26f, 0.12f, 0.22f);
-                        _pullBackTimer = _pullBackDur;
-                        _pullWithRight = manager.HasTwoHand ? _activeHandRight : true;
-                        _pullBothHands = manager.HasTwoHand && picked >= 2;
-                        _pullStartLocal = _hasReachTarget ? _reachTargetLocal
-                            : (_pullWithRight ? rightToolPivot.localPosition : (_leftPivot != null ? _leftPivot.localPosition : rightToolPivot.localPosition));
-                        if (manager.HasTwoHand && !_pullBothHands)
-                            _activeHandRight = !_activeHandRight;
-                        _grabSwingTimer = 0f;
+                        if (manager.Mode == GearMode.Hand)
+                        {
+                            // [v2.4] 그랩팩은 1회 수거 주기 안에 발사→보자기→집기→동일속도 회수가 완결되므로
+                            // 별도 _pullBackTimer 없이 양손 교대 인덱스만 깔끔하게 전환한다.
+                            if (manager.HasTwoHand && manager.AutoGrabPerTick < 2)
+                                _activeHandRight = !_activeHandRight;
+                            _pullBackTimer = 0f;
+                            _grabSwingTimer = 0f;
+                        }
+                        else
+                        {
+                            _pullBackDur = Mathf.Clamp(manager.EffectiveHoldDuration * 0.26f, 0.12f, 0.22f);
+                            _pullBackTimer = _pullBackDur;
+                            _pullWithRight = manager.HasTwoHand ? _activeHandRight : true;
+                            _pullBothHands = manager.HasTwoHand && picked >= 2;
+                            _pullStartLocal = _hasReachTarget ? _reachTargetLocal
+                                : (_pullWithRight ? rightToolPivot.localPosition : (_leftPivot != null ? _leftPivot.localPosition : rightToolPivot.localPosition));
+                            if (manager.HasTwoHand && !_pullBothHands)
+                                _activeHandRight = !_activeHandRight;
+                            _grabSwingTimer = 0f;
+                        }
                     }
                 }
                 else
@@ -1285,14 +1306,142 @@ namespace TrashCleaner3D
             }
         }
 
+        /// <summary>
+        /// [v2.4] 그랩팩 7단계 용수철 모션 평가:
+        /// 1) 주먹 쥔 채 용수철처럼 빠르게 발사 (BaseExtend=0.11s)
+        /// 2) 텀 1 (업그레이드 시 먼저 축소)
+        /// 3) 보자기 형태로 쫙 펴기 (BaseOpen=0.08s)
+        /// 4) 텀 2 (업그레이드 시 먼저 축소)
+        /// 5) 아이템 집기 — 내려앉으며 보자기→주먹 (BaseGrab=0.08s)
+        /// 6) 텀 3 (업그레이드 시 먼저 축소)
+        /// 7) 주먹 쥔 채 발사와 정확히 동일한 속도로 회수 (BaseRetract=0.11s)
+        /// </summary>
+        private static void EvaluateGrabPackPhase(float ch01, float holdDur, out float reach01, out float open01, out float grabDip01)
+        {
+            const float BaseExtend = 0.11f;
+            const float BaseOpen = 0.08f;
+            const float BaseGrab = 0.08f;
+            const float BaseRetract = 0.11f;
+            const float BaseActiveSum = BaseExtend + BaseOpen + BaseGrab + BaseRetract; // 0.38s
+
+            float dur = Mathf.Max(0.06f, holdDur);
+            float tExt, tOpen, tGrab, tRet;
+            float g1, g2, g3;
+
+            if (dur >= BaseActiveSum)
+            {
+                tExt = BaseExtend;
+                tOpen = BaseOpen;
+                tGrab = BaseGrab;
+                tRet = BaseRetract;
+                float pause = dur - BaseActiveSum;
+                g1 = pause * 0.34f;
+                g2 = pause * 0.36f;
+                g3 = pause * 0.30f;
+            }
+            else
+            {
+                float sc = dur / BaseActiveSum;
+                tExt = BaseExtend * sc;
+                tOpen = BaseOpen * sc;
+                tGrab = BaseGrab * sc;
+                tRet = BaseRetract * sc;
+                g1 = g2 = g3 = 0f;
+            }
+
+            float t = Mathf.Clamp01(ch01) * dur;
+            float c = 0f;
+
+            // 1) Extend: 주먹 쥔 채 용수철처럼 빠르게 발사 (순간이동 없이 자연스러운 고속 감속)
+            if (t < c + tExt)
+            {
+                float u = Mathf.Clamp01((t - c) / Mathf.Max(0.001f, tExt));
+                float inv = 1f - u;
+                reach01 = 1f - inv * inv * inv;
+                open01 = 0f;
+                grabDip01 = 0f;
+                return;
+            }
+            c += tExt;
+
+            // 2) Gap 1: 목표 도착 직후 주먹 유지 텀
+            if (t < c + g1)
+            {
+                reach01 = 1f;
+                open01 = 0f;
+                grabDip01 = 0f;
+                return;
+            }
+            c += g1;
+
+            // 3) Open: 보자기 형태로 활짝 펴기
+            if (t < c + tOpen)
+            {
+                float u = Mathf.Clamp01((t - c) / Mathf.Max(0.001f, tOpen));
+                float inv = 1f - u;
+                reach01 = 1f;
+                open01 = 1f - inv * inv;
+                grabDip01 = 0f;
+                return;
+            }
+            c += tOpen;
+
+            // 4) Gap 2: 보자기 상태로 아이템 위 텀
+            if (t < c + g2)
+            {
+                reach01 = 1f;
+                open01 = 1f;
+                grabDip01 = 0f;
+                return;
+            }
+            c += g2;
+
+            // 5) Grab: 아이템을 집는 동작 (보자기 → 주먹 + 살짝 내려앉음)
+            if (t < c + tGrab)
+            {
+                float u = Mathf.Clamp01((t - c) / Mathf.Max(0.001f, tGrab));
+                float snap = u * u * (3f - 2f * u);
+                reach01 = 1f;
+                open01 = 1f - snap;
+                grabDip01 = Mathf.Sin(u * Mathf.PI * 0.5f);
+                return;
+            }
+            c += tGrab;
+
+            // 6) Gap 3: 집은 직후 텀
+            if (t < c + g3)
+            {
+                reach01 = 1f;
+                open01 = 0f;
+                grabDip01 = 1f;
+                return;
+            }
+            c += g3;
+
+            // 7) Retract: 주먹 쥔 채 발사와 정확히 동일한 속도로 원래 위치 회수
+            {
+                float u = Mathf.Clamp01((t - c) / Mathf.Max(0.001f, tRet));
+                float inv = 1f - u;
+                float retEase = 1f - inv * inv * inv;
+                reach01 = 1f - retEase;
+                open01 = 0f;
+                grabDip01 = 1f - retEase;
+            }
+        }
+
         private void AnimateHands()
         {
             if (rightToolPivot == null) return;
             Vector3 targetPos = _rightBasePos;
             Quaternion targetRot = _rightBaseRot;
             bool leftShown = _leftPivot != null && _fistLeftCopy != null && _fistLeftCopy.activeSelf;
+            Vector3 leftHome = new Vector3(-_rightBasePos.x, _rightBasePos.y, _rightBasePos.z);
             Vector3 leftPos = leftShown ? new Vector3(-_rightBasePos.x, _rightBasePos.y - 0.05f, _rightBasePos.z) : Vector3.zero;
             Quaternion leftRot = _rightBaseRot;
+            float rightOpen01 = 0f;
+            float leftOpen01 = 0f;
+            bool directRightGrab = false;
+            bool directLeftGrab = false;
 
             // v1.2: 진공 단계에서만 노즐 앞 소용돌이가 보이도록 (차징이 오를수록 조금 더 세짐)
             if (_vacuumVortex != null)
@@ -1330,19 +1479,17 @@ namespace TrashCleaner3D
                 targetPos += new Vector3(0f, 0.01f, 0.08f) + UnityEngine.Random.insideUnitSphere * 0.012f;
                 targetRot = Quaternion.Euler(-5f, 0f, 0f);
             }
-            else if (_pullBackTimer > 0f && !_isVacuumingNow && (manager.Mode == GearMode.Hand || manager.Mode == GearMode.Broom))
+            else if (_pullBackTimer > 0f && !_isVacuumingNow && manager.Mode == GearMode.Broom)
             {
-                // [v2.3] 그랩팩 손바닥만 발사통으로 쉭! 회수 (발사통은 고정 + 검은 와이어 수축!)
                 _pullBackTimer = Mathf.Max(0f, _pullBackTimer - Time.deltaTime);
                 float u = 1f - (_pullBackTimer / Mathf.Max(0.05f, _pullBackDur));
                 float ease = u * u * (3f - 2f * u);
                 Vector3 rHome = _rightBasePos;
-                Vector3 lHome = new Vector3(-_rightBasePos.x, _rightBasePos.y, _rightBasePos.z);
 
                 if (_pullBothHands && leftShown)
                 {
                     targetPos = Vector3.Lerp(_pullStartLocal + new Vector3(0.06f, 0f, 0f), rHome, ease);
-                    leftPos = Vector3.Lerp(_pullStartLocal + new Vector3(-0.06f, 0f, 0f), lHome, ease);
+                    leftPos = Vector3.Lerp(_pullStartLocal + new Vector3(-0.06f, 0f, 0f), leftHome, ease);
                     targetRot = Quaternion.Slerp(Quaternion.Euler(34f, -14f, 8f), _rightBaseRot, ease);
                     leftRot = Quaternion.Slerp(Quaternion.Euler(34f, 14f, -8f), _rightBaseRot, ease);
                 }
@@ -1353,7 +1500,7 @@ namespace TrashCleaner3D
                 }
                 else
                 {
-                    leftPos = Vector3.Lerp(_pullStartLocal, lHome, ease);
+                    leftPos = Vector3.Lerp(_pullStartLocal, leftHome, ease);
                     leftRot = Quaternion.Slerp(Quaternion.Euler(36f, 16f, -10f), _rightBaseRot, ease);
                 }
             }
@@ -1372,37 +1519,61 @@ namespace TrashCleaner3D
                 targetPos += new Vector3(-0.20f * t, -0.11f * t, 0.20f * t);
                 targetRot = Quaternion.Euler(26f * t, -30f * t, 14f * t);
             }
-            else if (_isHoldingTrashNow && (manager.Mode == GearMode.Hand || manager.Mode == GearMode.Broom))
+            else if (_isHoldingTrashNow && manager.Mode == GearMode.Hand)
             {
-                // [v2.3] 그랩팩 발사통은 고정, 손바닥만 검은 줄을 늘이며 목표 쓰레기까지 직선 발사(0→0.55) → 꼭 집기(0.55→1.0)!
+                // [v2.4] 그랩팩 용수철 발사(주먹) → 텀 → 보자기 → 텀 → 집기(주먹) → 텀 → 동일속도 회수!
+                float ch = manager.trashSwarm != null ? Mathf.Clamp01(manager.trashSwarm.MaxSelectedCharge01) : 0f;
+                EvaluateGrabPackPhase(ch, manager.EffectiveHoldDuration, out float reach01, out float open01, out float grabDip01);
+                Vector3 goal = _hasReachTarget ? _reachTargetLocal : (_rightBasePos + new Vector3(-0.16f, -0.10f, 0.65f));
+                Vector3 dipOffset = new Vector3(0f, -0.045f * grabDip01, 0.02f * open01);
+
+                if (leftShown && manager.AutoGrabPerTick >= 2)
+                {
+                    Vector3 rGoal = goal + new Vector3(0.08f, 0f, 0f);
+                    Vector3 lGoal = goal + new Vector3(-0.08f, 0f, 0f);
+                    targetPos = Vector3.Lerp(_rightBasePos, rGoal, reach01) + dipOffset;
+                    leftPos = Vector3.Lerp(leftHome, lGoal, reach01) + dipOffset;
+                    float pitch = Mathf.Lerp(6f, 22f, reach01) + open01 * 12f + grabDip01 * 18f;
+                    targetRot = Quaternion.Euler(pitch, -12f * reach01, grabDip01 * 8f);
+                    leftRot = Quaternion.Euler(pitch, 12f * reach01, -grabDip01 * 8f);
+                    rightOpen01 = open01;
+                    leftOpen01 = open01;
+                    directRightGrab = true;
+                    directLeftGrab = true;
+                }
+                else
+                {
+                    bool useRight = !leftShown || _activeHandRight;
+                    Vector3 startP = useRight ? _rightBasePos : leftHome;
+                    Vector3 p = Vector3.Lerp(startP, goal, reach01) + dipOffset;
+                    float pitch = Mathf.Lerp(6f, 22f, reach01) + open01 * 12f + grabDip01 * 18f;
+                    float side = useRight ? 1f : -1f;
+                    Quaternion rot = Quaternion.Euler(pitch, -side * 12f * reach01, side * grabDip01 * 8f);
+                    if (useRight)
+                    {
+                        targetPos = p;
+                        targetRot = rot;
+                        rightOpen01 = open01;
+                        directRightGrab = true;
+                    }
+                    else
+                    {
+                        leftPos = p;
+                        leftRot = rot;
+                        leftOpen01 = open01;
+                        directLeftGrab = true;
+                    }
+                }
+            }
+            else if (_isHoldingTrashNow && manager.Mode == GearMode.Broom)
+            {
                 float ch = manager.trashSwarm != null ? Mathf.Clamp01(manager.trashSwarm.MaxSelectedCharge01) : 0f;
                 Vector3 goal = _hasReachTarget ? _reachTargetLocal : (_rightBasePos + new Vector3(-0.16f, -0.10f, 0.65f));
                 float reachT = Mathf.Clamp01(ch / 0.50f);
                 reachT = reachT * reachT * (3f - 2f * reachT);
                 float pinchT = Mathf.Clamp01((ch - 0.50f) / 0.50f);
-
-                if (leftShown && manager.AutoGrabPerTick >= 2)
-                {
-                    // 양손 동시: 오른손(파랑) + 왼손(빨강)이 좌우로 나란히 발사되어 깔끔하게 동시 수거!
-                    Vector3 rGoal = goal + new Vector3(0.08f, 0f, 0f);
-                    Vector3 lGoal = goal + new Vector3(-0.08f, 0f, 0f);
-                    targetPos = Vector3.Lerp(_rightBasePos, rGoal, reachT);
-                    leftPos = Vector3.Lerp(new Vector3(-_rightBasePos.x, _rightBasePos.y, _rightBasePos.z), lGoal, reachT);
-                    targetRot = Quaternion.Euler(Mathf.Lerp(8f, 34f, reachT) + pinchT * 12f, -14f * reachT, pinchT * 10f);
-                    leftRot = Quaternion.Euler(Mathf.Lerp(8f, 34f, reachT) + pinchT * 12f, 14f * reachT, -pinchT * 10f);
-                }
-                else
-                {
-                    bool useRight = !leftShown || _activeHandRight;
-                    Vector3 startP = useRight ? _rightBasePos : new Vector3(-_rightBasePos.x, _rightBasePos.y, _rightBasePos.z);
-                    Vector3 p = Vector3.Lerp(startP, goal, reachT);
-                    Quaternion rot = Quaternion.Euler(
-                        Mathf.Lerp(8f, 36f, reachT) + pinchT * 12f,
-                        (useRight ? -1f : 1f) * (Mathf.Lerp(4f, 18f, reachT) + pinchT * 6f),
-                        (useRight ? 1f : -1f) * (pinchT * 12f));
-                    if (useRight) { targetPos = p; targetRot = rot; }
-                    else { leftPos = p; leftRot = rot; }
-                }
+                targetPos = Vector3.Lerp(_rightBasePos, goal, reachT);
+                targetRot = Quaternion.Euler(Mathf.Lerp(8f, 34f, reachT) + pinchT * 12f, -14f * reachT, pinchT * 10f);
             }
             else
             {
@@ -1428,16 +1599,35 @@ namespace TrashCleaner3D
                     leftPos += new Vector3(0f, Mathf.Sin(Time.time * 2.1f + 1.3f) * 0.006f, 0f);
             }
 
-            rightToolPivot.localPosition = Vector3.Lerp(rightToolPivot.localPosition, targetPos, 22f * Time.deltaTime);
-            rightToolPivot.localRotation = Quaternion.Slerp(rightToolPivot.localRotation, targetRot, 22f * Time.deltaTime);
+            if (directRightGrab)
+            {
+                rightToolPivot.localPosition = targetPos;
+                rightToolPivot.localRotation = targetRot;
+            }
+            else
+            {
+                rightToolPivot.localPosition = Vector3.Lerp(rightToolPivot.localPosition, targetPos, 22f * Time.deltaTime);
+                rightToolPivot.localRotation = Quaternion.Slerp(rightToolPivot.localRotation, targetRot, 22f * Time.deltaTime);
+            }
 
             if (leftShown && _leftPivot != null)
             {
-                _leftPivot.localPosition = Vector3.Lerp(_leftPivot.localPosition, leftPos, 26f * Time.deltaTime);
-                _leftPivot.localRotation = Quaternion.Slerp(_leftPivot.localRotation, leftRot, 26f * Time.deltaTime);
+                if (directLeftGrab)
+                {
+                    _leftPivot.localPosition = leftPos;
+                    _leftPivot.localRotation = leftRot;
+                }
+                else
+                {
+                    _leftPivot.localPosition = Vector3.Lerp(_leftPivot.localPosition, leftPos, 26f * Time.deltaTime);
+                    _leftPivot.localRotation = Quaternion.Slerp(_leftPivot.localRotation, leftRot, 26f * Time.deltaTime);
+                }
             }
 
-            // [v2.3] 고정 발사통 입구 ↔ 늘어나는 그랩팩 손바닥 사이를 검은 케이블로 실시간 연결!
+            if (_rightHandPose != null) _rightHandPose.SetOpen01(rightOpen01);
+            if (_leftHandPose != null) _leftHandPose.SetOpen01(leftOpen01);
+
+            // [v2.4] 고정 발사통 입구 ↔ 늘어나는 그랩팩 손바닥 사이를 검은 케이블로 실시간 연결!
             bool grabActive = manager.Phase == GamePhase.Phase1_TrashRemoval && manager.Mode == GearMode.Hand;
             if (_rightLauncher != null && _rightWire != null)
             {
